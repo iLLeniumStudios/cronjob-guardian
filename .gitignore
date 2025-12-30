@@ -32,6 +32,7 @@ CLAUDE.md
 node_modules
 
 # UI build artifacts (embedded in binary)
-cmd/ui
+cmd/ui/out/*
+!cmd/ui/out/.gitkeep
 ui/.next
 ui/out
