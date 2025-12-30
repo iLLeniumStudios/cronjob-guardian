@@ -32,6 +32,8 @@ jobs:
         run: kind version
 
       - name: Running Test e2e
+        env:
+          CERT_MANAGER_INSTALL_SKIP: "true"
         run: |
           go mod tidy
           make test-e2e

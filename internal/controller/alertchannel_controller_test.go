@@ -51,7 +51,16 @@ var _ = Describe("AlertChannel Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: guardianv1alpha1.AlertChannelSpec{
+						Type: "webhook",
+						Webhook: &guardianv1alpha1.WebhookConfig{
+							URLSecretRef: guardianv1alpha1.NamespacedSecretKeyRef{
+								Name:      "test-secret",
+								Namespace: "default",
+								Key:       "url",
+							},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

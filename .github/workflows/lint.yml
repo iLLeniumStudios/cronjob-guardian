@@ -17,6 +17,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build UI (required for go:embed)
+        run: make ui-build
+
       - name: Run linter
         uses: golangci/golangci-lint-action@v9
         with:
