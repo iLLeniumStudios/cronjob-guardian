@@ -119,7 +119,9 @@ func (s *slackChannel) Send(ctx context.Context, alert Alert) error {
 	if err != nil {
 		return fmt.Errorf("failed to send slack message: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("slack returned status %d", resp.StatusCode)
@@ -130,22 +132,26 @@ func (s *slackChannel) Send(ctx context.Context, alert Alert) error {
 
 // Test sends a test alert
 func (s *slackChannel) Test(ctx context.Context) error {
-	return s.Send(ctx, Alert{
-		Type:      "Test",
-		Severity:  "info",
-		Title:     "CronJob Guardian Test Alert",
-		Message:   "This is a test alert from CronJob Guardian.",
-		CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
-		Timestamp: timeNow(),
-	})
+	return s.Send(
+		ctx, Alert{
+			Type:      "Test",
+			Severity:  "info",
+			Title:     "CronJob Guardian Test Alert",
+			Message:   "This is a test alert from CronJob Guardian.",
+			CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
+			Timestamp: timeNow(),
+		},
+	)
 }
 
 func (s *slackChannel) getWebhookURL(ctx context.Context) (string, error) {
 	secret := &corev1.Secret{}
-	err := s.client.Get(ctx, types.NamespacedName{
-		Namespace: s.secretRef.Namespace,
-		Name:      s.secretRef.Name,
-	}, secret)
+	err := s.client.Get(
+		ctx, types.NamespacedName{
+			Namespace: s.secretRef.Namespace,
+			Name:      s.secretRef.Name,
+		}, secret,
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to get secret: %w", err)
 	}

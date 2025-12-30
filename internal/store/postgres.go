@@ -142,7 +142,9 @@ func (s *PostgresStore) GetExecutions(ctx context.Context, cronJob types.Namespa
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	return s.scanExecutions(rows)
 }

@@ -62,7 +62,8 @@ func (s *MySQLStore) Init() error {
 	s.db = db
 
 	// Create schema
-	_, err = s.db.Exec(`
+	_, err = s.db.Exec(
+		`
 		CREATE TABLE IF NOT EXISTS executions (
 			id              BIGINT AUTO_INCREMENT PRIMARY KEY,
 			cronjob_ns      VARCHAR(253) NOT NULL,
@@ -83,7 +84,8 @@ func (s *MySQLStore) Init() error {
 			INDEX idx_start_time (start_time),
 			INDEX idx_job_name (job_name)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-	`)
+	`,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
@@ -101,7 +103,8 @@ func (s *MySQLStore) Close() error {
 
 // RecordExecution stores a new execution record
 func (s *MySQLStore) RecordExecution(ctx context.Context, exec Execution) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.db.ExecContext(
+		ctx, `
 		INSERT INTO executions (
 			cronjob_ns, cronjob_name, job_name, scheduled_time, start_time,
 			completion_time, duration_secs, succeeded, exit_code, reason,
@@ -126,25 +129,30 @@ func (s *MySQLStore) RecordExecution(ctx context.Context, exec Execution) error 
 
 // GetExecutions returns executions for a CronJob since a given time
 func (s *MySQLStore) GetExecutions(ctx context.Context, cronJob types.NamespacedName, since time.Time) ([]Execution, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(
+		ctx, `
 		SELECT id, cronjob_ns, cronjob_name, job_name, scheduled_time, start_time,
 			   completion_time, duration_secs, succeeded, exit_code, reason,
 			   is_retry, retry_of, created_at
 		FROM executions
 		WHERE cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?
 		ORDER BY start_time DESC
-	`, cronJob.Namespace, cronJob.Name, since)
+	`, cronJob.Namespace, cronJob.Name, since,
+	)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	return s.scanExecutions(rows)
 }
 
 // GetLastExecution returns the most recent execution
 func (s *MySQLStore) GetLastExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error) {
-	row := s.db.QueryRowContext(ctx, `
+	row := s.db.QueryRowContext(
+		ctx, `
 		SELECT id, cronjob_ns, cronjob_name, job_name, scheduled_time, start_time,
 			   completion_time, duration_secs, succeeded, exit_code, reason,
 			   is_retry, retry_of, created_at
@@ -152,14 +160,16 @@ func (s *MySQLStore) GetLastExecution(ctx context.Context, cronJob types.Namespa
 		WHERE cronjob_ns = ? AND cronjob_name = ?
 		ORDER BY start_time DESC
 		LIMIT 1
-	`, cronJob.Namespace, cronJob.Name)
+	`, cronJob.Namespace, cronJob.Name,
+	)
 
 	return s.scanExecution(row)
 }
 
 // GetLastSuccessfulExecution returns the most recent successful execution
 func (s *MySQLStore) GetLastSuccessfulExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error) {
-	row := s.db.QueryRowContext(ctx, `
+	row := s.db.QueryRowContext(
+		ctx, `
 		SELECT id, cronjob_ns, cronjob_name, job_name, scheduled_time, start_time,
 			   completion_time, duration_secs, succeeded, exit_code, reason,
 			   is_retry, retry_of, created_at
@@ -167,7 +177,8 @@ func (s *MySQLStore) GetLastSuccessfulExecution(ctx context.Context, cronJob typ
 		WHERE cronjob_ns = ? AND cronjob_name = ? AND succeeded = 1
 		ORDER BY start_time DESC
 		LIMIT 1
-	`, cronJob.Namespace, cronJob.Name)
+	`, cronJob.Namespace, cronJob.Name,
+	)
 
 	return s.scanExecution(row)
 }
@@ -179,30 +190,36 @@ func (s *MySQLStore) GetMetrics(ctx context.Context, cronJob types.NamespacedNam
 
 	// Get counts
 	var total, succeeded, failed int32
-	row := s.db.QueryRowContext(ctx, `
+	row := s.db.QueryRowContext(
+		ctx, `
 		SELECT
 			COUNT(*) as total,
 			COALESCE(SUM(CASE WHEN succeeded = 1 THEN 1 ELSE 0 END), 0) as succeeded,
 			COALESCE(SUM(CASE WHEN succeeded = 0 THEN 1 ELSE 0 END), 0) as failed
 		FROM executions
 		WHERE cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?
-	`, cronJob.Namespace, cronJob.Name, since)
+	`, cronJob.Namespace, cronJob.Name, since,
+	)
 
 	if err := row.Scan(&total, &succeeded, &failed); err != nil {
 		return nil, err
 	}
 
 	// Get durations for percentile calculation
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(
+		ctx, `
 		SELECT duration_secs
 		FROM executions
 		WHERE cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL
 		ORDER BY duration_secs
-	`, cronJob.Namespace, cronJob.Name, since)
+	`, cronJob.Namespace, cronJob.Name, since,
+	)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var durations []float64
 	var sum float64
@@ -240,16 +257,20 @@ func (s *MySQLStore) GetMetrics(ctx context.Context, cronJob types.NamespacedNam
 func (s *MySQLStore) GetDurationPercentile(ctx context.Context, cronJob types.NamespacedName, p int, windowDays int) (time.Duration, error) {
 	since := time.Now().AddDate(0, 0, -windowDays)
 
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(
+		ctx, `
 		SELECT duration_secs
 		FROM executions
 		WHERE cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL
 		ORDER BY duration_secs
-	`, cronJob.Namespace, cronJob.Name, since)
+	`, cronJob.Namespace, cronJob.Name, since,
+	)
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var durations []float64
 	for rows.Next() {
@@ -272,13 +293,15 @@ func (s *MySQLStore) GetSuccessRate(ctx context.Context, cronJob types.Namespace
 	since := time.Now().AddDate(0, 0, -windowDays)
 
 	var total, succeeded int
-	row := s.db.QueryRowContext(ctx, `
+	row := s.db.QueryRowContext(
+		ctx, `
 		SELECT
 			COUNT(*) as total,
 			COALESCE(SUM(CASE WHEN succeeded = 1 THEN 1 ELSE 0 END), 0) as succeeded
 		FROM executions
 		WHERE cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?
-	`, cronJob.Namespace, cronJob.Name, since)
+	`, cronJob.Namespace, cronJob.Name, since,
+	)
 
 	if err := row.Scan(&total, &succeeded); err != nil {
 		return 0, err
@@ -293,9 +316,11 @@ func (s *MySQLStore) GetSuccessRate(ctx context.Context, cronJob types.Namespace
 
 // Prune removes old execution records
 func (s *MySQLStore) Prune(ctx context.Context, olderThan time.Time) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.db.ExecContext(
+		ctx, `
 		DELETE FROM executions WHERE start_time < ?
-	`, olderThan)
+	`, olderThan,
+	)
 	if err != nil {
 		return 0, err
 	}

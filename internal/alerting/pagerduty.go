@@ -125,7 +125,9 @@ func (p *pagerdutyChannel) Send(ctx context.Context, alert Alert) error {
 	if err != nil {
 		return fmt.Errorf("failed to send pagerduty event: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("pagerduty returned status %d", resp.StatusCode)

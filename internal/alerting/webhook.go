@@ -125,7 +125,9 @@ func (w *webhookChannel) Send(ctx context.Context, alert Alert) error {
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
@@ -136,23 +138,27 @@ func (w *webhookChannel) Send(ctx context.Context, alert Alert) error {
 
 // Test sends a test alert
 func (w *webhookChannel) Test(ctx context.Context) error {
-	return w.Send(ctx, Alert{
-		Key:       "test-alert",
-		Type:      "Test",
-		Severity:  "info",
-		Title:     "CronJob Guardian Test Alert",
-		Message:   "This is a test alert from CronJob Guardian.",
-		CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
-		Timestamp: timeNow(),
-	})
+	return w.Send(
+		ctx, Alert{
+			Key:       "test-alert",
+			Type:      "Test",
+			Severity:  "info",
+			Title:     "CronJob Guardian Test Alert",
+			Message:   "This is a test alert from CronJob Guardian.",
+			CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
+			Timestamp: timeNow(),
+		},
+	)
 }
 
 func (w *webhookChannel) getURL(ctx context.Context) (string, error) {
 	secret := &corev1.Secret{}
-	err := w.client.Get(ctx, types.NamespacedName{
-		Namespace: w.secretRef.Namespace,
-		Name:      w.secretRef.Name,
-	}, secret)
+	err := w.client.Get(
+		ctx, types.NamespacedName{
+			Namespace: w.secretRef.Namespace,
+			Name:      w.secretRef.Name,
+		}, secret,
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to get secret: %w", err)
 	}
