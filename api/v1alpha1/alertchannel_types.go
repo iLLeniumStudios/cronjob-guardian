@@ -20,26 +20,165 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// AlertChannelSpec defines the desired state of AlertChannel.
+// AlertChannelSpec defines the desired state of AlertChannel
 type AlertChannelSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Type of alert channel
+	// +kubebuilder:validation:Enum=slack;pagerduty;webhook;email
+	Type string `json:"type"`
 
-	// Foo is an example field of AlertChannel. Edit alertchannel_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Slack configuration
+	// +optional
+	Slack *SlackConfig `json:"slack,omitempty"`
+
+	// PagerDuty configuration
+	// +optional
+	PagerDuty *PagerDutyConfig `json:"pagerduty,omitempty"`
+
+	// Webhook configuration
+	// +optional
+	Webhook *WebhookConfig `json:"webhook,omitempty"`
+
+	// Email configuration
+	// +optional
+	Email *EmailConfig `json:"email,omitempty"`
+
+	// RateLimiting prevents alert storms
+	// +optional
+	RateLimiting *RateLimitConfig `json:"rateLimiting,omitempty"`
+
+	// TestOnSave sends a test alert when saved (default: false)
+	// +optional
+	TestOnSave bool `json:"testOnSave,omitempty"`
 }
 
-// AlertChannelStatus defines the observed state of AlertChannel.
+// SlackConfig configures Slack notifications
+type SlackConfig struct {
+	// WebhookSecretRef references the Secret containing webhook URL
+	WebhookSecretRef NamespacedSecretKeyRef `json:"webhookSecretRef"`
+
+	// DefaultChannel overrides webhook's default channel
+	// +optional
+	DefaultChannel string `json:"defaultChannel,omitempty"`
+
+	// MessageTemplate is a Go template for message formatting
+	// +optional
+	MessageTemplate string `json:"messageTemplate,omitempty"`
+}
+
+// PagerDutyConfig configures PagerDuty notifications
+type PagerDutyConfig struct {
+	// RoutingKeySecretRef references the Secret containing routing key
+	RoutingKeySecretRef NamespacedSecretKeyRef `json:"routingKeySecretRef"`
+
+	// Severity is the default PagerDuty severity
+	// +kubebuilder:validation:Enum=critical;error;warning;info
+	// +optional
+	Severity string `json:"severity,omitempty"`
+}
+
+// WebhookConfig configures generic webhook notifications
+type WebhookConfig struct {
+	// URLSecretRef references the Secret containing webhook URL
+	URLSecretRef NamespacedSecretKeyRef `json:"urlSecretRef"`
+
+	// Method is the HTTP method (default: POST)
+	// +kubebuilder:validation:Enum=POST;PUT
+	// +optional
+	Method string `json:"method,omitempty"`
+
+	// Headers to include in requests
+	// +optional
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// PayloadTemplate is a Go template for JSON payload
+	// +optional
+	PayloadTemplate string `json:"payloadTemplate,omitempty"`
+}
+
+// EmailConfig configures email notifications
+type EmailConfig struct {
+	// SMTPSecretRef references Secret with host, port, username, password
+	SMTPSecretRef NamespacedSecretRef `json:"smtpSecretRef"`
+
+	// From is the sender address
+	From string `json:"from"`
+
+	// To is the list of recipient addresses
+	To []string `json:"to"`
+
+	// SubjectTemplate is a Go template for subject
+	// +optional
+	SubjectTemplate string `json:"subjectTemplate,omitempty"`
+
+	// BodyTemplate is a Go template for body
+	// +optional
+	BodyTemplate string `json:"bodyTemplate,omitempty"`
+}
+
+// NamespacedSecretKeyRef references a key in a namespaced Secret
+type NamespacedSecretKeyRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Key       string `json:"key"`
+}
+
+// NamespacedSecretRef references a namespaced Secret
+type NamespacedSecretRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+// RateLimitConfig configures rate limiting
+type RateLimitConfig struct {
+	// MaxAlertsPerHour limits alerts per hour (default: 100)
+	// +optional
+	MaxAlertsPerHour *int32 `json:"maxAlertsPerHour,omitempty"`
+
+	// BurstLimit limits alerts per minute (default: 10)
+	// +optional
+	BurstLimit *int32 `json:"burstLimit,omitempty"`
+}
+
+// AlertChannelStatus defines the observed state of AlertChannel
 type AlertChannelStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Ready indicates the channel is operational
+	Ready bool `json:"ready"`
+
+	// LastTestTime is when the channel was last tested
+	// +optional
+	LastTestTime *metav1.Time `json:"lastTestTime,omitempty"`
+
+	// LastTestResult is the result of the last test
+	// +kubebuilder:validation:Enum=success;failed
+	// +optional
+	LastTestResult string `json:"lastTestResult,omitempty"`
+
+	// LastTestError is the error from the last test
+	// +optional
+	LastTestError string `json:"lastTestError,omitempty"`
+
+	// AlertsSentTotal is total alerts sent via this channel
+	AlertsSentTotal int64 `json:"alertsSentTotal"`
+
+	// AlertsSentLast24h is alerts sent in last 24 hours
+	AlertsSentLast24h int32 `json:"alertsSentLast24h"`
+
+	// LastAlertTime is when the last alert was sent
+	// +optional
+	LastAlertTime *metav1.Time `json:"lastAlertTime,omitempty"`
+
+	// Conditions represent latest observations
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
+// +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
+// +kubebuilder:printcolumn:name="Last Alert",type=date,JSONPath=`.status.lastAlertTime`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // AlertChannel is the Schema for the alertchannels API.
 type AlertChannel struct {

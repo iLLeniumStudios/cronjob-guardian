@@ -12,9 +12,22 @@ spec:
     listKind: GuardianConfigList
     plural: guardianconfigs
     singular: guardianconfig
-  scope: Namespaced
+  scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.totalMonitors
+      name: Monitors
+      type: integer
+    - jsonPath: .status.totalCronJobsWatched
+      name: CronJobs
+      type: integer
+    - jsonPath: .status.storageStatus
+      name: Storage
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: GuardianConfig is the Schema for the guardianconfigs API.
@@ -37,15 +50,265 @@ spec:
           metadata:
             type: object
           spec:
-            description: GuardianConfigSpec defines the desired state of GuardianConfig.
+            description: GuardianConfigSpec defines the desired state of GuardianConfig
             properties:
-              foo:
-                description: Foo is an example field of GuardianConfig. Edit guardianconfig_types.go
-                  to remove/update
+              deadManSwitchInterval:
+                description: 'DeadManSwitchInterval is how often to check dead-man''s
+                  switches (default: 1m)'
                 type: string
+              globalRateLimits:
+                description: GlobalRateLimits prevents alert/remediation storms
+                properties:
+                  maxAlertsPerMinute:
+                    description: 'MaxAlertsPerMinute across all channels (default:
+                      50)'
+                    format: int32
+                    type: integer
+                  maxRemediationsPerHour:
+                    description: 'MaxRemediationsPerHour across all monitors (default:
+                      100)'
+                    format: int32
+                    type: integer
+                type: object
+              historyRetention:
+                description: HistoryRetention configures execution history retention
+                properties:
+                  defaultDays:
+                    description: 'DefaultDays is default retention period (default:
+                      30)'
+                    format: int32
+                    type: integer
+                  maxDays:
+                    description: 'MaxDays is maximum allowed retention (default: 90)'
+                    format: int32
+                    type: integer
+                type: object
+              ignoredNamespaces:
+                description: IgnoredNamespaces lists namespaces to skip
+                items:
+                  type: string
+                type: array
+              leaderElection:
+                description: LeaderElection configures leader election for HA
+                properties:
+                  enabled:
+                    description: 'Enabled turns on leader election (default: true)'
+                    type: boolean
+                  leaseDuration:
+                    description: 'LeaseDuration is the leader lease duration (default:
+                      15s)'
+                    type: string
+                  renewDeadline:
+                    description: 'RenewDeadline is the leader renew deadline (default:
+                      10s)'
+                    type: string
+                  retryPeriod:
+                    description: 'RetryPeriod is the leader retry period (default:
+                      2s)'
+                    type: string
+                type: object
+              metricsExport:
+                description: MetricsExport configures Prometheus metrics
+                properties:
+                  enabled:
+                    description: 'Enabled turns on metrics export (default: true)'
+                    type: boolean
+                  path:
+                    description: 'Path for metrics endpoint (default: /metrics)'
+                    type: string
+                  port:
+                    description: 'Port for metrics endpoint (default: 8080)'
+                    format: int32
+                    type: integer
+                type: object
+              slaRecalculationInterval:
+                description: 'SLARecalculationInterval is how often to recalculate
+                  SLA metrics (default: 5m)'
+                type: string
+              storage:
+                description: Storage configures the metrics storage backend
+                properties:
+                  mysql:
+                    description: MySQL configuration (used when type=mysql)
+                    properties:
+                      credentialsSecretRef:
+                        description: CredentialsSecretRef references Secret with username
+                          and password keys
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      database:
+                        description: Database name
+                        type: string
+                      host:
+                        description: Host is the database host
+                        type: string
+                      port:
+                        description: 'Port is the database port (default: 3306)'
+                        format: int32
+                        type: integer
+                    required:
+                    - credentialsSecretRef
+                    - database
+                    - host
+                    type: object
+                  postgres:
+                    description: PostgreSQL configuration (used when type=postgres)
+                    properties:
+                      credentialsSecretRef:
+                        description: CredentialsSecretRef references Secret with username
+                          and password keys
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      database:
+                        description: Database name
+                        type: string
+                      host:
+                        description: Host is the database host
+                        type: string
+                      port:
+                        description: 'Port is the database port (default: 5432)'
+                        format: int32
+                        type: integer
+                      sslMode:
+                        description: 'SSLMode for connection (default: require)'
+                        type: string
+                    required:
+                    - credentialsSecretRef
+                    - database
+                    - host
+                    type: object
+                  sqlite:
+                    description: SQLite configuration (used when type=sqlite)
+                    properties:
+                      path:
+                        description: 'Path to database file (default: /data/guardian.db)'
+                        type: string
+                    type: object
+                  type:
+                    description: 'Type is the storage backend type (default: sqlite)'
+                    enum:
+                    - sqlite
+                    - postgres
+                    - mysql
+                    type: string
+                type: object
+              ui:
+                description: UI configures the embedded web UI
+                properties:
+                  enabled:
+                    description: 'Enabled turns on the web UI (default: true)'
+                    type: boolean
+                  port:
+                    description: 'Port for UI server (default: 8081)'
+                    format: int32
+                    type: integer
+                type: object
             type: object
           status:
-            description: GuardianConfigStatus defines the observed state of GuardianConfig.
+            description: GuardianConfigStatus defines the observed state of GuardianConfig
+            properties:
+              activeLeader:
+                description: ActiveLeader is the current leader pod
+                type: string
+              conditions:
+                description: Conditions represent latest observations
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastReconcileTime:
+                description: LastReconcileTime is when the controller last reconciled
+                format: date-time
+                type: string
+              storageStatus:
+                description: StorageStatus indicates storage backend health
+                type: string
+              totalAlertsSent24h:
+                description: TotalAlertsSent24h is alerts sent in last 24 hours
+                format: int32
+                type: integer
+              totalCronJobsWatched:
+                description: TotalCronJobsWatched is count of CronJobs being monitored
+                format: int32
+                type: integer
+              totalMonitors:
+                description: TotalMonitors is count of CronJobMonitor CRs
+                format: int32
+                type: integer
+              totalRemediations24h:
+                description: TotalRemediations24h is remediations in last 24 hours
+                format: int32
+                type: integer
+            required:
+            - totalAlertsSent24h
+            - totalCronJobsWatched
+            - totalMonitors
+            - totalRemediations24h
             type: object
         type: object
     served: true
