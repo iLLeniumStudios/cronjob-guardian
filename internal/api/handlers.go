@@ -41,6 +41,12 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
+// Status constants
+const (
+	statusSuccess = "success"
+	statusFailed  = "failed"
+)
+
 // Handlers contains all API handlers
 type Handlers struct {
 	client            client.Client
@@ -67,7 +73,7 @@ func NewHandlers(c client.Client, cs *kubernetes.Clientset, s store.Store, ad al
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 // writeError writes an error response
@@ -404,9 +410,9 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 	if h.store != nil {
 		cronJobNN := types.NamespacedName{Namespace: namespace, Name: name}
 		if lastExec, err := h.store.GetLastExecution(ctx, cronJobNN); err == nil && lastExec != nil {
-			status := "failed"
+			status := statusFailed
 			if lastExec.Succeeded {
-				status = "success"
+				status = statusSuccess
 			}
 			resp.LastExecution = &ExecutionSummary{
 				JobName:   lastExec.JobName,
@@ -486,13 +492,13 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 
 	// Apply status filter
 	statusFilter := r.URL.Query().Get("status")
-	var filtered []store.Execution
+	filtered := make([]store.Execution, 0, len(executions))
 	for _, e := range executions {
 		if statusFilter != "" {
-			if statusFilter == "success" && !e.Succeeded {
+			if statusFilter == statusSuccess && !e.Succeeded {
 				continue
 			}
-			if statusFilter == "failed" && e.Succeeded {
+			if statusFilter == statusFailed && e.Succeeded {
 				continue
 			}
 		}
@@ -513,9 +519,9 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]ExecutionItem, 0, len(paged))
 	for _, e := range paged {
-		status := "failed"
+		status := statusFailed
 		if e.Succeeded {
-			status = "success"
+			status = statusSuccess
 		}
 		item := ExecutionItem{
 			ID:        e.ID,
@@ -594,7 +600,9 @@ func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fmt.Sprintf("Failed to get logs: %v", err))
 		return
 	}
-	defer stream.Close()
+	defer func() {
+		_ = stream.Close()
+	}()
 
 	buf := new(bytes.Buffer)
 	_, err = io.Copy(buf, stream)

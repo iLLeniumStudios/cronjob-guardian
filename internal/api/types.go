@@ -33,13 +33,13 @@ type HealthResponse struct {
 
 // StatsResponse is the response for GET /api/v1/stats
 type StatsResponse struct {
-	TotalMonitors         int32          `json:"totalMonitors"`
-	TotalCronJobs         int32          `json:"totalCronJobs"`
-	Summary               SummaryStats   `json:"summary"`
-	ActiveAlerts          int32          `json:"activeAlerts"`
-	AlertsSent24h         int32          `json:"alertsSent24h"`
-	Remediations24h       int32          `json:"remediations24h"`
-	ExecutionsRecorded24h int64          `json:"executionsRecorded24h"`
+	TotalMonitors         int32        `json:"totalMonitors"`
+	TotalCronJobs         int32        `json:"totalCronJobs"`
+	Summary               SummaryStats `json:"summary"`
+	ActiveAlerts          int32        `json:"activeAlerts"`
+	AlertsSent24h         int32        `json:"alertsSent24h"`
+	Remediations24h       int32        `json:"remediations24h"`
+	ExecutionsRecorded24h int64        `json:"executionsRecorded24h"`
 }
 
 // SummaryStats contains aggregate status counts
@@ -74,17 +74,17 @@ type CronJobListResponse struct {
 
 // CronJobListItem is a single CronJob in the list
 type CronJobListItem struct {
-	Name            string              `json:"name"`
-	Namespace       string              `json:"namespace"`
-	Status          string              `json:"status"`
-	Schedule        string              `json:"schedule"`
-	Timezone        string              `json:"timezone,omitempty"`
-	Suspended       bool                `json:"suspended"`
-	SuccessRate     float64             `json:"successRate"`
-	LastSuccess     *time.Time          `json:"lastSuccess,omitempty"`
-	LastRunDuration string              `json:"lastRunDuration,omitempty"`
-	NextRun         *time.Time          `json:"nextRun,omitempty"`
-	ActiveAlerts    int                 `json:"activeAlerts"`
+	Name            string                `json:"name"`
+	Namespace       string                `json:"namespace"`
+	Status          string                `json:"status"`
+	Schedule        string                `json:"schedule"`
+	Timezone        string                `json:"timezone,omitempty"`
+	Suspended       bool                  `json:"suspended"`
+	SuccessRate     float64               `json:"successRate"`
+	LastSuccess     *time.Time            `json:"lastSuccess,omitempty"`
+	LastRunDuration string                `json:"lastRunDuration,omitempty"`
+	NextRun         *time.Time            `json:"nextRun,omitempty"`
+	ActiveAlerts    int                   `json:"activeAlerts"`
 	MonitorRef      *types.NamespacedName `json:"monitorRef,omitempty"`
 }
 
@@ -164,9 +164,9 @@ type LogsResponse struct {
 
 // AlertListResponse is the response for GET /api/v1/alerts
 type AlertListResponse struct {
-	Items      []AlertItem     `json:"items"`
-	Total      int             `json:"total"`
-	BySeverity map[string]int  `json:"bySeverity"`
+	Items      []AlertItem    `json:"items"`
+	Total      int            `json:"total"`
+	BySeverity map[string]int `json:"bySeverity"`
 }
 
 // AlertItem is a single alert

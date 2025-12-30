@@ -186,7 +186,7 @@ func (s *Server) serveUI(r chi.Router) {
 		// No embedded UI, serve a simple message
 		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
-			w.Write([]byte(`<!DOCTYPE html>
+			_, _ = w.Write([]byte(`<!DOCTYPE html>
 <html>
 <head><title>CronJob Guardian</title></head>
 <body>
@@ -218,7 +218,7 @@ func (s *Server) serveUI(r chi.Router) {
 			}
 			r.URL.Path = "/index.html"
 		}
-		f.Close()
+		_ = f.Close()
 
 		fileServer.ServeHTTP(w, r)
 	})

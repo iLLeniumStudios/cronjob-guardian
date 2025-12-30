@@ -148,7 +148,7 @@ func (a *analyzer) CheckSLA(ctx context.Context, cronJob types.NamespacedName, c
 					Type:      "MaxDuration",
 					Message:   fmt.Sprintf("Last duration %s exceeded max %s", lastExec.Duration, config.MaxDuration.Duration),
 					Current:   lastExec.Duration.Seconds(),
-					Threshold: config.MaxDuration.Duration.Seconds(),
+					Threshold: config.MaxDuration.Seconds(),
 				})
 			}
 		}

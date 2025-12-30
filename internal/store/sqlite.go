@@ -253,7 +253,9 @@ func (s *SQLiteStore) GetDurationPercentile(ctx context.Context, cronJob types.N
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var durations []float64
 	for rows.Next() {

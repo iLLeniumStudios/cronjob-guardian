@@ -176,7 +176,7 @@ func (h *JobHandler) getJobPod(ctx context.Context, job *batchv1.Job) *corev1.Po
 	return nil
 }
 
-func (h *JobHandler) handleSuccess(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
+func (h *JobHandler) handleSuccess(ctx context.Context, _ *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
 	// Reset retry counter on success
 	if h.RemediationEngine != nil {
 		h.RemediationEngine.ResetRetryCount(job.Namespace, cronJobName)
@@ -185,7 +185,7 @@ func (h *JobHandler) handleSuccess(ctx context.Context, monitor *guardianv1alpha
 	// Clear any active failure alerts for this CronJob
 	if h.AlertDispatcher != nil {
 		alertKey := fmt.Sprintf("%s/%s/JobFailed", job.Namespace, cronJobName)
-		h.AlertDispatcher.ClearAlert(ctx, alertKey)
+		_ = h.AlertDispatcher.ClearAlert(ctx, alertKey)
 	}
 }
 
@@ -293,7 +293,9 @@ func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, config *
 	if err != nil {
 		return ""
 	}
-	defer stream.Close()
+	defer func() {
+		_ = stream.Close()
+	}()
 
 	buf := new(bytes.Buffer)
 	_, err = io.Copy(buf, stream)
@@ -343,7 +345,7 @@ var suggestedFixes = map[string]string{
 	"FailedScheduling":           "Could not schedule pod. Check node resources and affinity rules.",
 }
 
-func (h *JobHandler) getSuggestedFix(job *batchv1.Job, ctx alerting.AlertContext) string {
+func (h *JobHandler) getSuggestedFix(_ *batchv1.Job, ctx alerting.AlertContext) string {
 	// Check reason from container status
 	if ctx.Reason != "" {
 		if fix, ok := suggestedFixes[ctx.Reason]; ok {
@@ -352,9 +354,9 @@ func (h *JobHandler) getSuggestedFix(job *batchv1.Job, ctx alerting.AlertContext
 	}
 
 	// Check events for common issues
-	for _, event := range ctx.Events {
+	for _, evt := range ctx.Events {
 		for pattern, fix := range suggestedFixes {
-			if strings.Contains(event, pattern) {
+			if strings.Contains(evt, pattern) {
 				return fix
 			}
 		}

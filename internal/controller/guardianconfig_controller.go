@@ -126,7 +126,7 @@ func (r *GuardianConfigReconciler) applyConfig(config *guardianv1alpha1.Guardian
 	r.setIgnoredNamespaces(config.Spec.IgnoredNamespaces)
 }
 
-func (r *GuardianConfigReconciler) initStorage(ctx context.Context, config *guardianv1alpha1.GuardianConfig) error {
+func (r *GuardianConfigReconciler) initStorage(ctx context.Context, _ *guardianv1alpha1.GuardianConfig) error {
 	// Storage is initialized by the store package via factory
 	// This is just for status reporting
 	if r.Store != nil {

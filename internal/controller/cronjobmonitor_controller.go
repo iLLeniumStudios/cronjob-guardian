@@ -40,6 +40,13 @@ import (
 
 const finalizerName = "guardian.illenium.net/finalizer"
 
+// Status constants
+const (
+	statusHealthy  = "Healthy"
+	statusWarning  = "Warning"
+	statusCritical = "Critical"
+)
+
 // CronJobMonitorReconciler reconciles a CronJobMonitor object
 type CronJobMonitorReconciler struct {
 	client.Client
@@ -122,12 +129,9 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
-func (r *CronJobMonitorReconciler) validateSpec(monitor *guardianv1alpha1.CronJobMonitor) error {
-	// Basic validation
-	if monitor.Spec.Selector == nil {
-		// No selector means match all, which is valid
-		return nil
-	}
+func (r *CronJobMonitorReconciler) validateSpec(_ *guardianv1alpha1.CronJobMonitor) error {
+	// Basic validation - currently no validation needed
+	// No selector means match all, which is valid
 	return nil
 }
 
@@ -256,7 +260,7 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 	return status
 }
 
-func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob, status *guardianv1alpha1.CronJobStatus) []guardianv1alpha1.ActiveAlert {
+func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob, _ *guardianv1alpha1.CronJobStatus) []guardianv1alpha1.ActiveAlert {
 	var alerts []guardianv1alpha1.ActiveAlert
 
 	// Check dead-man's switch
@@ -312,11 +316,11 @@ func (r *CronJobMonitorReconciler) calculateSummary(statuses []guardianv1alpha1.
 
 	for _, s := range statuses {
 		switch s.Status {
-		case "Healthy":
+		case statusHealthy:
 			summary.Healthy++
-		case "Warning":
+		case statusWarning:
 			summary.Warning++
-		case "Critical":
+		case statusCritical:
 			summary.Critical++
 		}
 		if s.Suspended {
@@ -329,29 +333,29 @@ func (r *CronJobMonitorReconciler) calculateSummary(statuses []guardianv1alpha1.
 
 func (r *CronJobMonitorReconciler) determinePhase(summary *guardianv1alpha1.MonitorSummary) string {
 	if summary.Critical > 0 {
-		return "Critical"
+		return statusCritical
 	}
 	if summary.Warning > 0 {
-		return "Warning"
+		return statusWarning
 	}
 	if summary.TotalCronJobs == 0 {
 		return "NoTargets"
 	}
-	return "Healthy"
+	return statusHealthy
 }
 
 func (r *CronJobMonitorReconciler) determineStatus(status *guardianv1alpha1.CronJobStatus) string {
 	for _, alert := range status.ActiveAlerts {
 		if alert.Severity == "critical" {
-			return "Critical"
+			return statusCritical
 		}
 	}
 	for _, alert := range status.ActiveAlerts {
 		if alert.Severity == "warning" {
-			return "Warning"
+			return statusWarning
 		}
 	}
-	return "Healthy"
+	return statusHealthy
 }
 
 func (r *CronJobMonitorReconciler) handleDeletion(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor) (ctrl.Result, error) {
@@ -471,4 +475,3 @@ func getSeverity(override string, defaultSeverity string) string {
 	}
 	return defaultSeverity
 }
-
