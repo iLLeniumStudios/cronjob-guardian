@@ -1,0 +1,38 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - guardian.illenium.net
+  resources:
+  - alertchannels
+  - cronjobmonitors
+  - guardianconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - guardian.illenium.net
+  resources:
+  - alertchannels/finalizers
+  - cronjobmonitors/finalizers
+  - guardianconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - guardian.illenium.net
+  resources:
+  - alertchannels/status
+  - cronjobmonitors/status
+  - guardianconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
