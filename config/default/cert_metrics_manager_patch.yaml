@@ -8,10 +8,10 @@
     name: metrics-certs
     readOnly: true
 
-# Add the --metrics-cert-path argument for the metrics server
+# Add the --metrics.cert-path argument for the metrics server
 - op: add
   path: /spec/template/spec/containers/0/args/-
-  value: --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
+  value: --metrics.cert-path=/tmp/k8s-metrics-server/metrics-certs
 
 # Add the metrics-server certs volume configuration
 - op: add
