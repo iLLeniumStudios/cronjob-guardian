@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -112,10 +113,9 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// 4. Validate spec
 	if err := r.validateSpec(monitor); err != nil {
 		log.Error(err, "spec validation failed")
-		r.setCondition(monitor, "Ready", metav1.ConditionFalse, "InvalidSpec", err.Error())
-		if err := r.Status().Update(ctx, monitor); err != nil {
-			log.Error(err, "failed to update status after validation error")
-			return ctrl.Result{}, err
+		if updateErr := r.updateConditionWithRetry(ctx, req.NamespacedName, "Ready", metav1.ConditionFalse, "InvalidSpec", err.Error()); updateErr != nil {
+			log.Error(updateErr, "failed to update status after validation error")
+			return ctrl.Result{}, updateErr
 		}
 		return ctrl.Result{}, nil
 	}
@@ -148,26 +148,53 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		"critical", summary.Critical,
 		"suspended", summary.Suspended)
 
-	// 8. Update status
-	monitor.Status.ObservedGeneration = monitor.Generation
-	monitor.Status.Phase = r.determinePhase(summary)
-	now := metav1.Now()
-	monitor.Status.LastReconcileTime = &now
-	monitor.Status.Summary = summary
-	monitor.Status.CronJobs = cronJobStatuses
-	r.setCondition(monitor, "Ready", metav1.ConditionTrue, "Reconciled", "Successfully reconciled")
-
-	if err := r.Status().Update(ctx, monitor); err != nil {
+	// 8. Update status with retry to handle optimistic locking conflicts
+	if err := r.updateStatusWithRetry(ctx, req.NamespacedName, summary, cronJobStatuses); err != nil {
 		log.Error(err, "failed to update status")
 		return ctrl.Result{}, err
 	}
 	log.Info("reconciled successfully",
-		"phase", monitor.Status.Phase,
+		"phase", r.determinePhase(summary),
 		"cronJobCount", len(cronJobStatuses))
 
 	// 9. Requeue for periodic checks
 	log.V(1).Info("requeueing for periodic check", "after", "30s")
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}
+
+// updateStatusWithRetry updates the monitor status with retry logic to handle optimistic locking conflicts.
+// This re-fetches the monitor on conflict and applies the new status values.
+func (r *CronJobMonitorReconciler) updateStatusWithRetry(ctx context.Context, nn types.NamespacedName, summary *guardianv1alpha1.MonitorSummary, cronJobStatuses []guardianv1alpha1.CronJobStatus) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Re-fetch the latest version
+		monitor := &guardianv1alpha1.CronJobMonitor{}
+		if err := r.Get(ctx, nn, monitor); err != nil {
+			return err
+		}
+
+		// Apply status updates
+		monitor.Status.ObservedGeneration = monitor.Generation
+		monitor.Status.Phase = r.determinePhase(summary)
+		now := metav1.Now()
+		monitor.Status.LastReconcileTime = &now
+		monitor.Status.Summary = summary
+		monitor.Status.CronJobs = cronJobStatuses
+		r.setCondition(monitor, "Ready", metav1.ConditionTrue, "Reconciled", "Successfully reconciled")
+
+		return r.Status().Update(ctx, monitor)
+	})
+}
+
+// updateConditionWithRetry updates just a condition with retry logic.
+func (r *CronJobMonitorReconciler) updateConditionWithRetry(ctx context.Context, nn types.NamespacedName, condType string, status metav1.ConditionStatus, reason, message string) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		monitor := &guardianv1alpha1.CronJobMonitor{}
+		if err := r.Get(ctx, nn, monitor); err != nil {
+			return err
+		}
+		r.setCondition(monitor, condType, status, reason, message)
+		return r.Status().Update(ctx, monitor)
+	})
 }
 
 func (r *CronJobMonitorReconciler) validateSpec(_ *guardianv1alpha1.CronJobMonitor) error {

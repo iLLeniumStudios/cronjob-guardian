@@ -5,6 +5,7 @@ metadata:
     app.kubernetes.io/name: cronjob-guardian
     app.kubernetes.io/managed-by: kustomize
   name: alertchannel-sample
+  namespace: default
 spec:
   type: webhook
   webhook:
