@@ -34,23 +34,26 @@ import (
 
 // DeadManScheduler periodically checks for dead-man's switch violations
 type DeadManScheduler struct {
-	client     client.Client
-	analyzer   analyzer.SLAAnalyzer
-	dispatcher alerting.Dispatcher
-	interval   time.Duration
-	stopCh     chan struct{}
-	running    bool
-	mu         sync.Mutex
+	client           client.Client
+	analyzer         analyzer.SLAAnalyzer
+	dispatcher       alerting.Dispatcher
+	interval         time.Duration
+	stopCh           chan struct{}
+	running          bool
+	mu               sync.Mutex
+	suspendedSince   map[string]time.Time // tracks when CronJobs were first seen suspended
+	suspendedSinceMu sync.RWMutex
 }
 
 // NewDeadManScheduler creates a new dead-man's switch scheduler
 func NewDeadManScheduler(c client.Client, a analyzer.SLAAnalyzer, d alerting.Dispatcher) *DeadManScheduler {
 	return &DeadManScheduler{
-		client:     c,
-		analyzer:   a,
-		dispatcher: d,
-		interval:   1 * time.Minute,
-		stopCh:     make(chan struct{}),
+		client:         c,
+		analyzer:       a,
+		dispatcher:     d,
+		interval:       1 * time.Minute,
+		stopCh:         make(chan struct{}),
+		suspendedSince: make(map[string]time.Time),
 	}
 }
 
@@ -170,6 +173,78 @@ func (s *DeadManScheduler) check(ctx context.Context) {
 					logger.Error(err, "failed to dispatch dead-man's switch alert")
 				}
 			}
+
+			// Check suspended duration
+			s.checkSuspendedDuration(ctx, &monitor, cjStatus, cronJob)
+		}
+	}
+}
+
+// checkSuspendedDuration checks if a CronJob has been suspended too long and alerts
+func (s *DeadManScheduler) checkSuspendedDuration(ctx context.Context, monitor *v1alpha1.CronJobMonitor, cjStatus v1alpha1.CronJobStatus, cronJob *batchv1.CronJob) {
+	logger := log.FromContext(ctx)
+	cronJobKey := fmt.Sprintf("%s/%s", cjStatus.Namespace, cjStatus.Name)
+
+	// Check if AlertIfSuspendedFor is configured
+	if monitor.Spec.SuspendedHandling == nil || monitor.Spec.SuspendedHandling.AlertIfSuspendedFor == nil {
+		return
+	}
+
+	isSuspended := cronJob.Spec.Suspend != nil && *cronJob.Spec.Suspend
+
+	s.suspendedSinceMu.Lock()
+	defer s.suspendedSinceMu.Unlock()
+
+	if isSuspended {
+		// Track when we first saw it suspended
+		if _, exists := s.suspendedSince[cronJobKey]; !exists {
+			s.suspendedSince[cronJobKey] = time.Now()
+			logger.V(1).Info("CronJob suspended, tracking start time", "cronjob", cronJobKey)
+			return // Just started tracking, don't alert yet
+		}
+
+		// Check how long it's been suspended
+		suspendedDuration := time.Since(s.suspendedSince[cronJobKey])
+		threshold := monitor.Spec.SuspendedHandling.AlertIfSuspendedFor.Duration
+
+		if suspendedDuration >= threshold {
+			// Check if we already have an active alert
+			if hasActiveAlert(cjStatus.ActiveAlerts, "SuspendedTooLong") {
+				return
+			}
+
+			// Send alert
+			alert := alerting.Alert{
+				Type:     "SuspendedTooLong",
+				Severity: "warning",
+				Title:    fmt.Sprintf("CronJob suspended for too long: %s/%s", cjStatus.Namespace, cjStatus.Name),
+				Message:  fmt.Sprintf("CronJob has been suspended for %s (threshold: %s)", suspendedDuration.Round(time.Minute), threshold),
+				CronJob: types.NamespacedName{
+					Namespace: cjStatus.Namespace,
+					Name:      cjStatus.Name,
+				},
+				MonitorRef: types.NamespacedName{
+					Namespace: monitor.Namespace,
+					Name:      monitor.Name,
+				},
+				Timestamp: time.Now(),
+			}
+
+			if err := s.dispatcher.Dispatch(ctx, alert, monitor.Spec.Alerting); err != nil {
+				logger.Error(err, "failed to dispatch suspended too long alert")
+			} else {
+				logger.Info("suspended too long alert dispatched", "cronjob", cronJobKey, "duration", suspendedDuration)
+			}
+		}
+	} else {
+		// CronJob is not suspended, clear tracking
+		if _, exists := s.suspendedSince[cronJobKey]; exists {
+			delete(s.suspendedSince, cronJobKey)
+			logger.V(1).Info("CronJob resumed, cleared suspended tracking", "cronjob", cronJobKey)
+
+			// Clear the suspended too long alert
+			alertKey := fmt.Sprintf("%s/SuspendedTooLong", cronJobKey)
+			_ = s.dispatcher.ClearAlert(ctx, alertKey)
 		}
 	}
 }

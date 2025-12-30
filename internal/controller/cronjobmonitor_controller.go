@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/robfig/cron/v3"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,29 +30,40 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/analyzer"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
 const finalizerName = "guardian.illenium.net/finalizer"
 
-// Status constants
+// CronJob status constants (lowercase to match CRD enum)
 const (
-	statusHealthy  = "Healthy"
-	statusWarning  = "Warning"
-	statusCritical = "Critical"
+	statusHealthy  = "healthy"
+	statusWarning  = "warning"
+	statusCritical = "critical"
+	statusUnknown  = "unknown"
+)
+
+// Monitor phase constants (to match CRD enum)
+const (
+	phaseInitializing = "Initializing"
+	phaseActive       = "Active"
+	phaseDegraded     = "Degraded"
+	phaseError        = "Error"
 )
 
 // CronJobMonitorReconciler reconciles a CronJobMonitor object
 type CronJobMonitorReconciler struct {
 	client.Client
+	Log             logr.Logger // Required - must be injected
 	Scheme          *runtime.Scheme
 	Store           store.Store
+	Config          *config.Config
 	Analyzer        analyzer.SLAAnalyzer
 	AlertDispatcher alerting.Dispatcher
 }
@@ -64,43 +76,58 @@ type CronJobMonitorReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop
 func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+	log := r.Log.WithValues("monitor", req.NamespacedName)
+	log.V(1).Info("reconciling CronJobMonitor")
 
 	// 1. Fetch the CronJobMonitor
 	monitor := &guardianv1alpha1.CronJobMonitor{}
 	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if client.IgnoreNotFound(err) == nil {
+			log.V(1).Info("monitor not found, likely deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "failed to get monitor")
+		return ctrl.Result{}, err
 	}
+	log.V(1).Info("fetched monitor", "generation", monitor.Generation)
 
 	// 2. Check if being deleted
 	if !monitor.DeletionTimestamp.IsZero() {
+		log.V(1).Info("monitor being deleted, handling deletion")
 		return r.handleDeletion(ctx, monitor)
 	}
 
 	// 3. Add finalizer if needed
 	if !controllerutil.ContainsFinalizer(monitor, finalizerName) {
+		log.V(1).Info("adding finalizer")
 		controllerutil.AddFinalizer(monitor, finalizerName)
 		if err := r.Update(ctx, monitor); err != nil {
+			log.Error(err, "failed to add finalizer")
 			return ctrl.Result{}, err
 		}
+		log.V(1).Info("finalizer added, requeueing")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// 4. Validate spec
 	if err := r.validateSpec(monitor); err != nil {
+		log.Error(err, "spec validation failed")
 		r.setCondition(monitor, "Ready", metav1.ConditionFalse, "InvalidSpec", err.Error())
 		if err := r.Status().Update(ctx, monitor); err != nil {
+			log.Error(err, "failed to update status after validation error")
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
+	log.V(1).Info("spec validation passed")
 
 	// 5. Find matching CronJobs
 	cronJobs, err := r.findMatchingCronJobs(ctx, monitor)
 	if err != nil {
-		logger.Error(err, "failed to find matching CronJobs")
+		log.Error(err, "failed to find matching CronJobs")
 		return ctrl.Result{}, err
 	}
+	log.V(1).Info("found matching CronJobs", "count", len(cronJobs))
 
 	// 6. Process each CronJob
 	cronJobStatuses := []guardianv1alpha1.CronJobStatus{}
@@ -109,8 +136,17 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		cronJobStatuses = append(cronJobStatuses, status)
 	}
 
+	// 6a. Handle CronJobs that were previously monitored but are now gone
+	r.handleRemovedCronJobs(ctx, monitor, cronJobs)
+
 	// 7. Calculate summary
 	summary := r.calculateSummary(cronJobStatuses)
+	log.V(1).Info("calculated summary",
+		"total", summary.TotalCronJobs,
+		"healthy", summary.Healthy,
+		"warning", summary.Warning,
+		"critical", summary.Critical,
+		"suspended", summary.Suspended)
 
 	// 8. Update status
 	monitor.Status.ObservedGeneration = monitor.Generation
@@ -122,10 +158,15 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	r.setCondition(monitor, "Ready", metav1.ConditionTrue, "Reconciled", "Successfully reconciled")
 
 	if err := r.Status().Update(ctx, monitor); err != nil {
+		log.Error(err, "failed to update status")
 		return ctrl.Result{}, err
 	}
+	log.Info("reconciled successfully",
+		"phase", monitor.Status.Phase,
+		"cronJobCount", len(cronJobStatuses))
 
 	// 9. Requeue for periodic checks
+	log.V(1).Info("requeueing for periodic check", "after", "30s")
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
@@ -136,14 +177,17 @@ func (r *CronJobMonitorReconciler) validateSpec(_ *guardianv1alpha1.CronJobMonit
 }
 
 func (r *CronJobMonitorReconciler) findMatchingCronJobs(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor) ([]batchv1.CronJob, error) {
+	r.Log.V(1).Info("listing CronJobs", "namespace", monitor.Namespace)
 	cronJobList := &batchv1.CronJobList{}
 	if err := r.List(ctx, cronJobList, client.InNamespace(monitor.Namespace)); err != nil {
 		return nil, err
 	}
+	r.Log.V(1).Info("found CronJobs in namespace", "count", len(cronJobList.Items))
 
 	var result []batchv1.CronJob
 	for _, cj := range cronJobList.Items {
-		if r.matchesSelector(&cj, monitor.Spec.Selector) {
+		if MatchesSelector(&cj, monitor.Spec.Selector) {
+			r.Log.V(1).Info("CronJob matches selector", "cronJob", cj.Name)
 			result = append(result, cj)
 		}
 	}
@@ -151,125 +195,144 @@ func (r *CronJobMonitorReconciler) findMatchingCronJobs(ctx context.Context, mon
 	return result, nil
 }
 
-func (r *CronJobMonitorReconciler) matchesSelector(cj *batchv1.CronJob, selector *guardianv1alpha1.CronJobSelector) bool {
-	if selector == nil {
-		return true // No selector = match all
-	}
-
-	// Check matchNames
-	if len(selector.MatchNames) > 0 {
-		found := false
-		for _, name := range selector.MatchNames {
-			if name == cj.Name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	// Check matchLabels
-	for k, v := range selector.MatchLabels {
-		if cj.Labels[k] != v {
-			return false
-		}
-	}
-
-	// Check matchExpressions
-	for _, expr := range selector.MatchExpressions {
-		if !r.matchExpression(cj.Labels, expr) {
-			return false
-		}
-	}
-
-	return true
-}
-
-func (r *CronJobMonitorReconciler) matchExpression(labelSet map[string]string, expr metav1.LabelSelectorRequirement) bool {
-	switch expr.Operator {
-	case metav1.LabelSelectorOpIn:
-		val, ok := labelSet[expr.Key]
-		if !ok {
-			return false
-		}
-		for _, v := range expr.Values {
-			if v == val {
-				return true
-			}
-		}
-		return false
-	case metav1.LabelSelectorOpNotIn:
-		val, ok := labelSet[expr.Key]
-		if !ok {
-			return true
-		}
-		for _, v := range expr.Values {
-			if v == val {
-				return false
-			}
-		}
-		return true
-	case metav1.LabelSelectorOpExists:
-		_, ok := labelSet[expr.Key]
-		return ok
-	case metav1.LabelSelectorOpDoesNotExist:
-		_, ok := labelSet[expr.Key]
-		return !ok
-	}
-	return false
-}
-
 func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob) guardianv1alpha1.CronJobStatus {
+	log := r.Log.WithValues("cronJob", cj.Name)
+	log.V(1).Info("processing CronJob")
+
 	status := guardianv1alpha1.CronJobStatus{
 		Name:      cj.Name,
 		Namespace: cj.Namespace,
 		Suspended: cj.Spec.Suspend != nil && *cj.Spec.Suspend,
 	}
+	log.V(1).Info("CronJob state", "suspended", status.Suspended)
 
 	cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
 
 	// Get last successful execution
 	if r.Store != nil {
+		log.V(1).Info("fetching last successful execution from store")
 		lastSuccess, _ := r.Store.GetLastSuccessfulExecution(ctx, cronJobNN)
 		if lastSuccess != nil {
 			status.LastSuccessfulTime = &metav1.Time{Time: lastSuccess.CompletionTime}
 			status.LastRunDuration = &metav1.Duration{Duration: lastSuccess.Duration}
+			log.V(1).Info("found last successful execution",
+				"completionTime", lastSuccess.CompletionTime,
+				"duration", lastSuccess.Duration)
+		} else {
+			log.V(1).Info("no last successful execution found")
 		}
 	}
 
 	// Calculate next scheduled time
 	status.NextScheduledTime = calculateNextRun(cj.Spec.Schedule, cj.Spec.TimeZone)
+	if status.NextScheduledTime != nil {
+		log.V(1).Info("calculated next run", "nextScheduledTime", status.NextScheduledTime.Time)
+	}
 
-	// Get SLA metrics
-	if monitor.Spec.SLA != nil && isEnabled(monitor.Spec.SLA.Enabled) && r.Analyzer != nil {
-		windowDays := int(getOrDefault(monitor.Spec.SLA.WindowDays, 7))
+	// Get metrics - always fetch basic metrics, use SLA window if configured
+	windowDays := 7 // Default window
+	if monitor.Spec.SLA != nil && monitor.Spec.SLA.WindowDays != nil {
+		windowDays = int(*monitor.Spec.SLA.WindowDays)
+	}
+
+	// Always try to get metrics from analyzer/store if available
+	if r.Analyzer != nil {
+		log.V(1).Info("fetching metrics", "windowDays", windowDays)
 		metrics, err := r.Analyzer.GetMetrics(ctx, cronJobNN, windowDays)
 		if err == nil && metrics != nil {
 			status.Metrics = metrics
+			log.V(1).Info("metrics retrieved",
+				"successRate", metrics.SuccessRate,
+				"totalRuns", metrics.TotalRuns)
+		} else if err != nil {
+			log.V(1).Error(err, "failed to get metrics")
+		}
+	} else if r.Store != nil {
+		// Fallback: get metrics directly from store if no analyzer
+		log.V(1).Info("fetching metrics from store", "windowDays", windowDays)
+		metrics, err := r.Store.GetMetrics(ctx, cronJobNN, windowDays)
+		if err == nil && metrics != nil {
+			status.Metrics = &guardianv1alpha1.CronJobMetrics{
+				SuccessRate:        metrics.SuccessRate,
+				TotalRuns:          metrics.TotalRuns,
+				SuccessfulRuns:     metrics.SuccessfulRuns,
+				FailedRuns:         metrics.FailedRuns,
+				AvgDurationSeconds: metrics.AvgDurationSeconds,
+				P50DurationSeconds: metrics.P50DurationSeconds,
+				P95DurationSeconds: metrics.P95DurationSeconds,
+				P99DurationSeconds: metrics.P99DurationSeconds,
+			}
+			log.V(1).Info("metrics retrieved from store",
+				"successRate", metrics.SuccessRate,
+				"totalRuns", metrics.TotalRuns)
+		} else if err != nil {
+			log.V(1).Error(err, "failed to get metrics from store")
 		}
 	}
 
 	// Check for active alerts
 	status.ActiveAlerts = r.checkAlerts(ctx, monitor, cj, &status)
+	log.V(1).Info("checked alerts", "activeAlertCount", len(status.ActiveAlerts))
 
 	// Determine overall status
 	status.Status = r.determineStatus(&status)
+	log.V(1).Info("determined CronJob status", "status", status.Status)
 
 	return status
 }
 
 func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob, _ *guardianv1alpha1.CronJobStatus) []guardianv1alpha1.ActiveAlert {
 	var alerts []guardianv1alpha1.ActiveAlert
+	cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
+
+	// Check for recent job failure
+	if r.Store != nil {
+		r.Log.V(1).Info("checking last execution for failure", "cronJob", cj.Name)
+		lastExec, err := r.Store.GetLastExecution(ctx, cronJobNN)
+		if err != nil {
+			r.Log.V(1).Error(err, "failed to get last execution", "cronJob", cj.Name)
+		} else if lastExec != nil && !lastExec.Succeeded {
+			// Last execution failed - add a warning or critical alert
+			severity := "warning"
+			if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
+				severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.JobFailed, "warning")
+			}
+			message := "Last job execution failed"
+			if lastExec.Reason != "" {
+				message = "Last job execution failed: " + lastExec.Reason
+			}
+			// Use completion time if available, otherwise start time, otherwise now
+			alertTime := metav1.Now()
+			if !lastExec.CompletionTime.IsZero() {
+				alertTime = metav1.Time{Time: lastExec.CompletionTime}
+			} else if !lastExec.StartTime.IsZero() {
+				alertTime = metav1.Time{Time: lastExec.StartTime}
+			}
+			r.Log.V(1).Info("last job execution failed", "cronJob", cj.Name, "severity", severity, "reason", lastExec.Reason)
+			alerts = append(alerts, guardianv1alpha1.ActiveAlert{
+				Type:     "JobFailed",
+				Severity: severity,
+				Message:  message,
+				Since:    alertTime,
+			})
+		}
+	}
 
 	// Check dead-man's switch
 	if monitor.Spec.DeadManSwitch != nil && isEnabled(monitor.Spec.DeadManSwitch.Enabled) && r.Analyzer != nil {
+		r.Log.V(1).Info("checking dead-man's switch", "cronJob", cj.Name)
 		result, err := r.Analyzer.CheckDeadManSwitch(ctx, cj, monitor.Spec.DeadManSwitch)
-		if err == nil && result.Triggered {
+		if err != nil {
+			r.Log.V(1).Error(err, "failed to check dead-man's switch", "cronJob", cj.Name)
+		} else if result.Triggered {
+			severity := "critical"
+			if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
+				severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.DeadManTriggered, "critical")
+			}
+			r.Log.V(1).Info("dead-man's switch triggered", "cronJob", cj.Name, "severity", severity, "message", result.Message)
 			alerts = append(alerts, guardianv1alpha1.ActiveAlert{
 				Type:     "DeadManTriggered",
-				Severity: getSeverity(monitor.Spec.Alerting.SeverityOverrides.DeadManTriggered, "critical"),
+				Severity: severity,
 				Message:  result.Message,
 				Since:    metav1.Now(),
 			})
@@ -279,12 +342,20 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 	// Check SLA
 	if monitor.Spec.SLA != nil && isEnabled(monitor.Spec.SLA.Enabled) && r.Analyzer != nil {
 		cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
+		r.Log.V(1).Info("checking SLA", "cronJob", cj.Name)
 		result, err := r.Analyzer.CheckSLA(ctx, cronJobNN, monitor.Spec.SLA)
-		if err == nil && !result.Passed {
+		if err != nil {
+			r.Log.V(1).Error(err, "failed to check SLA", "cronJob", cj.Name)
+		} else if !result.Passed {
 			for _, v := range result.Violations {
+				severity := "warning"
+				if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
+					severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.SLABreached, "warning")
+				}
+				r.Log.V(1).Info("SLA violation detected", "cronJob", cj.Name, "type", v.Type, "severity", severity, "message", v.Message)
 				alerts = append(alerts, guardianv1alpha1.ActiveAlert{
 					Type:     v.Type,
-					Severity: getSeverity(monitor.Spec.Alerting.SeverityOverrides.SLABreached, "warning"),
+					Severity: severity,
 					Message:  v.Message,
 					Since:    metav1.Now(),
 				})
@@ -295,11 +366,19 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 	// Check duration regression
 	if monitor.Spec.SLA != nil && r.Analyzer != nil {
 		cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
+		r.Log.V(1).Info("checking duration regression", "cronJob", cj.Name)
 		result, err := r.Analyzer.CheckDurationRegression(ctx, cronJobNN, monitor.Spec.SLA)
-		if err == nil && result.Detected {
+		if err != nil {
+			r.Log.V(1).Error(err, "failed to check duration regression", "cronJob", cj.Name)
+		} else if result.Detected {
+			severity := "warning"
+			if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
+				severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.DurationRegression, "warning")
+			}
+			r.Log.V(1).Info("duration regression detected", "cronJob", cj.Name, "severity", severity, "message", result.Message)
 			alerts = append(alerts, guardianv1alpha1.ActiveAlert{
 				Type:     "DurationRegression",
-				Severity: getSeverity(monitor.Spec.Alerting.SeverityOverrides.DurationRegression, "warning"),
+				Severity: severity,
 				Message:  result.Message,
 				Since:    metav1.Now(),
 			})
@@ -331,17 +410,79 @@ func (r *CronJobMonitorReconciler) calculateSummary(statuses []guardianv1alpha1.
 	return summary
 }
 
+// handleRemovedCronJobs handles CronJobs that were previously monitored but are now gone
+func (r *CronJobMonitorReconciler) handleRemovedCronJobs(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, currentCronJobs []batchv1.CronJob) {
+	if r.Store == nil {
+		return
+	}
+
+	// Build a set of current CronJob names
+	currentNames := make(map[string]bool)
+	for _, cj := range currentCronJobs {
+		currentNames[cj.Name] = true
+	}
+
+	// Check which CronJobs from the previous status are no longer present
+	for _, prevCJ := range monitor.Status.CronJobs {
+		if !currentNames[prevCJ.Name] {
+			// This CronJob was previously monitored but is now gone
+			r.handleCronJobRemoval(ctx, monitor, prevCJ.Namespace, prevCJ.Name)
+		}
+	}
+}
+
+// handleCronJobRemoval handles the removal of a specific CronJob from monitoring
+func (r *CronJobMonitorReconciler) handleCronJobRemoval(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, namespace, name string) {
+	log := r.Log.WithValues("cronJob", name, "namespace", namespace)
+
+	// Determine the action based on DataRetention config
+	onDeletion := "retain" // default
+	if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.OnCronJobDeletion != "" {
+		onDeletion = monitor.Spec.DataRetention.OnCronJobDeletion
+	}
+
+	cronJobNN := types.NamespacedName{Namespace: namespace, Name: name}
+
+	switch onDeletion {
+	case "purge":
+		// Delete executions immediately
+		deleted, err := r.Store.DeleteExecutionsByCronJob(ctx, cronJobNN)
+		if err != nil {
+			log.Error(err, "failed to purge executions for removed CronJob")
+		} else if deleted > 0 {
+			log.Info("purged executions for removed CronJob", "count", deleted)
+		}
+
+	case "purge-after-days":
+		// This would require tracking the removal time and processing in the pruner
+		// For now, log that this is not yet implemented
+		purgeAfterDays := int32(7) // default
+		if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.PurgeAfterDays != nil {
+			purgeAfterDays = *monitor.Spec.DataRetention.PurgeAfterDays
+		}
+		log.V(1).Info("CronJob marked for delayed purge (not yet fully implemented)",
+			"purgeAfterDays", purgeAfterDays)
+		// TODO: Implement delayed purge tracking in Phase 9 (Enhanced Pruner)
+
+	case "retain":
+		log.V(1).Info("retaining executions for removed CronJob per config")
+
+	default:
+		log.V(1).Info("unknown onCronJobDeletion value, defaulting to retain", "value", onDeletion)
+	}
+}
+
 func (r *CronJobMonitorReconciler) determinePhase(summary *guardianv1alpha1.MonitorSummary) string {
 	if summary.Critical > 0 {
-		return statusCritical
+		return phaseError
 	}
 	if summary.Warning > 0 {
-		return statusWarning
+		return phaseDegraded
 	}
 	if summary.TotalCronJobs == 0 {
-		return "NoTargets"
+		return phaseActive // No targets is still active, just empty
 	}
-	return statusHealthy
+	return phaseActive
 }
 
 func (r *CronJobMonitorReconciler) determineStatus(status *guardianv1alpha1.CronJobStatus) string {
@@ -362,14 +503,18 @@ func (r *CronJobMonitorReconciler) handleDeletion(ctx context.Context, monitor *
 	if controllerutil.ContainsFinalizer(monitor, finalizerName) {
 		// Cancel any active alerts
 		if r.AlertDispatcher != nil {
+			r.Log.V(1).Info("clearing alerts for deleted monitor", "monitor", monitor.Name)
 			r.AlertDispatcher.ClearAlertsForMonitor(monitor.Namespace, monitor.Name)
 		}
 
 		// Remove finalizer
+		r.Log.V(1).Info("removing finalizer", "monitor", monitor.Name)
 		controllerutil.RemoveFinalizer(monitor, finalizerName)
 		if err := r.Update(ctx, monitor); err != nil {
+			r.Log.Error(err, "failed to remove finalizer", "monitor", monitor.Name)
 			return ctrl.Result{}, err
 		}
+		r.Log.Info("finalizer removed, deletion complete", "monitor", monitor.Name)
 	}
 	return ctrl.Result{}, nil
 }
@@ -402,19 +547,23 @@ func (r *CronJobMonitorReconciler) setCondition(monitor *guardianv1alpha1.CronJo
 
 // findMonitorsForCronJob returns reconcile requests for monitors that match the CronJob
 func (r *CronJobMonitorReconciler) findMonitorsForCronJob(ctx context.Context, obj client.Object) []reconcile.Request {
+	log := r.Log.V(1)
 	cj, ok := obj.(*batchv1.CronJob)
 	if !ok {
 		return nil
 	}
 
+	log.Info("finding monitors for CronJob", "cronJob", cj.Name, "namespace", cj.Namespace)
 	monitors := &guardianv1alpha1.CronJobMonitorList{}
 	if err := r.List(ctx, monitors, client.InNamespace(cj.Namespace)); err != nil {
+		log.Error(err, "failed to list monitors")
 		return nil
 	}
 
 	var requests []reconcile.Request
 	for _, monitor := range monitors.Items {
-		if r.matchesSelector(cj, monitor.Spec.Selector) {
+		if MatchesSelector(cj, monitor.Spec.Selector) {
+			log.Info("CronJob matches monitor", "monitor", monitor.Name)
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Namespace: monitor.Namespace,
@@ -423,11 +572,13 @@ func (r *CronJobMonitorReconciler) findMonitorsForCronJob(ctx context.Context, o
 			})
 		}
 	}
+	log.Info("found monitors for CronJob", "count", len(requests))
 	return requests
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *CronJobMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.Log.Info("setting up CronJobMonitor controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&guardianv1alpha1.CronJobMonitor{}).
 		Watches(
@@ -460,13 +611,6 @@ func calculateNextRun(schedule string, timezone *string) *metav1.Time {
 
 func isEnabled(b *bool) bool {
 	return b == nil || *b
-}
-
-func getOrDefault[T any](ptr *T, def T) T {
-	if ptr != nil {
-		return *ptr
-	}
-	return def
 }
 
 func getSeverity(override string, defaultSeverity string) string {

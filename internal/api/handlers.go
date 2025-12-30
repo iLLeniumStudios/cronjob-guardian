@@ -37,6 +37,7 @@ import (
 
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/remediation"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
@@ -49,23 +50,27 @@ const (
 
 // Handlers contains all API handlers
 type Handlers struct {
-	client            client.Client
-	clientset         *kubernetes.Clientset
-	store             store.Store
-	alertDispatcher   alerting.Dispatcher
-	remediationEngine remediation.Engine
-	startTime         time.Time
+	client              client.Client
+	clientset           *kubernetes.Clientset
+	store               store.Store
+	config              *config.Config
+	alertDispatcher     alerting.Dispatcher
+	remediationEngine   remediation.Engine
+	startTime           time.Time
+	leaderElectionCheck func() bool
 }
 
 // NewHandlers creates a new Handlers instance
-func NewHandlers(c client.Client, cs *kubernetes.Clientset, s store.Store, ad alerting.Dispatcher, re remediation.Engine, startTime time.Time) *Handlers {
+func NewHandlers(c client.Client, cs *kubernetes.Clientset, s store.Store, cfg *config.Config, ad alerting.Dispatcher, re remediation.Engine, startTime time.Time, leaderCheck func() bool) *Handlers {
 	return &Handlers{
-		client:            c,
-		clientset:         cs,
-		store:             s,
-		alertDispatcher:   ad,
-		remediationEngine: re,
-		startTime:         startTime,
+		client:              c,
+		clientset:           cs,
+		store:               s,
+		config:              cfg,
+		alertDispatcher:     ad,
+		remediationEngine:   re,
+		startTime:           startTime,
+		leaderElectionCheck: leaderCheck,
 	}
 }
 
@@ -101,10 +106,16 @@ func (h *Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 	uptime := time.Since(h.startTime)
 
+	// Check leader election status
+	isLeader := true // Default to true if leader election is disabled
+	if h.leaderElectionCheck != nil {
+		isLeader = h.leaderElectionCheck()
+	}
+
 	resp := HealthResponse{
 		Status:  "healthy",
 		Storage: storageStatus,
-		Leader:  true, // TODO: check leader election
+		Leader:  isLeader,
 		Version: Version,
 		Uptime:  uptime.Round(time.Second).String(),
 	}
@@ -148,8 +159,14 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		remediations24h = h.remediationEngine.GetRemediationCount24h()
 	}
 
-	// TODO: count executions from store
+	// Count executions from store in last 24h
 	executionsRecorded24h := int64(0)
+	if h.store != nil {
+		since := time.Now().Add(-24 * time.Hour)
+		if count, err := h.store.GetExecutionCountSince(ctx, since); err == nil {
+			executionsRecorded24h = count
+		}
+	}
 
 	resp := StatsResponse{
 		TotalMonitors:         int32(len(monitors.Items)),
@@ -249,12 +266,22 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build list of CronJobs from monitor status
+	// Use a map to deduplicate CronJobs (same CronJob may appear in multiple monitors)
+	// Key: "namespace/name"
+	seen := make(map[string]struct{})
 	items := make([]CronJobListItem, 0)
 	summary := SummaryStats{}
 
 	for _, m := range monitors.Items {
 		for _, cjStatus := range m.Status.CronJobs {
+			// Create unique key for deduplication
+			key := cjStatus.Namespace + "/" + cjStatus.Name
+			if _, exists := seen[key]; exists {
+				// Already processed this CronJob from another monitor, skip
+				continue
+			}
+			seen[key] = struct{}{}
+
 			// Apply filters
 			if statusFilter != "" && cjStatus.Status != statusFilter {
 				continue
@@ -273,7 +300,7 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 				Status:       cjStatus.Status,
 				Suspended:    cjStatus.Suspended,
 				ActiveAlerts: len(cjStatus.ActiveAlerts),
-				MonitorRef:   &types.NamespacedName{Namespace: m.Namespace, Name: m.Name},
+				MonitorRef:   &NamespacedRef{Namespace: m.Namespace, Name: m.Name},
 			}
 
 			if err == nil {
@@ -305,11 +332,11 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 
 			// Update summary
 			switch cjStatus.Status {
-			case "Healthy":
+			case "healthy":
 				summary.Healthy++
-			case "Warning":
+			case "warning":
 				summary.Warning++
-			case "Critical":
+			case "critical":
 				summary.Critical++
 			}
 			if cjStatus.Suspended {
@@ -359,7 +386,7 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 		for _, m := range monitors.Items {
 			for _, cjStatus := range m.Status.CronJobs {
 				if cjStatus.Name == name && cjStatus.Namespace == namespace {
-					resp.MonitorRef = &types.NamespacedName{Namespace: m.Namespace, Name: m.Name}
+					resp.MonitorRef = &NamespacedRef{Namespace: m.Namespace, Name: m.Name}
 					resp.Status = cjStatus.Status
 
 					if cjStatus.Metrics != nil {
@@ -768,8 +795,8 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 					Severity: a.Severity,
 					Title:    fmt.Sprintf("%s: %s/%s", a.Type, cjStatus.Namespace, cjStatus.Name),
 					Message:  a.Message,
-					CronJob:  &types.NamespacedName{Namespace: cjStatus.Namespace, Name: cjStatus.Name},
-					Monitor:  &types.NamespacedName{Namespace: m.Namespace, Name: m.Name},
+					CronJob:  &NamespacedRef{Namespace: cjStatus.Namespace, Name: cjStatus.Name},
+					Monitor:  &NamespacedRef{Namespace: m.Namespace, Name: m.Name},
 					Since:    a.Since.Time,
 				}
 				if a.LastNotified != nil {
@@ -792,14 +819,81 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 
 // GetAlertHistory handles GET /api/v1/alerts/history
 func (h *Handlers) GetAlertHistory(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement alert history storage
+	ctx := r.Context()
+
+	if h.store == nil {
+		writeJSON(w, http.StatusOK, AlertHistoryResponse{
+			Items: []AlertHistoryItem{},
+			Pagination: Pagination{
+				Total:   0,
+				Limit:   50,
+				Offset:  0,
+				HasMore: false,
+			},
+		})
+		return
+	}
+
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	query := store.AlertHistoryQuery{
+		Limit:    limit,
+		Offset:   offset,
+		Severity: r.URL.Query().Get("severity"),
+	}
+
+	if s := r.URL.Query().Get("since"); s != "" {
+		if parsed, err := time.Parse(time.RFC3339, s); err == nil {
+			query.Since = &parsed
+		}
+	}
+
+	alerts, total, err := h.store.ListAlertHistory(ctx, query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	items := make([]AlertHistoryItem, 0, len(alerts))
+	for _, a := range alerts {
+		item := AlertHistoryItem{
+			ID:               strconv.FormatInt(a.ID, 10),
+			Type:             a.Type,
+			Severity:         a.Severity,
+			Title:            a.Title,
+			Message:          a.Message,
+			OccurredAt:       a.OccurredAt,
+			ResolvedAt:       a.ResolvedAt,
+			ChannelsNotified: a.ChannelsNotified,
+		}
+		if a.CronJobNamespace != "" || a.CronJobName != "" {
+			item.CronJob = &NamespacedRef{
+				Namespace: a.CronJobNamespace,
+				Name:      a.CronJobName,
+			}
+		}
+		items = append(items, item)
+	}
+
 	writeJSON(w, http.StatusOK, AlertHistoryResponse{
-		Items: []AlertHistoryItem{},
+		Items: items,
 		Pagination: Pagination{
-			Total:   0,
-			Limit:   50,
-			Offset:  0,
-			HasMore: false,
+			Total:   total,
+			Limit:   limit,
+			Offset:  offset,
+			HasMore: int64(offset+limit) < total,
 		},
 	})
 }
@@ -814,16 +908,33 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch channel alert stats from store
+	var channelStats map[string]store.ChannelAlertStats
+	if h.store != nil {
+		var err error
+		channelStats, err = h.store.GetChannelAlertStats(ctx)
+		if err != nil {
+			// Non-fatal, just log and continue with empty stats
+			channelStats = make(map[string]store.ChannelAlertStats)
+		}
+	}
+
 	items := make([]ChannelListItem, 0, len(channels.Items))
 	ready := 0
 	notReady := 0
 
 	for _, ch := range channels.Items {
+		stats := ChannelStats{}
+		if s, ok := channelStats[ch.Name]; ok {
+			stats.AlertsSent24h = int32(s.AlertsSent24h)
+			stats.AlertsSentTotal = s.AlertsSentTotal
+		}
+
 		item := ChannelListItem{
 			Name:  ch.Name,
 			Type:  ch.Spec.Type,
 			Ready: ch.Status.Ready,
-			Stats: ChannelStats{},
+			Stats: stats,
 		}
 
 		// Build config summary (without sensitive data)
@@ -918,24 +1029,220 @@ func (h *Handlers) TestChannel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetConfig handles GET /api/v1/config
-func (h *Handlers) GetConfig(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// ConfigResponse represents the operator configuration for the API
+type ConfigResponse struct {
+	LogLevel          string                        `json:"logLevel"`
+	Storage           config.StorageConfig          `json:"storage"`
+	HistoryRetention  config.HistoryRetentionConfig `json:"historyRetention"`
+	RateLimits        config.RateLimitsConfig       `json:"rateLimits"`
+	IgnoredNamespaces []string                      `json:"ignoredNamespaces"`
+	API               config.APIConfig              `json:"api"`
+	Scheduler         config.SchedulerConfig        `json:"scheduler"`
+}
 
-	config := &guardianv1alpha1.GuardianConfig{}
-	if err := h.client.Get(ctx, types.NamespacedName{Name: "default"}, config); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// Return empty config
-			writeJSON(w, http.StatusOK, map[string]any{
-				"metadata": map[string]string{"name": "default"},
-				"spec":     map[string]any{},
-				"status":   map[string]any{},
-			})
-			return
-		}
+// GetConfig handles GET /api/v1/config
+func (h *Handlers) GetConfig(w http.ResponseWriter, _ *http.Request) {
+	if h.config == nil {
+		writeJSON(w, http.StatusOK, ConfigResponse{})
+		return
+	}
+
+	resp := ConfigResponse{
+		LogLevel:          h.config.LogLevel,
+		Storage:           h.config.Storage,
+		HistoryRetention:  h.config.HistoryRetention,
+		RateLimits:        h.config.RateLimits,
+		IgnoredNamespaces: h.config.IgnoredNamespaces,
+		API:               h.config.API,
+		Scheduler:         h.config.Scheduler,
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// DeleteCronJobHistory handles DELETE /api/v1/cronjobs/:namespace/:name/history
+func (h *Handlers) DeleteCronJobHistory(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Store not configured")
+		return
+	}
+
+	cronJobNN := types.NamespacedName{Namespace: namespace, Name: name}
+	deleted, err := h.store.DeleteExecutionsByCronJob(ctx, cronJobNN)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, config)
+	writeJSON(w, http.StatusOK, DeleteHistoryResponse{
+		Success:        true,
+		RecordsDeleted: deleted,
+		Message:        fmt.Sprintf("Deleted %d execution records for %s/%s", deleted, namespace, name),
+	})
+}
+
+// GetStorageStats handles GET /api/v1/admin/storage-stats
+func (h *Handlers) GetStorageStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Store not configured")
+		return
+	}
+
+	count, err := h.store.GetExecutionCount(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	storageType := "unknown"
+	if h.config != nil {
+		storageType = h.config.Storage.Type
+	}
+
+	healthy := h.store.Health(ctx) == nil
+
+	writeJSON(w, http.StatusOK, StorageStatsResponse{
+		ExecutionCount:    count,
+		StorageType:       storageType,
+		Healthy:           healthy,
+		RetentionDays:     h.config.HistoryRetention.DefaultDays,
+		LogStorageEnabled: h.config.Storage.LogStorageEnabled,
+	})
+}
+
+// PruneRequest represents a prune request body
+type PruneRequest struct {
+	OlderThanDays int  `json:"olderThanDays"`
+	DryRun        bool `json:"dryRun"`
+	PruneLogsOnly bool `json:"pruneLogsOnly"`
+}
+
+// TriggerPrune handles POST /api/v1/admin/prune
+func (h *Handlers) TriggerPrune(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Store not configured")
+		return
+	}
+
+	// Parse request body
+	var req PruneRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Default to retention config
+		if h.config != nil {
+			req.OlderThanDays = h.config.HistoryRetention.DefaultDays
+		} else {
+			req.OlderThanDays = 30
+		}
+	}
+
+	if req.OlderThanDays <= 0 {
+		req.OlderThanDays = 30
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -req.OlderThanDays)
+
+	if req.DryRun {
+		writeJSON(w, http.StatusOK, PruneResponse{
+			Success:       true,
+			RecordsPruned: 0,
+			DryRun:        true,
+			Cutoff:        cutoff,
+			OlderThanDays: req.OlderThanDays,
+			Message:       "Dry run - no records deleted",
+		})
+		return
+	}
+
+	var count int64
+	var err error
+	if req.PruneLogsOnly {
+		count, err = h.store.PruneLogs(ctx, cutoff)
+	} else {
+		count, err = h.store.Prune(ctx, cutoff)
+	}
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	message := fmt.Sprintf("Pruned %d execution records older than %d days", count, req.OlderThanDays)
+	if req.PruneLogsOnly {
+		message = fmt.Sprintf("Pruned logs from %d execution records older than %d days", count, req.OlderThanDays)
+	}
+
+	writeJSON(w, http.StatusOK, PruneResponse{
+		Success:       true,
+		RecordsPruned: count,
+		DryRun:        false,
+		Cutoff:        cutoff,
+		OlderThanDays: req.OlderThanDays,
+		Message:       message,
+	})
+}
+
+// GetExecutionWithLogs handles GET /api/v1/cronjobs/:namespace/:name/executions/:id
+// Returns execution details including stored logs if available
+func (h *Handlers) GetExecutionWithLogs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	jobName := chi.URLParam(r, "jobName")
+
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Store not configured")
+		return
+	}
+
+	// Get executions and find the matching one
+	cronJobNN := types.NamespacedName{Namespace: namespace, Name: name}
+	since := time.Now().AddDate(0, 0, -90) // Look back 90 days
+	executions, err := h.store.GetExecutions(ctx, cronJobNN, since)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	// Find the execution by job name
+	for _, e := range executions {
+		if e.JobName == jobName {
+			status := statusFailed
+			if e.Succeeded {
+				status = statusSuccess
+			}
+
+			resp := ExecutionDetailResponse{
+				ID:               e.ID,
+				CronJobNamespace: e.CronJobNamespace,
+				CronJobName:      e.CronJobName,
+				CronJobUID:       e.CronJobUID,
+				JobName:          e.JobName,
+				Status:           status,
+				StartTime:        e.StartTime,
+				Duration:         e.Duration.String(),
+				ExitCode:         e.ExitCode,
+				Reason:           e.Reason,
+				IsRetry:          e.IsRetry,
+				RetryOf:          e.RetryOf,
+				StoredLogs:       e.Logs,
+				StoredEvents:     e.Events,
+			}
+			if !e.CompletionTime.IsZero() {
+				resp.CompletionTime = &e.CompletionTime
+			}
+
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
+	}
+
+	writeError(w, http.StatusNotFound, "NOT_FOUND", fmt.Sprintf("Execution %s not found", jobName))
 }

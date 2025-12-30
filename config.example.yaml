@@ -1,0 +1,112 @@
+# CronJob Guardian Configuration
+# Copy this file to config.yaml and modify as needed.
+# Configuration can also be set via CLI flags or environment variables.
+#
+# Precedence (highest to lowest):
+#   1. CLI flags (e.g., --log-level=debug)
+#   2. Environment variables (e.g., GUARDIAN_LOG_LEVEL=debug)
+#   3. Config file (this file)
+#   4. Defaults
+
+# Log level: debug, info, warn, error
+log-level: info
+
+# Scheduler configuration for background tasks
+scheduler:
+  # How often to check dead-man's switches
+  dead-man-switch-interval: 1m
+  # How often to recalculate SLA metrics
+  sla-recalculation-interval: 5m
+  # How often to check for stuck jobs
+  stuck-job-check-interval: 1m
+  # How often to prune old execution history
+  prune-interval: 1h
+
+# Storage backend configuration
+storage:
+  # Type: sqlite, postgres, mysql
+  type: sqlite
+
+  # SQLite configuration (used when type=sqlite)
+  sqlite:
+    path: /data/guardian.db
+
+  # PostgreSQL configuration (used when type=postgres)
+  # postgres:
+  #   host: postgres.default.svc.cluster.local
+  #   port: 5432
+  #   database: guardian
+  #   username: guardian
+  #   password: ""  # Use environment variable GUARDIAN_STORAGE_POSTGRES_PASSWORD instead
+  #   ssl-mode: require
+
+  # MySQL configuration (used when type=mysql)
+  # mysql:
+  #   host: mysql.default.svc.cluster.local
+  #   port: 3306
+  #   database: guardian
+  #   username: guardian
+  #   password: ""  # Use environment variable GUARDIAN_STORAGE_MYSQL_PASSWORD instead
+
+# History retention configuration
+history-retention:
+  # Default retention period in days
+  default-days: 30
+  # Maximum allowed retention period in days
+  max-days: 90
+
+# Rate limits to prevent alert/remediation storms
+rate-limits:
+  # Maximum alerts per minute across all channels
+  max-alerts-per-minute: 50
+  # Maximum remediations per hour across all monitors
+  max-remediations-per-hour: 100
+
+# Namespaces to ignore when watching CronJobs
+ignored-namespaces:
+  - kube-system
+  - kube-public
+  - kube-node-lease
+
+# REST API server configuration
+api:
+  # Enable the API server
+  enabled: true
+  # Port for API server
+  port: 8080
+
+# Metrics server configuration
+metrics:
+  # Bind address (use 0 to disable)
+  bind-address: "0"
+  # Enable HTTPS for metrics
+  secure: true
+  # Certificate directory (optional)
+  # cert-path: /etc/guardian/certs
+  # cert-name: tls.crt
+  # cert-key: tls.key
+
+# Health probes configuration
+probes:
+  # Bind address for health probes
+  bind-address: ":8081"
+
+# Leader election configuration (for HA deployments)
+leader-election:
+  # Enable leader election
+  enabled: false
+  # Lease duration
+  lease-duration: 15s
+  # Renew deadline
+  renew-deadline: 10s
+  # Retry period
+  retry-period: 2s
+
+# Webhook server configuration
+webhook:
+  # Certificate directory (optional)
+  # cert-path: /etc/guardian/webhook-certs
+  # cert-name: tls.crt
+  # cert-key: tls.key
+  # Enable HTTP/2 for webhook server (default: false for security)
+  enable-http2: false

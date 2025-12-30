@@ -83,14 +83,6 @@ spec:
                   enabled:
                     description: 'Enabled turns on alerting (default: true)'
                     type: boolean
-                  groupingKey:
-                    description: 'GroupingKey specifies how to group alerts (default:
-                      perCronJob)'
-                    enum:
-                    - perCronJob
-                    - perMonitor
-                    - perNamespace
-                    type: string
                   includeContext:
                     description: IncludeContext specifies what context to include
                       in alerts
@@ -133,12 +125,6 @@ spec:
                         - warning
                         - info
                         type: string
-                      dependencyFailed:
-                        enum:
-                        - critical
-                        - warning
-                        - info
-                        type: string
                       durationRegression:
                         enum:
                         - critical
@@ -175,6 +161,60 @@ spec:
                       this window (default: 1h)'
                     type: string
                 type: object
+              dataRetention:
+                description: DataRetention configures data lifecycle management
+                properties:
+                  logRetentionDays:
+                    description: |-
+                      LogRetentionDays specifies how long to keep stored logs
+                      If not set, uses the same value as retentionDays
+                    format: int32
+                    type: integer
+                  maxLogSizeKB:
+                    description: |-
+                      MaxLogSizeKB is the maximum log size to store per execution in KB
+                      If not set, uses global --storage.max-log-size-kb setting
+                    format: int32
+                    type: integer
+                  onCronJobDeletion:
+                    description: OnCronJobDeletion defines behavior when a monitored
+                      CronJob is deleted
+                    enum:
+                    - retain
+                    - purge
+                    - purge-after-days
+                    type: string
+                  onRecreation:
+                    description: |-
+                      OnRecreation defines behavior when a CronJob is recreated (detected via UID change)
+                      "retain" keeps old history, "reset" deletes history from the old UID
+                    enum:
+                    - retain
+                    - reset
+                    type: string
+                  purgeAfterDays:
+                    description: |-
+                      PurgeAfterDays specifies how long to wait before purging data
+                      Only used when onCronJobDeletion is "purge-after-days"
+                    format: int32
+                    type: integer
+                  retentionDays:
+                    description: |-
+                      RetentionDays overrides global retention for this monitor's execution history
+                      If not set, uses global history-retention.default-days setting
+                    format: int32
+                    type: integer
+                  storeEvents:
+                    description: |-
+                      StoreEvents enables storing Kubernetes events in the database
+                      If nil, uses global --storage.event-storage-enabled setting
+                    type: boolean
+                  storeLogs:
+                    description: |-
+                      StoreLogs enables storing job logs in the database
+                      If nil, uses global --storage.log-storage-enabled setting
+                    type: boolean
+                type: object
               deadManSwitch:
                 description: DeadManSwitch configures dead-man's switch alerting
                 properties:
@@ -207,30 +247,6 @@ spec:
                       Example: "25h" for daily jobs with 1h buffer
                     type: string
                 type: object
-              dependencies:
-                description: Dependencies lists upstream CronJobs this depends on
-                items:
-                  description: DependencyConfig defines an upstream CronJob dependency
-                  properties:
-                    alertOnFailure:
-                      description: 'AlertOnFailure sends alert when upstream fails
-                        (default: true)'
-                      type: boolean
-                    name:
-                      description: Name of the upstream CronJob
-                      type: string
-                    namespace:
-                      description: Namespace of the upstream CronJob (defaults to
-                        same namespace)
-                      type: string
-                    suppressDownstreamAlerts:
-                      description: 'SuppressDownstreamAlerts suppresses alerts for
-                        this job if upstream failed (default: true)'
-                      type: boolean
-                  required:
-                  - name
-                  type: object
-                type: array
               maintenanceWindows:
                 description: MaintenanceWindows defines scheduled maintenance periods
                 items:
@@ -543,11 +559,6 @@ spec:
                       description: LastRunDuration is the duration of the last completed
                         Job
                       type: string
-                    lastScheduledTime:
-                      description: LastScheduledTime is when the CronJob last created
-                        a Job
-                      format: date-time
-                      type: string
                     lastSuccessfulTime:
                       description: LastSuccessfulTime is when the last Job succeeded
                       format: date-time
@@ -559,9 +570,6 @@ spec:
                           description: Duration in seconds
                           type: number
                         failedRuns:
-                          format: int32
-                          type: integer
-                        missedRuns:
                           format: int32
                           type: integer
                         p50DurationSeconds:
@@ -578,16 +586,11 @@ spec:
                         totalRuns:
                           format: int32
                           type: integer
-                        windowDays:
-                          format: int32
-                          type: integer
                       required:
                       - failedRuns
-                      - missedRuns
                       - successRate
                       - successfulRuns
                       - totalRuns
-                      - windowDays
                       type: object
                     name:
                       description: Name of the CronJob

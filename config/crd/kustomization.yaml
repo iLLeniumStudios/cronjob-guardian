@@ -4,7 +4,6 @@
 resources:
 - bases/guardian.illenium.net_cronjobmonitors.yaml
 - bases/guardian.illenium.net_alertchannels.yaml
-- bases/guardian.illenium.net_guardianconfigs.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

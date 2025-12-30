@@ -21,13 +21,13 @@ import (
 	"fmt"
 	"text/template"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
@@ -36,6 +36,7 @@ import (
 // AlertChannelReconciler reconciles an AlertChannel object
 type AlertChannelReconciler struct {
 	client.Client
+	Log             logr.Logger // Required - must be injected
 	Scheme          *runtime.Scheme
 	AlertDispatcher alerting.Dispatcher
 }
@@ -47,42 +48,51 @@ type AlertChannelReconciler struct {
 
 // Reconcile handles AlertChannel reconciliation
 func (r *AlertChannelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+	log := r.Log.WithValues("channel", req.NamespacedName)
+	log.V(1).Info("reconciling AlertChannel")
 
 	// 1. Fetch the AlertChannel
 	channel := &guardianv1alpha1.AlertChannel{}
 	if err := r.Get(ctx, req.NamespacedName, channel); err != nil {
 		if client.IgnoreNotFound(err) == nil {
+			log.V(1).Info("channel not found, removing from dispatcher")
 			// CR deleted, remove from dispatcher
 			if r.AlertDispatcher != nil {
 				r.AlertDispatcher.RemoveChannel(req.Name)
 			}
 			return ctrl.Result{}, nil
 		}
+		log.Error(err, "failed to get channel")
 		return ctrl.Result{}, err
 	}
+	log.V(1).Info("fetched channel", "type", channel.Spec.Type)
 
 	// 2. Validate configuration
+	log.V(1).Info("validating configuration")
 	if err := r.validateConfig(ctx, channel); err != nil {
-		logger.Error(err, "validation failed")
+		log.Error(err, "validation failed")
 		channel.Status.Ready = false
 		channel.Status.LastTestError = err.Error()
 		r.setCondition(channel, "Ready", metav1.ConditionFalse, "ValidationFailed", err.Error())
 		if err := r.Status().Update(ctx, channel); err != nil {
+			log.Error(err, "failed to update status after validation error")
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
+	log.V(1).Info("configuration validated successfully")
 
 	// 3. Test connection if requested
 	if channel.Spec.TestOnSave {
+		log.V(1).Info("testing channel connection")
 		if err := r.testChannel(ctx, channel); err != nil {
-			logger.Error(err, "test failed")
+			log.Error(err, "channel test failed")
 			now := metav1.Now()
 			channel.Status.LastTestTime = &now
 			channel.Status.LastTestResult = "failed"
 			channel.Status.LastTestError = err.Error()
 		} else {
+			log.V(1).Info("channel test succeeded")
 			now := metav1.Now()
 			channel.Status.LastTestTime = &now
 			channel.Status.LastTestResult = "success"
@@ -92,23 +102,28 @@ func (r *AlertChannelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// 4. Register with dispatcher
 	if r.AlertDispatcher != nil {
+		log.V(1).Info("registering channel with dispatcher")
 		if err := r.AlertDispatcher.RegisterChannel(channel); err != nil {
-			logger.Error(err, "failed to register channel")
+			log.Error(err, "failed to register channel")
 			channel.Status.Ready = false
 			r.setCondition(channel, "Ready", metav1.ConditionFalse, "RegistrationFailed", err.Error())
 			if err := r.Status().Update(ctx, channel); err != nil {
+				log.Error(err, "failed to update status after registration error")
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{}, nil
 		}
+		log.V(1).Info("channel registered successfully")
 	}
 
 	// 5. Update status
 	channel.Status.Ready = true
 	r.setCondition(channel, "Ready", metav1.ConditionTrue, "Validated", "Channel is ready")
 	if err := r.Status().Update(ctx, channel); err != nil {
+		log.Error(err, "failed to update status")
 		return ctrl.Result{}, err
 	}
+	log.Info("reconciled successfully", "type", channel.Spec.Type, "ready", channel.Status.Ready)
 
 	return ctrl.Result{}, nil
 }
@@ -304,6 +319,7 @@ func (r *AlertChannelReconciler) setCondition(channel *guardianv1alpha1.AlertCha
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AlertChannelReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.Log.Info("setting up AlertChannel controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&guardianv1alpha1.AlertChannel{}).
 		Named("alertchannel").

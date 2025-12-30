@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -53,6 +54,7 @@ func (s *SQLiteStore) Init() error {
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
 			cronjob_ns      TEXT NOT NULL,
 			cronjob_name    TEXT NOT NULL,
+			cronjob_uid     TEXT,
 			job_name        TEXT NOT NULL,
 			scheduled_time  TEXT,
 			start_time      TEXT NOT NULL,
@@ -63,6 +65,8 @@ func (s *SQLiteStore) Init() error {
 			reason          TEXT,
 			is_retry        INTEGER DEFAULT 0,
 			retry_of        TEXT,
+			logs            TEXT,
+			events          TEXT,
 			created_at      TEXT DEFAULT CURRENT_TIMESTAMP
 		);
 
@@ -70,10 +74,66 @@ func (s *SQLiteStore) Init() error {
 			ON executions(cronjob_ns, cronjob_name, start_time DESC);
 		CREATE INDEX IF NOT EXISTS idx_start_time ON executions(start_time);
 		CREATE INDEX IF NOT EXISTS idx_job_name ON executions(job_name);
+		CREATE INDEX IF NOT EXISTS idx_cronjob_uid
+			ON executions(cronjob_ns, cronjob_name, cronjob_uid);
+
+		CREATE TABLE IF NOT EXISTS alert_history (
+			id               INTEGER PRIMARY KEY AUTOINCREMENT,
+			alert_type       TEXT NOT NULL,
+			severity         TEXT NOT NULL,
+			title            TEXT NOT NULL,
+			message          TEXT,
+			cronjob_ns       TEXT,
+			cronjob_name     TEXT,
+			monitor_ns       TEXT,
+			monitor_name     TEXT,
+			channels_notified TEXT,
+			occurred_at      TEXT NOT NULL,
+			resolved_at      TEXT
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_alert_occurred
+			ON alert_history(occurred_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_alert_cronjob
+			ON alert_history(cronjob_ns, cronjob_name);
+		CREATE INDEX IF NOT EXISTS idx_alert_severity
+			ON alert_history(severity);
 	`,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// Run migrations for existing databases
+	if err := s.migrate(); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
+}
+
+// migrate adds new columns to existing databases
+func (s *SQLiteStore) migrate() error {
+	// Check if cronjob_uid column exists
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('executions') WHERE name='cronjob_uid'`).Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		// Add new columns
+		migrations := []string{
+			`ALTER TABLE executions ADD COLUMN cronjob_uid TEXT`,
+			`ALTER TABLE executions ADD COLUMN logs TEXT`,
+			`ALTER TABLE executions ADD COLUMN events TEXT`,
+			`CREATE INDEX IF NOT EXISTS idx_cronjob_uid ON executions(cronjob_ns, cronjob_name, cronjob_uid)`,
+		}
+		for _, m := range migrations {
+			if _, err := s.db.Exec(m); err != nil {
+				return fmt.Errorf("migration failed: %w", err)
+			}
+		}
 	}
 
 	return nil
@@ -92,13 +152,14 @@ func (s *SQLiteStore) RecordExecution(ctx context.Context, exec Execution) error
 	_, err := s.db.ExecContext(
 		ctx, `
 		INSERT INTO executions (
-			cronjob_ns, cronjob_name, job_name, scheduled_time, start_time,
+			cronjob_ns, cronjob_name, cronjob_uid, job_name, scheduled_time, start_time,
 			completion_time, duration_secs, succeeded, exit_code, reason,
-			is_retry, retry_of
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			is_retry, retry_of, logs, events
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		exec.CronJobNamespace,
 		exec.CronJobName,
+		nullString(exec.CronJobUID),
 		exec.JobName,
 		formatTime(exec.ScheduledTime),
 		exec.StartTime.Format(time.RFC3339),
@@ -109,6 +170,8 @@ func (s *SQLiteStore) RecordExecution(ctx context.Context, exec Execution) error
 		exec.Reason,
 		boolToInt(exec.IsRetry),
 		exec.RetryOf,
+		nullString(exec.Logs),
+		nullString(exec.Events),
 	)
 	return err
 }
@@ -117,9 +180,9 @@ func (s *SQLiteStore) RecordExecution(ctx context.Context, exec Execution) error
 func (s *SQLiteStore) GetExecutions(ctx context.Context, cronJob types.NamespacedName, since time.Time) ([]Execution, error) {
 	rows, err := s.db.QueryContext(
 		ctx, `
-		SELECT id, cronjob_ns, cronjob_name, job_name, scheduled_time, start_time,
+		SELECT id, cronjob_ns, cronjob_name, cronjob_uid, job_name, scheduled_time, start_time,
 			   completion_time, duration_secs, succeeded, exit_code, reason,
-			   is_retry, retry_of, created_at
+			   is_retry, retry_of, logs, events, created_at
 		FROM executions
 		WHERE cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?
 		ORDER BY start_time DESC
@@ -139,9 +202,9 @@ func (s *SQLiteStore) GetExecutions(ctx context.Context, cronJob types.Namespace
 func (s *SQLiteStore) GetLastExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error) {
 	row := s.db.QueryRowContext(
 		ctx, `
-		SELECT id, cronjob_ns, cronjob_name, job_name, scheduled_time, start_time,
+		SELECT id, cronjob_ns, cronjob_name, cronjob_uid, job_name, scheduled_time, start_time,
 			   completion_time, duration_secs, succeeded, exit_code, reason,
-			   is_retry, retry_of, created_at
+			   is_retry, retry_of, logs, events, created_at
 		FROM executions
 		WHERE cronjob_ns = ? AND cronjob_name = ?
 		ORDER BY start_time DESC
@@ -156,9 +219,9 @@ func (s *SQLiteStore) GetLastExecution(ctx context.Context, cronJob types.Namesp
 func (s *SQLiteStore) GetLastSuccessfulExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error) {
 	row := s.db.QueryRowContext(
 		ctx, `
-		SELECT id, cronjob_ns, cronjob_name, job_name, scheduled_time, start_time,
+		SELECT id, cronjob_ns, cronjob_name, cronjob_uid, job_name, scheduled_time, start_time,
 			   completion_time, duration_secs, succeeded, exit_code, reason,
-			   is_retry, retry_of, created_at
+			   is_retry, retry_of, logs, events, created_at
 		FROM executions
 		WHERE cronjob_ns = ? AND cronjob_name = ? AND succeeded = 1
 		ORDER BY start_time DESC
@@ -333,16 +396,17 @@ func (s *SQLiteStore) scanExecutions(rows *sql.Rows) ([]Execution, error) {
 // scanExecution scans a single execution row
 func (s *SQLiteStore) scanExecution(row *sql.Row) (*Execution, error) {
 	var exec Execution
-	var scheduledTime, startTime, completionTime, createdAt sql.NullString
+	var cronJobUID, scheduledTime, startTime, completionTime, createdAt sql.NullString
 	var durationSecs sql.NullFloat64
 	var succeeded, isRetry int
 	var exitCode sql.NullInt32
-	var reason, retryOf sql.NullString
+	var reason, retryOf, logs, events sql.NullString
 
 	err := row.Scan(
 		&exec.ID,
 		&exec.CronJobNamespace,
 		&exec.CronJobName,
+		&cronJobUID,
 		&exec.JobName,
 		&scheduledTime,
 		&startTime,
@@ -353,6 +417,8 @@ func (s *SQLiteStore) scanExecution(row *sql.Row) (*Execution, error) {
 		&reason,
 		&isRetry,
 		&retryOf,
+		&logs,
+		&events,
 		&createdAt,
 	)
 	if err == sql.ErrNoRows {
@@ -362,6 +428,9 @@ func (s *SQLiteStore) scanExecution(row *sql.Row) (*Execution, error) {
 		return nil, err
 	}
 
+	if cronJobUID.Valid {
+		exec.CronJobUID = cronJobUID.String
+	}
 	if scheduledTime.Valid {
 		t, _ := time.Parse(time.RFC3339, scheduledTime.String)
 		exec.ScheduledTime = &t
@@ -385,6 +454,12 @@ func (s *SQLiteStore) scanExecution(row *sql.Row) (*Execution, error) {
 	exec.IsRetry = isRetry == 1
 	if retryOf.Valid {
 		exec.RetryOf = retryOf.String
+	}
+	if logs.Valid {
+		exec.Logs = logs.String
+	}
+	if events.Valid {
+		exec.Events = events.String
 	}
 	if createdAt.Valid {
 		exec.CreatedAt, _ = time.Parse(time.RFC3339, createdAt.String)
@@ -396,16 +471,17 @@ func (s *SQLiteStore) scanExecution(row *sql.Row) (*Execution, error) {
 // scanExecutionRow scans a single row from a Rows result
 func (s *SQLiteStore) scanExecutionRow(rows *sql.Rows) (*Execution, error) {
 	var exec Execution
-	var scheduledTime, startTime, completionTime, createdAt sql.NullString
+	var cronJobUID, scheduledTime, startTime, completionTime, createdAt sql.NullString
 	var durationSecs sql.NullFloat64
 	var succeeded, isRetry int
 	var exitCode sql.NullInt32
-	var reason, retryOf sql.NullString
+	var reason, retryOf, logs, events sql.NullString
 
 	err := rows.Scan(
 		&exec.ID,
 		&exec.CronJobNamespace,
 		&exec.CronJobName,
+		&cronJobUID,
 		&exec.JobName,
 		&scheduledTime,
 		&startTime,
@@ -416,12 +492,17 @@ func (s *SQLiteStore) scanExecutionRow(rows *sql.Rows) (*Execution, error) {
 		&reason,
 		&isRetry,
 		&retryOf,
+		&logs,
+		&events,
 		&createdAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	if cronJobUID.Valid {
+		exec.CronJobUID = cronJobUID.String
+	}
 	if scheduledTime.Valid {
 		t, _ := time.Parse(time.RFC3339, scheduledTime.String)
 		exec.ScheduledTime = &t
@@ -445,6 +526,12 @@ func (s *SQLiteStore) scanExecutionRow(rows *sql.Rows) (*Execution, error) {
 	exec.IsRetry = isRetry == 1
 	if retryOf.Valid {
 		exec.RetryOf = retryOf.String
+	}
+	if logs.Valid {
+		exec.Logs = logs.String
+	}
+	if events.Valid {
+		exec.Events = events.String
 	}
 	if createdAt.Valid {
 		exec.CreatedAt, _ = time.Parse(time.RFC3339, createdAt.String)
@@ -476,4 +563,292 @@ func formatTime(t *time.Time) string {
 		return ""
 	}
 	return t.Format(time.RFC3339)
+}
+
+func nullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
+// PruneLogs removes logs from executions older than the given time
+func (s *SQLiteStore) PruneLogs(ctx context.Context, olderThan time.Time) (int64, error) {
+	result, err := s.db.ExecContext(
+		ctx, `
+		UPDATE executions SET logs = NULL, events = NULL
+		WHERE start_time < ? AND (logs IS NOT NULL OR events IS NOT NULL)
+	`, olderThan.Format(time.RFC3339),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteExecutionsByCronJob deletes all executions for a specific CronJob
+func (s *SQLiteStore) DeleteExecutionsByCronJob(ctx context.Context, cronJob types.NamespacedName) (int64, error) {
+	result, err := s.db.ExecContext(
+		ctx, `
+		DELETE FROM executions WHERE cronjob_ns = ? AND cronjob_name = ?
+	`, cronJob.Namespace, cronJob.Name,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteExecutionsByUID deletes executions for a specific CronJob UID
+func (s *SQLiteStore) DeleteExecutionsByUID(ctx context.Context, cronJob types.NamespacedName, uid string) (int64, error) {
+	result, err := s.db.ExecContext(
+		ctx, `
+		DELETE FROM executions
+		WHERE cronjob_ns = ? AND cronjob_name = ? AND cronjob_uid = ?
+	`, cronJob.Namespace, cronJob.Name, uid,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// GetCronJobUIDs returns distinct UIDs for a CronJob
+func (s *SQLiteStore) GetCronJobUIDs(ctx context.Context, cronJob types.NamespacedName) ([]string, error) {
+	rows, err := s.db.QueryContext(
+		ctx, `
+		SELECT DISTINCT cronjob_uid FROM executions
+		WHERE cronjob_ns = ? AND cronjob_name = ? AND cronjob_uid IS NOT NULL
+		ORDER BY cronjob_uid
+	`, cronJob.Namespace, cronJob.Name,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var uids []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		uids = append(uids, uid)
+	}
+	return uids, rows.Err()
+}
+
+// GetExecutionCount returns the total number of executions
+func (s *SQLiteStore) GetExecutionCount(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM executions`).Scan(&count)
+	return count, err
+}
+
+// GetExecutionCountSince returns the count of executions since a given time
+func (s *SQLiteStore) GetExecutionCountSince(ctx context.Context, since time.Time) (int64, error) {
+	var count int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM executions WHERE start_time >= ?
+	`, since.Format(time.RFC3339)).Scan(&count)
+	return count, err
+}
+
+// StoreAlert stores an alert in history
+func (s *SQLiteStore) StoreAlert(ctx context.Context, alert AlertHistory) error {
+	channels := ""
+	if len(alert.ChannelsNotified) > 0 {
+		for i, ch := range alert.ChannelsNotified {
+			if i > 0 {
+				channels += ","
+			}
+			channels += ch
+		}
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO alert_history (
+			alert_type, severity, title, message,
+			cronjob_ns, cronjob_name, monitor_ns, monitor_name,
+			channels_notified, occurred_at, resolved_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		alert.Type,
+		alert.Severity,
+		alert.Title,
+		alert.Message,
+		nullString(alert.CronJobNamespace),
+		nullString(alert.CronJobName),
+		nullString(alert.MonitorNamespace),
+		nullString(alert.MonitorName),
+		nullString(channels),
+		alert.OccurredAt.Format(time.RFC3339),
+		formatTimePtr(alert.ResolvedAt),
+	)
+	return err
+}
+
+// ListAlertHistory returns alert history with pagination
+func (s *SQLiteStore) ListAlertHistory(ctx context.Context, query AlertHistoryQuery) ([]AlertHistory, int64, error) {
+	// Build query
+	baseQuery := "FROM alert_history WHERE 1=1"
+	args := []interface{}{}
+
+	if query.Since != nil {
+		baseQuery += " AND occurred_at >= ?"
+		args = append(args, query.Since.Format(time.RFC3339))
+	}
+	if query.Severity != "" {
+		baseQuery += " AND severity = ?"
+		args = append(args, query.Severity)
+	}
+
+	// Get total count
+	var total int64
+	countQuery := "SELECT COUNT(*) " + baseQuery
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Get paginated results
+	selectQuery := `
+		SELECT id, alert_type, severity, title, message,
+			   cronjob_ns, cronjob_name, monitor_ns, monitor_name,
+			   channels_notified, occurred_at, resolved_at
+	` + baseQuery + " ORDER BY occurred_at DESC"
+
+	if query.Limit > 0 {
+		selectQuery += fmt.Sprintf(" LIMIT %d", query.Limit)
+	}
+	if query.Offset > 0 {
+		selectQuery += fmt.Sprintf(" OFFSET %d", query.Offset)
+	}
+
+	rows, err := s.db.QueryContext(ctx, selectQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var alerts []AlertHistory
+	for rows.Next() {
+		var alert AlertHistory
+		var cronjobNs, cronjobName, monitorNs, monitorName, channels, occurredAt sql.NullString
+		var resolvedAt sql.NullString
+
+		err := rows.Scan(
+			&alert.ID,
+			&alert.Type,
+			&alert.Severity,
+			&alert.Title,
+			&alert.Message,
+			&cronjobNs,
+			&cronjobName,
+			&monitorNs,
+			&monitorName,
+			&channels,
+			&occurredAt,
+			&resolvedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		if cronjobNs.Valid {
+			alert.CronJobNamespace = cronjobNs.String
+		}
+		if cronjobName.Valid {
+			alert.CronJobName = cronjobName.String
+		}
+		if monitorNs.Valid {
+			alert.MonitorNamespace = monitorNs.String
+		}
+		if monitorName.Valid {
+			alert.MonitorName = monitorName.String
+		}
+		if channels.Valid && channels.String != "" {
+			alert.ChannelsNotified = strings.Split(channels.String, ",")
+		}
+		if occurredAt.Valid {
+			alert.OccurredAt, _ = time.Parse(time.RFC3339, occurredAt.String)
+		}
+		if resolvedAt.Valid {
+			t, _ := time.Parse(time.RFC3339, resolvedAt.String)
+			alert.ResolvedAt = &t
+		}
+
+		alerts = append(alerts, alert)
+	}
+
+	return alerts, total, rows.Err()
+}
+
+// ResolveAlert marks an alert as resolved
+func (s *SQLiteStore) ResolveAlert(ctx context.Context, alertType, cronJobNs, cronJobName string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE alert_history
+		SET resolved_at = ?
+		WHERE alert_type = ? AND cronjob_ns = ? AND cronjob_name = ? AND resolved_at IS NULL
+	`, time.Now().Format(time.RFC3339), alertType, cronJobNs, cronJobName)
+	return err
+}
+
+// GetChannelAlertStats returns alert statistics for all channels
+func (s *SQLiteStore) GetChannelAlertStats(ctx context.Context) (map[string]ChannelAlertStats, error) {
+	// Get all alerts and count by channel
+	// Since channels_notified is comma-separated, we need to process in application
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT channels_notified, occurred_at
+		FROM alert_history
+		WHERE channels_notified IS NOT NULL AND channels_notified != ''
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query alert_history: %w", err)
+	}
+	defer rows.Close()
+
+	stats := make(map[string]ChannelAlertStats)
+	cutoff24h := time.Now().Add(-24 * time.Hour)
+
+	for rows.Next() {
+		var channelsStr string
+		var occurredAtStr string
+		if err := rows.Scan(&channelsStr, &occurredAtStr); err != nil {
+			continue
+		}
+
+		occurredAt, err := time.Parse(time.RFC3339, occurredAtStr)
+		if err != nil {
+			continue
+		}
+
+		channels := strings.Split(channelsStr, ",")
+		for _, ch := range channels {
+			ch = strings.TrimSpace(ch)
+			if ch == "" {
+				continue
+			}
+			st := stats[ch]
+			st.ChannelName = ch
+			st.AlertsSentTotal++
+			if occurredAt.After(cutoff24h) {
+				st.AlertsSent24h++
+			}
+			stats[ch] = st
+		}
+	}
+
+	return stats, rows.Err()
+}
+
+// Helper function to format time pointer
+func formatTimePtr(t *time.Time) sql.NullString {
+	if t == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: t.Format(time.RFC3339), Valid: true}
 }

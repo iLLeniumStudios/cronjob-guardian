@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/remediation"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
@@ -53,24 +54,28 @@ func SetLogger(l *zerolog.Logger) {
 
 // Server is the REST API server
 type Server struct {
-	client            client.Client
-	clientset         *kubernetes.Clientset
-	store             store.Store
-	alertDispatcher   alerting.Dispatcher
-	remediationEngine remediation.Engine
-	startTime         time.Time
-	port              int
-	server            *http.Server
+	client              client.Client
+	clientset           *kubernetes.Clientset
+	store               store.Store
+	config              *config.Config
+	alertDispatcher     alerting.Dispatcher
+	remediationEngine   remediation.Engine
+	startTime           time.Time
+	port                int
+	server              *http.Server
+	leaderElectionCheck func() bool
 }
 
 // ServerOptions contains options for creating the server
 type ServerOptions struct {
-	Client            client.Client
-	Clientset         *kubernetes.Clientset
-	Store             store.Store
-	AlertDispatcher   alerting.Dispatcher
-	RemediationEngine remediation.Engine
-	Port              int
+	Client              client.Client
+	Clientset           *kubernetes.Clientset
+	Store               store.Store
+	Config              *config.Config
+	AlertDispatcher     alerting.Dispatcher
+	RemediationEngine   remediation.Engine
+	Port                int
+	LeaderElectionCheck func() bool
 }
 
 // NewServer creates a new API server
@@ -80,13 +85,15 @@ func NewServer(opts ServerOptions) *Server {
 	}
 
 	return &Server{
-		client:            opts.Client,
-		clientset:         opts.Clientset,
-		store:             opts.Store,
-		alertDispatcher:   opts.AlertDispatcher,
-		remediationEngine: opts.RemediationEngine,
-		startTime:         time.Now(),
-		port:              opts.Port,
+		client:              opts.Client,
+		clientset:           opts.Clientset,
+		store:               opts.Store,
+		config:              opts.Config,
+		alertDispatcher:     opts.AlertDispatcher,
+		remediationEngine:   opts.RemediationEngine,
+		startTime:           time.Now(),
+		port:                opts.Port,
+		leaderElectionCheck: opts.LeaderElectionCheck,
 	}
 }
 
@@ -188,7 +195,7 @@ func (s *Server) setupRoutes() chi.Router {
 	})
 
 	// Create handlers
-	h := NewHandlers(s.client, s.clientset, s.store, s.alertDispatcher, s.remediationEngine, s.startTime)
+	h := NewHandlers(s.client, s.clientset, s.store, s.config, s.alertDispatcher, s.remediationEngine, s.startTime, s.leaderElectionCheck)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -204,7 +211,9 @@ func (s *Server) setupRoutes() chi.Router {
 		r.Get("/cronjobs", h.ListCronJobs)
 		r.Get("/cronjobs/{namespace}/{name}", h.GetCronJob)
 		r.Get("/cronjobs/{namespace}/{name}/executions", h.GetExecutions)
+		r.Get("/cronjobs/{namespace}/{name}/executions/{jobName}", h.GetExecutionWithLogs)
 		r.Get("/cronjobs/{namespace}/{name}/executions/{jobName}/logs", h.GetLogs)
+		r.Delete("/cronjobs/{namespace}/{name}/history", h.DeleteCronJobHistory)
 		r.Post("/cronjobs/{namespace}/{name}/trigger", h.TriggerCronJob)
 		r.Post("/cronjobs/{namespace}/{name}/suspend", h.SuspendCronJob)
 		r.Post("/cronjobs/{namespace}/{name}/resume", h.ResumeCronJob)
@@ -220,6 +229,12 @@ func (s *Server) setupRoutes() chi.Router {
 
 		// Config
 		r.Get("/config", h.GetConfig)
+
+		// Admin endpoints
+		r.Route("/admin", func(r chi.Router) {
+			r.Get("/storage-stats", h.GetStorageStats)
+			r.Post("/prune", h.TriggerPrune)
+		})
 	})
 
 	// Serve UI
@@ -250,26 +265,53 @@ func (s *Server) serveUI(r chi.Router) {
 
 	// Serve static files
 	fileServer := http.FileServer(http.FS(uiFS))
-	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		// Try to serve the file
-		path := r.URL.Path
+	r.Get("/*", func(w http.ResponseWriter, req *http.Request) {
+		path := req.URL.Path
 		if path == "/" {
 			path = "/index.html"
 		}
 
-		// Check if file exists
-		f, err := uiFS.Open(path[1:]) // Remove leading /
-		if err != nil {
-			// Serve index.html for SPA routing
-			f, err = uiFS.Open("index.html")
-			if err != nil {
-				http.NotFound(w, r)
+		// Check if the file exists directly
+		f, err := uiFS.Open(strings.TrimPrefix(path, "/"))
+		if err == nil {
+			_ = f.Close()
+			fileServer.ServeHTTP(w, req)
+			return
+		}
+
+		// Try adding /index.html for directories (e.g., /cronjob -> /cronjob/index.html)
+		if !strings.HasSuffix(path, "/") {
+			indexPath := strings.TrimPrefix(path+"/index.html", "/")
+			f, err = uiFS.Open(indexPath)
+			if err == nil {
+				_ = f.Close()
+				req.URL.Path = path + "/index.html"
+				fileServer.ServeHTTP(w, req)
 				return
 			}
-			r.URL.Path = "/index.html"
 		}
-		_ = f.Close()
 
-		fileServer.ServeHTTP(w, r)
+		// For dynamic routes like /cronjob/namespace/name, serve the base page
+		// This handles SPA-style client-side routing
+		// We directly serve the file content to avoid http.FileServer redirect behavior
+		parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+		if len(parts) > 0 {
+			// Try to find a matching page for the base route
+			basePath := parts[0] + "/index.html"
+			if content, err := fs.ReadFile(uiFS, basePath); err == nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write(content)
+				return
+			}
+		}
+
+		// Fallback: serve root index.html directly
+		if content, err := fs.ReadFile(uiFS, "index.html"); err == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(content)
+			return
+		}
+
+		http.NotFound(w, req)
 	})
 }

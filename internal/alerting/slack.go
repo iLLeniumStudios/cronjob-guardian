@@ -172,5 +172,11 @@ var defaultSlackTemplate = `:{{ if eq .Severity "critical" }}red_circle{{ else i
 
 {{ .Message }}
 
+{{ if .Context.ExitCode }}*Exit Code:* {{ .Context.ExitCode }}{{ end }}
+{{ if .Context.Reason }}*Reason:* {{ .Context.Reason }}{{ end }}
 {{ if .Context.SuggestedFix }}:bulb: *Suggested Fix:* {{ .Context.SuggestedFix }}{{ end }}
+{{ if .Context.Logs }}
+*Recent Logs:*
+` + "```" + `{{ truncate .Context.Logs 1500 }}` + "```" + `
+{{ end }}
 `

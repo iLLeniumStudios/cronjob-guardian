@@ -92,13 +92,17 @@ help: ## Display this help.
 
 ##@ Development
 
+# GO_PATHS defines the Go source directories to scan (excludes ui/ which has 27k+ node_modules files)
+# Each path must be specified separately for controller-gen
+GO_PATHS := paths=./api/... paths=./cmd/... paths=./internal/...
+
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:allowDangerousTypes=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:allowDangerousTypes=true webhook $(GO_PATHS) output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" $(GO_PATHS)
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

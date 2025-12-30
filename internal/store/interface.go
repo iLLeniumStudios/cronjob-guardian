@@ -28,6 +28,7 @@ type Execution struct {
 	ID               int64
 	CronJobNamespace string
 	CronJobName      string
+	CronJobUID       string // UID of the CronJob for recreation detection
 	JobName          string
 	ScheduledTime    *time.Time
 	StartTime        time.Time
@@ -38,6 +39,8 @@ type Execution struct {
 	Reason           string
 	IsRetry          bool
 	RetryOf          string
+	Logs             string // Optional stored logs
+	Events           string // Optional stored events (JSON)
 	CreatedAt        time.Time
 }
 
@@ -53,6 +56,37 @@ type Metrics struct {
 	P50DurationSeconds float64
 	P95DurationSeconds float64
 	P99DurationSeconds float64
+}
+
+// AlertHistory represents a historical alert record
+type AlertHistory struct {
+	ID               int64
+	Type             string // JobFailed, MissedSchedule, DeadManTriggered, SLAViolation
+	Severity         string // critical, warning, info
+	Title            string
+	Message          string
+	CronJobNamespace string
+	CronJobName      string
+	MonitorNamespace string
+	MonitorName      string
+	ChannelsNotified []string
+	OccurredAt       time.Time
+	ResolvedAt       *time.Time
+}
+
+// AlertHistoryQuery contains parameters for querying alert history
+type AlertHistoryQuery struct {
+	Limit    int
+	Offset   int
+	Since    *time.Time
+	Severity string
+}
+
+// ChannelAlertStats contains alert statistics for a channel
+type ChannelAlertStats struct {
+	ChannelName     string
+	AlertsSent24h   int64
+	AlertsSentTotal int64
 }
 
 // Store defines the storage interface for execution history
@@ -86,6 +120,38 @@ type Store interface {
 
 	// Prune removes old execution records
 	Prune(ctx context.Context, olderThan time.Time) (int64, error)
+
+	// PruneLogs removes logs from executions older than the given time
+	// This allows separate retention for logs vs execution metadata
+	PruneLogs(ctx context.Context, olderThan time.Time) (int64, error)
+
+	// DeleteExecutionsByCronJob deletes all executions for a specific CronJob
+	DeleteExecutionsByCronJob(ctx context.Context, cronJob types.NamespacedName) (int64, error)
+
+	// DeleteExecutionsByUID deletes executions for a specific CronJob UID
+	// Used for cleaning up after CronJob recreation when onRecreation=reset
+	DeleteExecutionsByUID(ctx context.Context, cronJob types.NamespacedName, uid string) (int64, error)
+
+	// GetCronJobUIDs returns distinct UIDs for a CronJob (for recreation detection)
+	GetCronJobUIDs(ctx context.Context, cronJob types.NamespacedName) ([]string, error)
+
+	// GetExecutionCount returns the total number of executions in the store
+	GetExecutionCount(ctx context.Context) (int64, error)
+
+	// GetExecutionCountSince returns the count of executions since a given time
+	GetExecutionCountSince(ctx context.Context, since time.Time) (int64, error)
+
+	// StoreAlert stores an alert in history
+	StoreAlert(ctx context.Context, alert AlertHistory) error
+
+	// ListAlertHistory returns alert history with pagination
+	ListAlertHistory(ctx context.Context, query AlertHistoryQuery) ([]AlertHistory, int64, error)
+
+	// ResolveAlert marks an alert as resolved
+	ResolveAlert(ctx context.Context, alertType, cronJobNs, cronJobName string) error
+
+	// GetChannelAlertStats returns alert statistics for all channels
+	GetChannelAlertStats(ctx context.Context) (map[string]ChannelAlertStats, error)
 
 	// Health checks if the store is healthy
 	Health(ctx context.Context) error

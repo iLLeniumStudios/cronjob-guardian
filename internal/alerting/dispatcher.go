@@ -18,6 +18,7 @@ package alerting
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
 // Alert represents an alert to be dispatched
@@ -93,10 +96,13 @@ type Dispatcher interface {
 	ClearAlertsForMonitor(namespace, name string)
 
 	// SetGlobalRateLimits updates global rate limits
-	SetGlobalRateLimits(limits *v1alpha1.GlobalRateLimitsConfig)
+	SetGlobalRateLimits(limits config.RateLimitsConfig)
 
 	// GetAlertCount24h returns alerts sent in last 24h
 	GetAlertCount24h() int32
+
+	// SetStore sets the store for persisting alerts
+	SetStore(s store.Store)
 }
 
 type dispatcher struct {
@@ -108,6 +114,7 @@ type dispatcher struct {
 	alertMu       sync.RWMutex
 	alertCount24h int32
 	client        client.Client // K8s client for secret lookups
+	store         store.Store   // Store for persisting alerts
 }
 
 // NewDispatcher creates a new alert dispatcher
@@ -154,10 +161,13 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, config *v1alpha1
 
 	// Send to each channel
 	var errs []error
+	var channelNames []string
 	for _, ch := range targetChannels {
 		if err := ch.Send(ctx, alert); err != nil {
 			logger.Error(err, "failed to send alert", "channel", ch.Name())
 			errs = append(errs, err)
+		} else {
+			channelNames = append(channelNames, ch.Name())
 		}
 	}
 
@@ -167,6 +177,25 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, config *v1alpha1
 	d.activeAlerts[alert.Key] = alert
 	d.alertCount24h++
 	d.alertMu.Unlock()
+
+	// Store alert in history if store is available
+	if d.store != nil && len(channelNames) > 0 {
+		alertHistory := store.AlertHistory{
+			Type:             alert.Type,
+			Severity:         alert.Severity,
+			Title:            alert.Title,
+			Message:          alert.Message,
+			CronJobNamespace: alert.CronJob.Namespace,
+			CronJobName:      alert.CronJob.Name,
+			MonitorNamespace: alert.MonitorRef.Namespace,
+			MonitorName:      alert.MonitorRef.Name,
+			ChannelsNotified: channelNames,
+			OccurredAt:       alert.Timestamp,
+		}
+		if err := d.store.StoreAlert(ctx, alertHistory); err != nil {
+			logger.Error(err, "failed to store alert in history")
+		}
+	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("failed to send to %d channels", len(errs))
@@ -255,14 +284,10 @@ func (d *dispatcher) ClearAlertsForMonitor(namespace, name string) {
 }
 
 // SetGlobalRateLimits updates global rate limits
-func (d *dispatcher) SetGlobalRateLimits(limits *v1alpha1.GlobalRateLimitsConfig) {
-	if limits == nil {
-		return
-	}
-
-	maxPerMinute := int32(50)
-	if limits.MaxAlertsPerMinute != nil {
-		maxPerMinute = *limits.MaxAlertsPerMinute
+func (d *dispatcher) SetGlobalRateLimits(limits config.RateLimitsConfig) {
+	maxPerMinute := limits.MaxAlertsPerMinute
+	if maxPerMinute <= 0 {
+		maxPerMinute = 50
 	}
 
 	d.globalLimiter = rate.NewLimiter(rate.Limit(float64(maxPerMinute)/60.0), 10)
@@ -273,6 +298,11 @@ func (d *dispatcher) GetAlertCount24h() int32 {
 	d.alertMu.RLock()
 	defer d.alertMu.RUnlock()
 	return d.alertCount24h
+}
+
+// SetStore sets the store for persisting alerts
+func (d *dispatcher) SetStore(s store.Store) {
+	d.store = s
 }
 
 // resolveChannels resolves channel refs to actual channels
@@ -353,4 +383,12 @@ var templateFuncs = template.FuncMap{
 	},
 	"upper": strings.ToUpper,
 	"lower": strings.ToLower,
+	"jsonEscape": func(s string) string {
+		// Marshal to JSON string (includes quotes and escaping)
+		b, err := json.Marshal(s)
+		if err != nil {
+			return `""`
+		}
+		return string(b)
+	},
 }

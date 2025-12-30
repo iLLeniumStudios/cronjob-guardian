@@ -2,5 +2,4 @@
 resources:
 - guardian_v1alpha1_cronjobmonitor.yaml
 - guardian_v1alpha1_alertchannel.yaml
-- guardian_v1alpha1_guardianconfig.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

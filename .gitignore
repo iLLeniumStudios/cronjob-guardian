@@ -36,3 +36,8 @@ cmd/ui/out/*
 !cmd/ui/out/.gitkeep
 ui/.next
 ui/out
+
+config.yaml
+
+config/samples/testing
+/data

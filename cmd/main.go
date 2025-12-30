@@ -19,13 +19,13 @@ package main
 import (
 	"crypto/tls"
 	"embed"
-	"flag"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
+	"github.com/spf13/pflag"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -43,8 +43,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/api"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/controller"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/remediation"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/scheduler"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -65,39 +70,25 @@ func init() {
 
 // nolint:gocyclo
 func main() {
-	var metricsAddr string
-	var metricsCertPath, metricsCertName, metricsCertKey string
-	var webhookCertPath, webhookCertName, webhookCertKey string
-	var enableLeaderElection bool
-	var probeAddr string
-	var secureMetrics bool
-	var enableHTTP2 bool
-	var apiPort int
-	var logLevel string
-	var tlsOpts []func(*tls.Config)
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
-		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.IntVar(&apiPort, "api-port", 8080, "The port the API server listens on.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", true,
-		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
-	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
-		"The directory that contains the metrics server certificate.")
-	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
-	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
-		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	flag.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
-	flag.Parse()
+	// Set up pflags
+	flags := pflag.NewFlagSet("cronjob-guardian", pflag.ExitOnError)
+	config.BindFlags(flags)
 
-	// Set up zerolog
-	level, err := zerolog.ParseLevel(logLevel)
+	// Parse flags
+	if err := flags.Parse(os.Args[1:]); err != nil {
+		setupLog.Error(err, "failed to parse flags")
+		os.Exit(1)
+	}
+
+	// Load configuration
+	cfg, err := config.Load(flags)
+	if err != nil {
+		setupLog.Error(err, "failed to load configuration")
+		os.Exit(1)
+	}
+
+	// Set up zerolog with configured log level
+	level, err := zerolog.ParseLevel(cfg.LogLevel)
 	if err != nil {
 		level = zerolog.InfoLevel
 	}
@@ -109,8 +100,19 @@ func main() {
 	logger := zerologr.New(&zl)
 	ctrl.SetLogger(logger)
 
+	// Re-initialize setupLog with the configured logger
+	setupLog = ctrl.Log.WithName("setup")
+	if cfg.ConfigFileUsed() != "" {
+		setupLog.Info("configuration loaded", "file", cfg.ConfigFileUsed(), "level", cfg.LogLevel)
+	} else {
+		setupLog.Info("no config file found, using defaults and flags", "level", cfg.LogLevel)
+	}
+
 	// Share zerolog with API server for chi middleware
 	api.SetLogger(&zl)
+
+	// TLS options
+	var tlsOpts []func(*tls.Config)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -123,7 +125,7 @@ func main() {
 		c.NextProtos = []string{"http/1.1"}
 	}
 
-	if !enableHTTP2 {
+	if !cfg.Webhook.EnableHTTP2 {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
@@ -133,14 +135,16 @@ func main() {
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
+	if len(cfg.Webhook.CertPath) > 0 {
 		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+			"webhook-cert-path", cfg.Webhook.CertPath,
+			"webhook-cert-name", cfg.Webhook.CertName,
+			"webhook-cert-key", cfg.Webhook.CertKey)
 
 		var err error
 		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
+			filepath.Join(cfg.Webhook.CertPath, cfg.Webhook.CertName),
+			filepath.Join(cfg.Webhook.CertPath, cfg.Webhook.CertKey),
 		)
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
@@ -161,12 +165,12 @@ func main() {
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
-		BindAddress:   metricsAddr,
-		SecureServing: secureMetrics,
+		BindAddress:   cfg.Metrics.BindAddress,
+		SecureServing: cfg.Metrics.Secure,
 		TLSOpts:       tlsOpts,
 	}
 
-	if secureMetrics {
+	if cfg.Metrics.Secure {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
 		// These configurations ensure that only authorized users and service accounts
 		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
@@ -177,19 +181,16 @@ func main() {
 	// If the certificate is not specified, controller-runtime will automatically
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
 	// this setup is not recommended for production.
-	//
-	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
-	if len(metricsCertPath) > 0 {
+	if len(cfg.Metrics.CertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
-			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
+			"metrics-cert-path", cfg.Metrics.CertPath,
+			"metrics-cert-name", cfg.Metrics.CertName,
+			"metrics-cert-key", cfg.Metrics.CertKey)
 
 		var err error
 		metricsCertWatcher, err = certwatcher.New(
-			filepath.Join(metricsCertPath, metricsCertName),
-			filepath.Join(metricsCertPath, metricsCertKey),
+			filepath.Join(cfg.Metrics.CertPath, cfg.Metrics.CertName),
+			filepath.Join(cfg.Metrics.CertPath, cfg.Metrics.CertKey),
 		)
 		if err != nil {
 			setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
@@ -205,8 +206,8 @@ func main() {
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
+		HealthProbeBindAddress: cfg.Probes.BindAddress,
+		LeaderElection:         cfg.LeaderElection.Enabled,
 		LeaderElectionID:       "59ab3636.illenium.net",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
@@ -225,25 +226,104 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize the storage backend
+	var dataStore store.Store
+	switch cfg.Storage.Type {
+	case "sqlite":
+		dataStore = store.NewSQLiteStore(cfg.Storage.SQLite.Path)
+	case "postgres":
+		dataStore = store.NewPostgresStore(
+			cfg.Storage.PostgreSQL.Host,
+			int32(cfg.Storage.PostgreSQL.Port),
+			cfg.Storage.PostgreSQL.Database,
+			cfg.Storage.PostgreSQL.Username,
+			cfg.Storage.PostgreSQL.Password,
+			cfg.Storage.PostgreSQL.SSLMode,
+		)
+	case "mysql":
+		dataStore = store.NewMySQLStore(
+			cfg.Storage.MySQL.Host,
+			int32(cfg.Storage.MySQL.Port),
+			cfg.Storage.MySQL.Database,
+			cfg.Storage.MySQL.Username,
+			cfg.Storage.MySQL.Password,
+		)
+	default:
+		setupLog.Error(nil, "unsupported storage type", "type", cfg.Storage.Type)
+		os.Exit(1)
+	}
+
+	if err := dataStore.Init(); err != nil {
+		setupLog.Error(err, "unable to initialize store")
+		os.Exit(1)
+	}
+	defer dataStore.Close()
+	setupLog.Info("initialized store", "type", cfg.Storage.Type)
+
+	// Initialize and add history pruner to manager
+	historyPruner := scheduler.NewHistoryPruner(dataStore, cfg.HistoryRetention.DefaultDays)
+	historyPruner.SetInterval(cfg.Scheduler.PruneInterval)
+	if cfg.Storage.LogRetentionDays > 0 {
+		historyPruner.SetLogRetentionDays(cfg.Storage.LogRetentionDays)
+	}
+	if err := mgr.Add(historyPruner); err != nil {
+		setupLog.Error(err, "unable to add history pruner to manager")
+		os.Exit(1)
+	}
+	setupLog.Info("initialized history pruner",
+		"retentionDays", cfg.HistoryRetention.DefaultDays,
+		"logRetentionDays", cfg.Storage.LogRetentionDays,
+		"interval", cfg.Scheduler.PruneInterval)
+
+	// Create clientset for controllers that need raw API access
+	clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
+	if err != nil {
+		setupLog.Error(err, "unable to create clientset")
+		os.Exit(1)
+	}
+
+	// Create alert dispatcher and wire up the store
+	alertDispatcher := alerting.NewDispatcher(mgr.GetClient())
+	alertDispatcher.SetStore(dataStore)
+	setupLog.Info("initialized alert dispatcher")
+
+	// Create remediation engine
+	remediationEngine := remediation.NewEngine(mgr.GetClient())
+	setupLog.Info("initialized remediation engine")
+
 	if err := (&controller.CronJobMonitorReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:          mgr.GetClient(),
+		Log:             ctrl.Log.WithName("controllers").WithName("CronJobMonitor"),
+		Scheme:          mgr.GetScheme(),
+		Store:           dataStore,
+		Config:          cfg,
+		AlertDispatcher: alertDispatcher,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CronJobMonitor")
 		os.Exit(1)
 	}
 	if err := (&controller.AlertChannelReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:          mgr.GetClient(),
+		Log:             ctrl.Log.WithName("controllers").WithName("AlertChannel"),
+		Scheme:          mgr.GetScheme(),
+		AlertDispatcher: alertDispatcher,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AlertChannel")
 		os.Exit(1)
 	}
-	if err := (&controller.GuardianConfigReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+
+	// Job handler watches for Job completions to record executions
+	if err := (&controller.JobHandler{
+		Client:            mgr.GetClient(),
+		Log:               ctrl.Log.WithName("controllers").WithName("JobHandler"),
+		Scheme:            mgr.GetScheme(),
+		Clientset:         clientset,
+		Store:             dataStore,
+		Config:            cfg,
+		AlertDispatcher:   alertDispatcher,
+		RemediationEngine: remediationEngine,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "GuardianConfig")
+		setupLog.Error(err, "unable to create controller", "controller", "JobHandler")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -273,25 +353,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create clientset for API server
-	clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
-	if err != nil {
-		setupLog.Error(err, "unable to create clientset")
-		os.Exit(1)
-	}
-
 	// Set up API server with embedded UI assets
-	api.UIAssets = uiAssets
-	apiServer := api.NewServer(api.ServerOptions{
-		Client:    mgr.GetClient(),
-		Clientset: clientset,
-		Port:      apiPort,
-	})
+	if cfg.API.Enabled {
+		api.UIAssets = uiAssets
 
-	// Add API server to manager
-	if err := mgr.Add(apiServer); err != nil {
-		setupLog.Error(err, "unable to add API server to manager")
-		os.Exit(1)
+		// Create leader election check function
+		var leaderElectionCheck func() bool
+		if cfg.LeaderElection.Enabled {
+			elected := mgr.Elected()
+			leaderElectionCheck = func() bool {
+				select {
+				case <-elected:
+					return true
+				default:
+					return false
+				}
+			}
+		}
+
+		apiServer := api.NewServer(api.ServerOptions{
+			Client:              mgr.GetClient(),
+			Clientset:           clientset,
+			Store:               dataStore,
+			Config:              cfg,
+			AlertDispatcher:     alertDispatcher,
+			RemediationEngine:   remediationEngine,
+			Port:                cfg.API.Port,
+			LeaderElectionCheck: leaderElectionCheck,
+		})
+
+		// Add API server to manager
+		if err := mgr.Add(apiServer); err != nil {
+			setupLog.Error(err, "unable to add API server to manager")
+			os.Exit(1)
+		}
 	}
 
 	setupLog.Info("starting manager")

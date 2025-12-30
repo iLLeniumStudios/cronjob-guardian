@@ -18,9 +18,13 @@ package api
 
 import (
 	"time"
-
-	"k8s.io/apimachinery/pkg/types"
 )
+
+// NamespacedRef is a reference to a namespaced resource with proper JSON tags
+type NamespacedRef struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
 
 // HealthResponse is the response for GET /api/v1/health
 type HealthResponse struct {
@@ -74,34 +78,34 @@ type CronJobListResponse struct {
 
 // CronJobListItem is a single CronJob in the list
 type CronJobListItem struct {
-	Name            string                `json:"name"`
-	Namespace       string                `json:"namespace"`
-	Status          string                `json:"status"`
-	Schedule        string                `json:"schedule"`
-	Timezone        string                `json:"timezone,omitempty"`
-	Suspended       bool                  `json:"suspended"`
-	SuccessRate     float64               `json:"successRate"`
-	LastSuccess     *time.Time            `json:"lastSuccess,omitempty"`
-	LastRunDuration string                `json:"lastRunDuration,omitempty"`
-	NextRun         *time.Time            `json:"nextRun,omitempty"`
-	ActiveAlerts    int                   `json:"activeAlerts"`
-	MonitorRef      *types.NamespacedName `json:"monitorRef,omitempty"`
+	Name            string         `json:"name"`
+	Namespace       string         `json:"namespace"`
+	Status          string         `json:"status"`
+	Schedule        string         `json:"schedule"`
+	Timezone        string         `json:"timezone,omitempty"`
+	Suspended       bool           `json:"suspended"`
+	SuccessRate     float64        `json:"successRate"`
+	LastSuccess     *time.Time     `json:"lastSuccess,omitempty"`
+	LastRunDuration string         `json:"lastRunDuration,omitempty"`
+	NextRun         *time.Time     `json:"nextRun,omitempty"`
+	ActiveAlerts    int            `json:"activeAlerts"`
+	MonitorRef      *NamespacedRef `json:"monitorRef,omitempty"`
 }
 
 // CronJobDetailResponse is the response for GET /api/v1/cronjobs/:namespace/:name
 type CronJobDetailResponse struct {
-	Name            string                `json:"name"`
-	Namespace       string                `json:"namespace"`
-	Status          string                `json:"status"`
-	Schedule        string                `json:"schedule"`
-	Timezone        string                `json:"timezone,omitempty"`
-	Suspended       bool                  `json:"suspended"`
-	MonitorRef      *types.NamespacedName `json:"monitorRef,omitempty"`
-	Metrics         *CronJobMetrics       `json:"metrics,omitempty"`
-	LastExecution   *ExecutionSummary     `json:"lastExecution,omitempty"`
-	NextRun         *time.Time            `json:"nextRun,omitempty"`
-	ActiveAlerts    []AlertItem           `json:"activeAlerts"`
-	LastRemediation *RemediationItem      `json:"lastRemediation,omitempty"`
+	Name            string            `json:"name"`
+	Namespace       string            `json:"namespace"`
+	Status          string            `json:"status"`
+	Schedule        string            `json:"schedule"`
+	Timezone        string            `json:"timezone,omitempty"`
+	Suspended       bool              `json:"suspended"`
+	MonitorRef      *NamespacedRef    `json:"monitorRef,omitempty"`
+	Metrics         *CronJobMetrics   `json:"metrics,omitempty"`
+	LastExecution   *ExecutionSummary `json:"lastExecution,omitempty"`
+	NextRun         *time.Time        `json:"nextRun,omitempty"`
+	ActiveAlerts    []AlertItem       `json:"activeAlerts"`
+	LastRemediation *RemediationItem  `json:"lastRemediation,omitempty"`
 }
 
 // CronJobMetrics contains SLA metrics
@@ -171,15 +175,15 @@ type AlertListResponse struct {
 
 // AlertItem is a single alert
 type AlertItem struct {
-	ID           string                `json:"id"`
-	Type         string                `json:"type"`
-	Severity     string                `json:"severity"`
-	Title        string                `json:"title"`
-	Message      string                `json:"message"`
-	CronJob      *types.NamespacedName `json:"cronjob,omitempty"`
-	Monitor      *types.NamespacedName `json:"monitor,omitempty"`
-	Since        time.Time             `json:"since"`
-	LastNotified *time.Time            `json:"lastNotified,omitempty"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Severity     string         `json:"severity"`
+	Title        string         `json:"title"`
+	Message      string         `json:"message"`
+	CronJob      *NamespacedRef `json:"cronjob,omitempty"`
+	Monitor      *NamespacedRef `json:"monitor,omitempty"`
+	Since        time.Time      `json:"since"`
+	LastNotified *time.Time     `json:"lastNotified,omitempty"`
 }
 
 // AlertHistoryResponse is the response for GET /api/v1/alerts/history
@@ -190,15 +194,15 @@ type AlertHistoryResponse struct {
 
 // AlertHistoryItem is a single historical alert
 type AlertHistoryItem struct {
-	ID               string                `json:"id"`
-	Type             string                `json:"type"`
-	Severity         string                `json:"severity"`
-	Title            string                `json:"title"`
-	Message          string                `json:"message"`
-	CronJob          *types.NamespacedName `json:"cronjob,omitempty"`
-	OccurredAt       time.Time             `json:"occurredAt"`
-	ResolvedAt       *time.Time            `json:"resolvedAt,omitempty"`
-	ChannelsNotified []string              `json:"channelsNotified"`
+	ID               string         `json:"id"`
+	Type             string         `json:"type"`
+	Severity         string         `json:"severity"`
+	Title            string         `json:"title"`
+	Message          string         `json:"message"`
+	CronJob          *NamespacedRef `json:"cronjob,omitempty"`
+	OccurredAt       time.Time      `json:"occurredAt"`
+	ResolvedAt       *time.Time     `json:"resolvedAt,omitempty"`
+	ChannelsNotified []string       `json:"channelsNotified"`
 }
 
 // ChannelListResponse is the response for GET /api/v1/channels
@@ -268,4 +272,49 @@ type ErrorDetail struct {
 	Code    string         `json:"code"`
 	Message string         `json:"message"`
 	Details map[string]any `json:"details,omitempty"`
+}
+
+// DeleteHistoryResponse is the response for DELETE /api/v1/cronjobs/:namespace/:name/history
+type DeleteHistoryResponse struct {
+	Success        bool   `json:"success"`
+	RecordsDeleted int64  `json:"recordsDeleted"`
+	Message        string `json:"message"`
+}
+
+// StorageStatsResponse is the response for GET /api/v1/admin/storage-stats
+type StorageStatsResponse struct {
+	ExecutionCount    int64  `json:"executionCount"`
+	StorageType       string `json:"storageType"`
+	Healthy           bool   `json:"healthy"`
+	RetentionDays     int    `json:"retentionDays"`
+	LogStorageEnabled bool   `json:"logStorageEnabled"`
+}
+
+// PruneResponse is the response for POST /api/v1/admin/prune
+type PruneResponse struct {
+	Success       bool      `json:"success"`
+	RecordsPruned int64     `json:"recordsPruned"`
+	DryRun        bool      `json:"dryRun"`
+	Cutoff        time.Time `json:"cutoff"`
+	OlderThanDays int       `json:"olderThanDays"`
+	Message       string    `json:"message"`
+}
+
+// ExecutionDetailResponse is the response for GET /api/v1/cronjobs/:namespace/:name/executions/:jobName
+type ExecutionDetailResponse struct {
+	ID               int64      `json:"id"`
+	CronJobNamespace string     `json:"cronJobNamespace"`
+	CronJobName      string     `json:"cronJobName"`
+	CronJobUID       string     `json:"cronJobUID,omitempty"`
+	JobName          string     `json:"jobName"`
+	Status           string     `json:"status"`
+	StartTime        time.Time  `json:"startTime"`
+	CompletionTime   *time.Time `json:"completionTime,omitempty"`
+	Duration         string     `json:"duration"`
+	ExitCode         int32      `json:"exitCode"`
+	Reason           string     `json:"reason,omitempty"`
+	IsRetry          bool       `json:"isRetry"`
+	RetryOf          string     `json:"retryOf,omitempty"`
+	StoredLogs       string     `json:"storedLogs,omitempty"`
+	StoredEvents     string     `json:"storedEvents,omitempty"`
 }

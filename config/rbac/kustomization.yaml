@@ -22,9 +22,6 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the cronjob-guardian itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
-- guardianconfig_admin_role.yaml
-- guardianconfig_editor_role.yaml
-- guardianconfig_viewer_role.yaml
 - alertchannel_admin_role.yaml
 - alertchannel_editor_role.yaml
 - alertchannel_viewer_role.yaml

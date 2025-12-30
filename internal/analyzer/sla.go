@@ -96,7 +96,6 @@ func (a *analyzer) GetMetrics(ctx context.Context, cronJob types.NamespacedName,
 
 	return &v1alpha1.CronJobMetrics{
 		SuccessRate:        metrics.SuccessRate,
-		WindowDays:         metrics.WindowDays,
 		TotalRuns:          metrics.TotalRuns,
 		SuccessfulRuns:     metrics.SuccessfulRuns,
 		FailedRuns:         metrics.FailedRuns,

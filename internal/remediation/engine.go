@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
 )
 
 // Engine handles auto-remediation actions
@@ -45,7 +46,7 @@ type Engine interface {
 	CanRemediate(ctx context.Context, monitor *v1alpha1.CronJobMonitor, action string) (bool, string)
 
 	// SetGlobalRateLimits updates global rate limits
-	SetGlobalRateLimits(limits *v1alpha1.GlobalRateLimitsConfig)
+	SetGlobalRateLimits(limits config.RateLimitsConfig)
 
 	// GetRemediationCount24h returns remediations in last 24h
 	GetRemediationCount24h() int32
@@ -293,14 +294,10 @@ func (e *engine) CanRemediate(ctx context.Context, monitor *v1alpha1.CronJobMoni
 	return true, ""
 }
 
-func (e *engine) SetGlobalRateLimits(limits *v1alpha1.GlobalRateLimitsConfig) {
-	if limits == nil {
-		return
-	}
-
-	maxPerHour := int32(100)
-	if limits.MaxRemediationsPerHour != nil {
-		maxPerHour = *limits.MaxRemediationsPerHour
+func (e *engine) SetGlobalRateLimits(limits config.RateLimitsConfig) {
+	maxPerHour := limits.MaxRemediationsPerHour
+	if maxPerHour <= 0 {
+		maxPerHour = 100
 	}
 
 	e.rateLimiter = rate.NewLimiter(rate.Limit(float64(maxPerHour)/3600), 10)

@@ -29,13 +29,4 @@ resources:
   kind: AlertChannel
   path: github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1
   version: v1alpha1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: illenium.net
-  group: guardian
-  kind: GuardianConfig
-  path: github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1
-  version: v1alpha1
 version: "3"

@@ -34,10 +34,6 @@ type CronJobMonitorSpec struct {
 	// +optional
 	SLA *SLAConfig `json:"sla,omitempty"`
 
-	// Dependencies lists upstream CronJobs this depends on
-	// +optional
-	Dependencies []DependencyConfig `json:"dependencies,omitempty"`
-
 	// SuspendedHandling configures behavior for suspended CronJobs
 	// +optional
 	SuspendedHandling *SuspendedHandlingConfig `json:"suspendedHandling,omitempty"`
@@ -53,6 +49,10 @@ type CronJobMonitorSpec struct {
 	// Alerting configures alert channels and behavior
 	// +optional
 	Alerting *AlertingConfig `json:"alerting,omitempty"`
+
+	// DataRetention configures data lifecycle management
+	// +optional
+	DataRetention *DataRetentionConfig `json:"dataRetention,omitempty"`
 
 	// Timezone for schedule interpretation (default: UTC)
 	// +optional
@@ -133,24 +133,6 @@ type SLAConfig struct {
 	// DurationBaselineWindowDays for baseline calculation (default: 14)
 	// +optional
 	DurationBaselineWindowDays *int32 `json:"durationBaselineWindowDays,omitempty"`
-}
-
-// DependencyConfig defines an upstream CronJob dependency
-type DependencyConfig struct {
-	// Name of the upstream CronJob
-	Name string `json:"name"`
-
-	// Namespace of the upstream CronJob (defaults to same namespace)
-	// +optional
-	Namespace string `json:"namespace,omitempty"`
-
-	// AlertOnFailure sends alert when upstream fails (default: true)
-	// +optional
-	AlertOnFailure *bool `json:"alertOnFailure,omitempty"`
-
-	// SuppressDownstreamAlerts suppresses alerts for this job if upstream failed (default: true)
-	// +optional
-	SuppressDownstreamAlerts *bool `json:"suppressDownstreamAlerts,omitempty"`
 }
 
 // SuspendedHandlingConfig configures behavior for suspended CronJobs
@@ -262,11 +244,6 @@ type AlertingConfig struct {
 	// +optional
 	SuppressDuplicatesFor *metav1.Duration `json:"suppressDuplicatesFor,omitempty"`
 
-	// GroupingKey specifies how to group alerts (default: perCronJob)
-	// +kubebuilder:validation:Enum=perCronJob;perMonitor;perNamespace
-	// +optional
-	GroupingKey string `json:"groupingKey,omitempty"`
-
 	// SeverityOverrides customizes severity for alert types
 	// +optional
 	SeverityOverrides *SeverityOverrides `json:"severityOverrides,omitempty"`
@@ -333,9 +310,50 @@ type SeverityOverrides struct {
 	// +kubebuilder:validation:Enum=critical;warning;info
 	// +optional
 	StuckJob string `json:"stuckJob,omitempty"`
-	// +kubebuilder:validation:Enum=critical;warning;info
+}
+
+// DataRetentionConfig configures data lifecycle management for this monitor
+type DataRetentionConfig struct {
+	// RetentionDays overrides global retention for this monitor's execution history
+	// If not set, uses global history-retention.default-days setting
 	// +optional
-	DependencyFailed string `json:"dependencyFailed,omitempty"`
+	RetentionDays *int32 `json:"retentionDays,omitempty"`
+
+	// OnCronJobDeletion defines behavior when a monitored CronJob is deleted
+	// +kubebuilder:validation:Enum=retain;purge;purge-after-days
+	// +optional
+	OnCronJobDeletion string `json:"onCronJobDeletion,omitempty"`
+
+	// PurgeAfterDays specifies how long to wait before purging data
+	// Only used when onCronJobDeletion is "purge-after-days"
+	// +optional
+	PurgeAfterDays *int32 `json:"purgeAfterDays,omitempty"`
+
+	// OnRecreation defines behavior when a CronJob is recreated (detected via UID change)
+	// "retain" keeps old history, "reset" deletes history from the old UID
+	// +kubebuilder:validation:Enum=retain;reset
+	// +optional
+	OnRecreation string `json:"onRecreation,omitempty"`
+
+	// StoreLogs enables storing job logs in the database
+	// If nil, uses global --storage.log-storage-enabled setting
+	// +optional
+	StoreLogs *bool `json:"storeLogs,omitempty"`
+
+	// LogRetentionDays specifies how long to keep stored logs
+	// If not set, uses the same value as retentionDays
+	// +optional
+	LogRetentionDays *int32 `json:"logRetentionDays,omitempty"`
+
+	// MaxLogSizeKB is the maximum log size to store per execution in KB
+	// If not set, uses global --storage.max-log-size-kb setting
+	// +optional
+	MaxLogSizeKB *int32 `json:"maxLogSizeKB,omitempty"`
+
+	// StoreEvents enables storing Kubernetes events in the database
+	// If nil, uses global --storage.event-storage-enabled setting
+	// +optional
+	StoreEvents *bool `json:"storeEvents,omitempty"`
 }
 
 // CronJobMonitorStatus defines the observed state of CronJobMonitor
@@ -391,10 +409,6 @@ type CronJobStatus struct {
 	// Suspended indicates if the CronJob is suspended
 	Suspended bool `json:"suspended"`
 
-	// LastScheduledTime is when the CronJob last created a Job
-	// +optional
-	LastScheduledTime *metav1.Time `json:"lastScheduledTime,omitempty"`
-
 	// LastSuccessfulTime is when the last Job succeeded
 	// +optional
 	LastSuccessfulTime *metav1.Time `json:"lastSuccessfulTime,omitempty"`
@@ -427,11 +441,9 @@ type CronJobStatus struct {
 // CronJobMetrics contains SLA metrics for a CronJob
 type CronJobMetrics struct {
 	SuccessRate    float64 `json:"successRate"`
-	WindowDays     int32   `json:"windowDays"`
 	TotalRuns      int32   `json:"totalRuns"`
 	SuccessfulRuns int32   `json:"successfulRuns"`
 	FailedRuns     int32   `json:"failedRuns"`
-	MissedRuns     int32   `json:"missedRuns"`
 	// Duration in seconds
 	// +optional
 	AvgDurationSeconds float64 `json:"avgDurationSeconds,omitempty"`

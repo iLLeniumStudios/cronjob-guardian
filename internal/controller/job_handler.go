@@ -19,11 +19,13 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,11 +35,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/remediation"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
@@ -45,9 +47,11 @@ import (
 // JobHandler handles Job events for execution tracking
 type JobHandler struct {
 	client.Client
+	Log               logr.Logger // Required - must be injected
 	Scheme            *runtime.Scheme
 	Clientset         *kubernetes.Clientset
 	Store             store.Store
+	Config            *config.Config
 	AlertDispatcher   alerting.Dispatcher
 	RemediationEngine remediation.Engine
 }
@@ -59,44 +63,107 @@ type JobHandler struct {
 
 // Reconcile handles Job completion/failure events
 func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+	log := h.Log.WithValues("job", req.NamespacedName)
+	log.V(1).Info("reconciling job")
 
 	job := &batchv1.Job{}
 	if err := h.Get(ctx, req.NamespacedName, job); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if client.IgnoreNotFound(err) == nil {
+			log.V(1).Info("job not found, likely deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "failed to get job")
+		return ctrl.Result{}, err
 	}
+
+	completionTime := "nil"
+	if job.Status.CompletionTime != nil {
+		completionTime = job.Status.CompletionTime.Time.Format(time.RFC3339)
+	}
+	log.V(1).Info("job fetched",
+		"succeeded", job.Status.Succeeded,
+		"failed", job.Status.Failed,
+		"active", job.Status.Active,
+		"completionTime", completionTime)
 
 	// Get parent CronJob
 	cronJobName := h.getCronJobOwner(job)
 	if cronJobName == "" {
-		return ctrl.Result{}, nil // Not owned by a CronJob
+		log.V(1).Info("job not owned by a CronJob, skipping")
+		return ctrl.Result{}, nil
 	}
+	log = log.WithValues("cronJob", cronJobName)
 
-	// Check if this CronJob is monitored
-	monitor := h.findMonitorForCronJob(ctx, job.Namespace, cronJobName)
-	if monitor == nil {
-		return ctrl.Result{}, nil // Not monitored
-	}
-
-	// Check job status
+	// Check job status - skip if still running
 	if job.Status.CompletionTime == nil && job.Status.Failed == 0 {
-		// Still running, nothing to record yet
+		log.V(1).Info("job still running, nothing to record yet")
 		return ctrl.Result{}, nil
 	}
 
-	// Record execution
-	exec := h.buildExecution(ctx, job, cronJobName)
-	if h.Store != nil {
-		if err := h.Store.RecordExecution(ctx, exec); err != nil {
-			logger.Error(err, "failed to record execution")
-		}
+	// Find ALL monitors whose selector matches this CronJob (real-time evaluation)
+	monitors := h.findMonitorsForCronJob(ctx, job.Namespace, cronJobName)
+	if len(monitors) == 0 {
+		log.V(1).Info("no monitors found for CronJob, skipping")
+		return ctrl.Result{}, nil
+	}
+	log.V(1).Info("found matching monitors", "count", len(monitors))
+
+	// Get the parent CronJob to extract its UID
+	cronJob := &batchv1.CronJob{}
+	cronJobNN := types.NamespacedName{Namespace: job.Namespace, Name: cronJobName}
+	cronJobUID := ""
+	if err := h.Get(ctx, cronJobNN, cronJob); err == nil {
+		cronJobUID = string(cronJob.UID)
+		log.V(1).Info("got CronJob UID", "uid", cronJobUID)
+	} else {
+		log.V(1).Info("could not get CronJob (may be deleted)", "error", err)
 	}
 
-	// Handle completion
+	// Check for CronJob recreation (UID change) - use first monitor for config
+	if h.Store != nil && cronJobUID != "" {
+		h.handleRecreationCheck(ctx, log, monitors[0], cronJobNN, cronJobUID)
+	}
+
+	// Record execution ONCE (keyed by CronJob, not monitor)
+	// Use first monitor for config (logs/events storage settings)
+	exec := h.buildExecution(ctx, job, cronJobName, cronJobUID, monitors[0])
+	log.V(1).Info("built execution record",
+		"succeeded", exec.Succeeded,
+		"duration", exec.Duration,
+		"exitCode", exec.ExitCode,
+		"reason", exec.Reason,
+		"cronJobUID", exec.CronJobUID,
+		"hasLogs", exec.Logs != "",
+		"hasEvents", exec.Events != "")
+
+	if h.Store != nil {
+		log.V(1).Info("recording execution to store")
+		if err := h.Store.RecordExecution(ctx, exec); err != nil {
+			log.Error(err, "failed to record execution")
+		} else {
+			log.Info("execution recorded",
+				"cronJob", cronJobName,
+				"job", job.Name,
+				"succeeded", exec.Succeeded,
+				"duration", exec.Duration.Round(time.Millisecond))
+		}
+	} else {
+		log.V(1).Info("store not configured, skipping execution recording")
+	}
+
+	// Handle completion for ALL matching monitors
 	if job.Status.Succeeded > 0 {
-		h.handleSuccess(ctx, monitor, job, cronJobName)
+		log.Info("job succeeded", "cronJob", cronJobName, "job", job.Name)
+		for _, monitor := range monitors {
+			monitorLog := log.WithValues("monitor", monitor.Name)
+			h.handleSuccess(ctx, monitorLog, monitor, job, cronJobName)
+		}
 	} else if job.Status.Failed > 0 {
-		h.handleFailure(ctx, monitor, job, cronJobName)
+		log.Info("job failed", "cronJob", cronJobName, "job", job.Name, "exitCode", exec.ExitCode, "reason", exec.Reason)
+		for _, monitor := range monitors {
+			monitorLog := log.WithValues("monitor", monitor.Name)
+			h.handleFailure(ctx, monitorLog, monitor, job, cronJobName)
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -111,26 +178,45 @@ func (h *JobHandler) getCronJobOwner(job *batchv1.Job) string {
 	return ""
 }
 
-func (h *JobHandler) findMonitorForCronJob(ctx context.Context, namespace, cronJobName string) *guardianv1alpha1.CronJobMonitor {
-	monitors := &guardianv1alpha1.CronJobMonitorList{}
-	if err := h.List(ctx, monitors, client.InNamespace(namespace)); err != nil {
+// findMonitorsForCronJob finds ALL monitors whose selector matches the given CronJob.
+// This uses real-time selector evaluation (not cached status) to avoid race conditions.
+func (h *JobHandler) findMonitorsForCronJob(ctx context.Context, namespace, cronJobName string) []*guardianv1alpha1.CronJobMonitor {
+	log := h.Log.V(1)
+
+	// Get the CronJob to check its labels
+	cronJob := &batchv1.CronJob{}
+	if err := h.Get(ctx, types.NamespacedName{Namespace: namespace, Name: cronJobName}, cronJob); err != nil {
+		log.Error(err, "failed to get CronJob", "cronJob", cronJobName)
 		return nil
 	}
 
-	for _, monitor := range monitors.Items {
-		for _, cj := range monitor.Status.CronJobs {
-			if cj.Name == cronJobName && cj.Namespace == namespace {
-				return &monitor
-			}
+	// List all monitors in namespace
+	monitors := &guardianv1alpha1.CronJobMonitorList{}
+	if err := h.List(ctx, monitors, client.InNamespace(namespace)); err != nil {
+		log.Error(err, "failed to list monitors", "namespace", namespace)
+		return nil
+	}
+
+	log.Info("searching for monitors", "namespace", namespace, "cronJob", cronJobName, "monitorCount", len(monitors.Items))
+
+	// Find ALL monitors whose selector matches this CronJob
+	var matching []*guardianv1alpha1.CronJobMonitor
+	for i := range monitors.Items {
+		monitor := &monitors.Items[i]
+		if MatchesSelector(cronJob, monitor.Spec.Selector) {
+			log.Info("found matching monitor", "monitor", monitor.Name)
+			matching = append(matching, monitor)
 		}
 	}
-	return nil
+
+	return matching
 }
 
-func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJobName string) store.Execution {
+func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJobName, cronJobUID string, monitor *guardianv1alpha1.CronJobMonitor) store.Execution {
 	exec := store.Execution{
 		CronJobNamespace: job.Namespace,
 		CronJobName:      cronJobName,
+		CronJobUID:       cronJobUID,
 		JobName:          job.Name,
 		Succeeded:        job.Status.Succeeded > 0,
 	}
@@ -145,7 +231,8 @@ func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJ
 	}
 
 	// Get exit code from pod
-	if pod := h.getJobPod(ctx, job); pod != nil {
+	pod := h.getJobPod(ctx, job)
+	if pod != nil {
 		for _, cs := range pod.Status.ContainerStatuses {
 			if cs.State.Terminated != nil {
 				exec.ExitCode = cs.State.Terminated.ExitCode
@@ -161,47 +248,197 @@ func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJ
 		exec.RetryOf = job.Annotations["guardian.illenium.net/retry-of"]
 	}
 
+	// Store logs if configured
+	if h.shouldStoreLogs(monitor) {
+		maxSizeKB := h.getMaxLogSizeKB(monitor)
+		exec.Logs = h.collectAndTruncateLogs(ctx, job, pod, maxSizeKB)
+	}
+
+	// Store events if configured
+	if h.shouldStoreEvents(monitor) {
+		events := h.collectEvents(ctx, job)
+		if len(events) > 0 {
+			eventsJSON, _ := json.Marshal(events)
+			exec.Events = string(eventsJSON)
+		}
+	}
+
 	return exec
 }
 
 func (h *JobHandler) getJobPod(ctx context.Context, job *batchv1.Job) *corev1.Pod {
 	pods := &corev1.PodList{}
 	if err := h.List(ctx, pods, client.InNamespace(job.Namespace), client.MatchingLabels{"job-name": job.Name}); err != nil {
+		h.Log.V(1).Error(err, "failed to list pods for job", "job", job.Name)
 		return nil
 	}
 
 	if len(pods.Items) > 0 {
+		h.Log.V(1).Info("found pod for job", "job", job.Name, "pod", pods.Items[0].Name)
 		return &pods.Items[0]
 	}
+	h.Log.V(1).Info("no pod found for job", "job", job.Name)
 	return nil
 }
 
-func (h *JobHandler) handleSuccess(ctx context.Context, _ *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
+// handleRecreationCheck checks if a CronJob was recreated (UID changed) and handles per config
+func (h *JobHandler) handleRecreationCheck(ctx context.Context, log logr.Logger, monitor *guardianv1alpha1.CronJobMonitor, cronJob types.NamespacedName, currentUID string) {
+	// Get existing UIDs for this CronJob
+	uids, err := h.Store.GetCronJobUIDs(ctx, cronJob)
+	if err != nil {
+		log.V(1).Error(err, "failed to get CronJob UIDs from store")
+		return
+	}
+
+	// Check if there are different UIDs (indicating recreation)
+	for _, uid := range uids {
+		if uid != "" && uid != currentUID {
+			log.Info("detected CronJob recreation", "oldUID", uid, "newUID", currentUID)
+
+			// Check onRecreation config
+			onRecreation := "retain" // default
+			if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.OnRecreation != "" {
+				onRecreation = monitor.Spec.DataRetention.OnRecreation
+			}
+
+			if onRecreation == "reset" {
+				// Delete executions from the old UID
+				deleted, err := h.Store.DeleteExecutionsByUID(ctx, cronJob, uid)
+				if err != nil {
+					log.Error(err, "failed to delete old UID executions", "uid", uid)
+				} else {
+					log.Info("deleted executions from old CronJob UID", "uid", uid, "count", deleted)
+				}
+			} else {
+				log.V(1).Info("retaining old UID executions per config", "uid", uid, "onRecreation", onRecreation)
+			}
+		}
+	}
+}
+
+// shouldStoreLogs determines if logs should be stored for this execution
+func (h *JobHandler) shouldStoreLogs(monitor *guardianv1alpha1.CronJobMonitor) bool {
+	// Check monitor-level config first (takes priority)
+	if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.StoreLogs != nil {
+		return *monitor.Spec.DataRetention.StoreLogs
+	}
+
+	// Fall back to global config
+	if h.Config != nil {
+		return h.Config.Storage.LogStorageEnabled
+	}
+
+	return false // Default to not storing logs
+}
+
+// shouldStoreEvents determines if events should be stored for this execution
+func (h *JobHandler) shouldStoreEvents(monitor *guardianv1alpha1.CronJobMonitor) bool {
+	// Check monitor-level config first (takes priority)
+	if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.StoreEvents != nil {
+		return *monitor.Spec.DataRetention.StoreEvents
+	}
+
+	// Fall back to global config
+	if h.Config != nil {
+		return h.Config.Storage.EventStorageEnabled
+	}
+
+	return false // Default to not storing events
+}
+
+// getMaxLogSizeKB returns the max log size in KB for this monitor
+func (h *JobHandler) getMaxLogSizeKB(monitor *guardianv1alpha1.CronJobMonitor) int {
+	// Check monitor-level config first
+	if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.MaxLogSizeKB != nil {
+		return int(*monitor.Spec.DataRetention.MaxLogSizeKB)
+	}
+
+	// Fall back to global config
+	if h.Config != nil && h.Config.Storage.MaxLogSizeKB > 0 {
+		return h.Config.Storage.MaxLogSizeKB
+	}
+
+	return 100 // Default 100KB
+}
+
+// collectAndTruncateLogs collects logs and truncates to max size
+func (h *JobHandler) collectAndTruncateLogs(ctx context.Context, job *batchv1.Job, pod *corev1.Pod, maxSizeKB int) string {
+	if h.Clientset == nil || pod == nil {
+		return ""
+	}
+
+	containerName := ""
+	if len(pod.Spec.Containers) > 0 {
+		containerName = pod.Spec.Containers[0].Name
+	}
+
+	opts := &corev1.PodLogOptions{
+		Container: containerName,
+	}
+
+	req := h.Clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, opts)
+	stream, err := req.Stream(ctx)
+	if err != nil {
+		h.Log.V(1).Error(err, "failed to stream pod logs for storage", "pod", pod.Name)
+		return ""
+	}
+	defer func() {
+		_ = stream.Close()
+	}()
+
+	// Read with size limit
+	maxBytes := maxSizeKB * 1024
+	buf := make([]byte, maxBytes+1)
+	n, err := io.ReadFull(stream, buf)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		h.Log.V(1).Error(err, "failed to read pod logs for storage", "pod", pod.Name)
+		return ""
+	}
+
+	logs := string(buf[:n])
+	if n > maxBytes {
+		// Truncate and add indicator
+		logs = logs[:maxBytes-50] + "\n... [truncated to " + fmt.Sprintf("%d", maxSizeKB) + "KB]"
+	}
+
+	return logs
+}
+
+func (h *JobHandler) handleSuccess(ctx context.Context, log logr.Logger, _ *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
 	// Reset retry counter on success
 	if h.RemediationEngine != nil {
+		log.V(1).Info("resetting retry counter")
 		h.RemediationEngine.ResetRetryCount(job.Namespace, cronJobName)
 	}
 
 	// Clear any active failure alerts for this CronJob
 	if h.AlertDispatcher != nil {
 		alertKey := fmt.Sprintf("%s/%s/JobFailed", job.Namespace, cronJobName)
+		log.V(1).Info("clearing failure alert", "alertKey", alertKey)
 		_ = h.AlertDispatcher.ClearAlert(ctx, alertKey)
 	}
 }
 
-func (h *JobHandler) handleFailure(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
-	logger := log.FromContext(ctx)
-
+func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
 	// Collect context
 	alertCtx := alerting.AlertContext{}
 
-	includeCtx := monitor.Spec.Alerting.IncludeContext
+	// Safe access to alerting config
+	var includeCtx *guardianv1alpha1.AlertContext
+	if monitor.Spec.Alerting != nil {
+		includeCtx = monitor.Spec.Alerting.IncludeContext
+	}
+
 	if includeCtx != nil && isEnabled(includeCtx.Logs) {
+		log.V(1).Info("collecting logs for alert")
 		alertCtx.Logs = h.collectLogs(ctx, job, includeCtx)
+		log.V(1).Info("collected logs", "logLength", len(alertCtx.Logs))
 	}
 
 	if includeCtx != nil && isEnabled(includeCtx.Events) {
+		log.V(1).Info("collecting events for alert")
 		alertCtx.Events = h.collectEvents(ctx, job)
+		log.V(1).Info("collected events", "eventCount", len(alertCtx.Events))
 	}
 
 	// Get exit code and reason
@@ -210,6 +447,9 @@ func (h *JobHandler) handleFailure(ctx context.Context, monitor *guardianv1alpha
 			if cs.State.Terminated != nil {
 				alertCtx.ExitCode = cs.State.Terminated.ExitCode
 				alertCtx.Reason = cs.State.Terminated.Reason
+				log.V(1).Info("got termination info from pod",
+					"exitCode", alertCtx.ExitCode,
+					"reason", alertCtx.Reason)
 				break
 			}
 		}
@@ -217,13 +457,21 @@ func (h *JobHandler) handleFailure(ctx context.Context, monitor *guardianv1alpha
 
 	if includeCtx != nil && isEnabled(includeCtx.SuggestedFixes) {
 		alertCtx.SuggestedFix = h.getSuggestedFix(job, alertCtx)
+		log.V(1).Info("generated suggested fix", "fix", alertCtx.SuggestedFix)
 	}
+
+	// Determine severity (with nil safety)
+	severity := "critical"
+	if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
+		severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.JobFailed, "critical")
+	}
+	log.V(1).Info("determined alert severity", "severity", severity)
 
 	// Create alert
 	alert := alerting.Alert{
 		Key:      fmt.Sprintf("%s/%s/JobFailed", job.Namespace, cronJobName),
 		Type:     "JobFailed",
-		Severity: getSeverity(monitor.Spec.Alerting.SeverityOverrides.JobFailed, "critical"),
+		Severity: severity,
 		Title:    fmt.Sprintf("CronJob %s/%s failed", job.Namespace, cronJobName),
 		Message:  h.buildFailureMessage(job, alertCtx),
 		CronJob: types.NamespacedName{
@@ -240,28 +488,51 @@ func (h *JobHandler) handleFailure(ctx context.Context, monitor *guardianv1alpha
 
 	// Dispatch alert
 	if h.AlertDispatcher != nil {
+		log.Info("dispatching failure alert",
+			"alertKey", alert.Key,
+			"severity", alert.Severity,
+			"exitCode", alertCtx.ExitCode,
+			"reason", alertCtx.Reason)
 		if err := h.AlertDispatcher.Dispatch(ctx, alert, monitor.Spec.Alerting); err != nil {
-			logger.Error(err, "failed to dispatch alert")
+			log.Error(err, "failed to dispatch alert")
+		} else {
+			log.V(1).Info("alert dispatched successfully")
 		}
+	} else {
+		log.V(1).Info("alert dispatcher not configured, skipping alert dispatch")
 	}
 
 	// Check for auto-retry
 	if monitor.Spec.Remediation != nil && isEnabled(monitor.Spec.Remediation.Enabled) {
+		log.V(1).Info("remediation enabled, checking auto-retry")
 		if monitor.Spec.Remediation.AutoRetry != nil && monitor.Spec.Remediation.AutoRetry.Enabled {
 			if h.RemediationEngine != nil {
+				log.Info("attempting auto-retry", "job", job.Name)
 				result, err := h.RemediationEngine.TryRetry(ctx, monitor, job, cronJobName)
 				if err != nil {
-					logger.Error(err, "failed to retry job")
+					log.Error(err, "failed to retry job")
 				} else if result.Success {
-					logger.Info("initiated retry", "job", result.JobName, "message", result.Message)
+					log.Info("retry initiated",
+						"retryJob", result.JobName,
+						"message", result.Message,
+						"dryRun", result.DryRun)
+				} else {
+					log.Info("retry not initiated", "message", result.Message)
 				}
+			} else {
+				log.V(1).Info("remediation engine not configured, skipping auto-retry")
 			}
+		} else {
+			log.V(1).Info("auto-retry not enabled in monitor spec")
 		}
+	} else {
+		log.V(1).Info("remediation not enabled for this monitor")
 	}
 }
 
 func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, config *guardianv1alpha1.AlertContext) string {
 	if h.Clientset == nil {
+		h.Log.V(1).Info("clientset not configured, cannot collect logs")
 		return ""
 	}
 
@@ -288,9 +559,15 @@ func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, config *
 		TailLines: ptr.To(tailLines),
 	}
 
+	h.Log.V(1).Info("fetching pod logs",
+		"pod", pod.Name,
+		"container", containerName,
+		"tailLines", tailLines)
+
 	req := h.Clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, opts)
 	stream, err := req.Stream(ctx)
 	if err != nil {
+		h.Log.V(1).Error(err, "failed to stream pod logs", "pod", pod.Name)
 		return ""
 	}
 	defer func() {
@@ -300,6 +577,7 @@ func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, config *
 	buf := new(bytes.Buffer)
 	_, err = io.Copy(buf, stream)
 	if err != nil {
+		h.Log.V(1).Error(err, "failed to read pod logs", "pod", pod.Name)
 		return ""
 	}
 	return buf.String()
@@ -308,6 +586,7 @@ func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, config *
 func (h *JobHandler) collectEvents(ctx context.Context, job *batchv1.Job) []string {
 	events := &corev1.EventList{}
 	if err := h.List(ctx, events, client.InNamespace(job.Namespace)); err != nil {
+		h.Log.V(1).Error(err, "failed to list events", "namespace", job.Namespace)
 		return nil
 	}
 
@@ -320,6 +599,7 @@ func (h *JobHandler) collectEvents(ctx context.Context, job *batchv1.Job) []stri
 			result = append(result, fmt.Sprintf("%s: %s", e.Reason, e.Message))
 		}
 	}
+	h.Log.V(1).Info("collected events for job", "job", job.Name, "eventCount", len(result))
 	return result
 }
 
@@ -378,16 +658,51 @@ func (h *JobHandler) isOwnedByCronJob(obj client.Object) bool {
 	return false
 }
 
+// isJobComplete checks if a job has completed (succeeded or failed)
+func isJobComplete(job *batchv1.Job) bool {
+	return job.Status.CompletionTime != nil || job.Status.Failed > 0
+}
+
 // SetupWithManager sets up the job handler with the Manager.
 func (h *JobHandler) SetupWithManager(mgr ctrl.Manager) error {
+	h.Log.Info("setting up job handler controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1.Job{}).
 		WithEventFilter(predicate.Funcs{
 			CreateFunc: func(e event.CreateEvent) bool {
-				return h.isOwnedByCronJob(e.Object)
+				// Only process creates if job is already complete (rare but possible)
+				job, ok := e.Object.(*batchv1.Job)
+				if !ok || !h.isOwnedByCronJob(e.Object) {
+					return false
+				}
+				complete := isJobComplete(job)
+				h.Log.V(1).Info("job create event",
+					"job", e.Object.GetName(),
+					"namespace", e.Object.GetNamespace(),
+					"complete", complete)
+				return complete
 			},
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				return h.isOwnedByCronJob(e.ObjectNew)
+				// Only process if job transitions to complete
+				if !h.isOwnedByCronJob(e.ObjectNew) {
+					return false
+				}
+				oldJob, ok1 := e.ObjectOld.(*batchv1.Job)
+				newJob, ok2 := e.ObjectNew.(*batchv1.Job)
+				if !ok1 || !ok2 {
+					return false
+				}
+				// Only reconcile when job transitions to complete
+				wasComplete := isJobComplete(oldJob)
+				nowComplete := isJobComplete(newJob)
+				shouldProcess := nowComplete && !wasComplete
+				h.Log.V(1).Info("job update event",
+					"job", e.ObjectNew.GetName(),
+					"namespace", e.ObjectNew.GetNamespace(),
+					"wasComplete", wasComplete,
+					"nowComplete", nowComplete,
+					"processing", shouldProcess)
+				return shouldProcess
 			},
 			DeleteFunc: func(_ event.DeleteEvent) bool {
 				return false // Don't process deletes

@@ -28,22 +28,32 @@ import (
 
 // HistoryPruner periodically removes old execution records
 type HistoryPruner struct {
-	store         store.Store
-	retentionDays int
-	interval      time.Duration
-	stopCh        chan struct{}
-	running       bool
-	mu            sync.Mutex
+	store            store.Store
+	retentionDays    int
+	logRetentionDays int // 0 means same as retentionDays
+	interval         time.Duration
+	stopCh           chan struct{}
+	running          bool
+	mu               sync.Mutex
 }
 
 // NewHistoryPruner creates a new history pruner
 func NewHistoryPruner(st store.Store, retentionDays int) *HistoryPruner {
 	return &HistoryPruner{
-		store:         st,
-		retentionDays: retentionDays,
-		interval:      6 * time.Hour,
-		stopCh:        make(chan struct{}),
+		store:            st,
+		retentionDays:    retentionDays,
+		logRetentionDays: 0, // default to same as retentionDays
+		interval:         6 * time.Hour,
+		stopCh:           make(chan struct{}),
 	}
+}
+
+// SetLogRetentionDays sets separate retention for logs
+// If set to 0, uses the same retention as executions
+func (p *HistoryPruner) SetLogRetentionDays(days int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.logRetentionDays = days
 }
 
 // Start begins the pruner loop
@@ -106,16 +116,26 @@ func (p *HistoryPruner) prune(ctx context.Context) {
 
 	p.mu.Lock()
 	retentionDays := p.retentionDays
+	logRetentionDays := p.logRetentionDays
 	p.mu.Unlock()
 
+	// 1. Global time-based execution prune
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
 	count, err := p.store.Prune(ctx, cutoff)
 	if err != nil {
-		logger.Error(err, "failed to prune history")
-		return
+		logger.Error(err, "failed to prune execution history")
+	} else if count > 0 {
+		logger.Info("pruned execution history", "recordsDeleted", count, "cutoff", cutoff)
 	}
 
-	if count > 0 {
-		logger.Info("pruned execution history", "recordsDeleted", count, "cutoff", cutoff)
+	// 2. Prune logs separately if log retention differs from execution retention
+	if logRetentionDays > 0 && logRetentionDays < retentionDays {
+		logCutoff := time.Now().AddDate(0, 0, -logRetentionDays)
+		logCount, err := p.store.PruneLogs(ctx, logCutoff)
+		if err != nil {
+			logger.Error(err, "failed to prune logs")
+		} else if logCount > 0 {
+			logger.Info("pruned stored logs", "recordsUpdated", logCount, "cutoff", logCutoff)
+		}
 	}
 }

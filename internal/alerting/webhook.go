@@ -186,6 +186,7 @@ var defaultWebhookTemplate = `{
     "suggested_fix": "{{ .Context.SuggestedFix }}",
     "success_rate": {{ .Context.SuccessRate }},
     "exit_code": {{ .Context.ExitCode }},
-    "reason": "{{ .Context.Reason }}"
+    "reason": "{{ .Context.Reason }}",
+    "logs": {{ jsonEscape .Context.Logs }}
   }
 }`
