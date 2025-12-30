@@ -100,9 +100,9 @@ type Dispatcher interface {
 }
 
 type dispatcher struct {
-	channels      map[string]Channel    // name -> channel
-	sentAlerts    map[string]time.Time  // alertKey -> lastSent
-	activeAlerts  map[string]Alert      // alertKey -> alert
+	channels      map[string]Channel   // name -> channel
+	sentAlerts    map[string]time.Time // alertKey -> lastSent
+	activeAlerts  map[string]Alert     // alertKey -> alert
 	globalLimiter *rate.Limiter
 	channelMu     sync.RWMutex
 	alertMu       sync.RWMutex
