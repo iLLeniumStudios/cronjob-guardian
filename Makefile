@@ -161,22 +161,26 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: ui-install
 ui-install: ## Install UI dependencies.
-	cd ui && pnpm install
+	cd ui && bun install --frozen-lockfile
 
 .PHONY: ui-build
 ui-build: ui-install ## Build UI for embedding.
-	cd ui && pnpm build
-	rm -rf cmd/ui
+	cd ui && bun run build
+	@# Clean cmd/ui but preserve .gitkeep files
+	find cmd/ui -type f ! -name '.gitkeep' -delete 2>/dev/null || true
+	find cmd/ui -type d -empty -delete 2>/dev/null || true
 	mkdir -p cmd/ui
 	cp -r ui/out cmd/ui/
 
 .PHONY: ui-dev
 ui-dev: ui-install ## Run UI development server.
-	cd ui && pnpm dev
+	cd ui && bun run dev
 
 .PHONY: ui-clean
 ui-clean: ## Clean UI build artifacts.
-	rm -rf ui/out ui/.next ui/node_modules cmd/ui
+	rm -rf ui/out ui/.next ui/node_modules
+	find cmd/ui -type f ! -name '.gitkeep' -delete 2>/dev/null || true
+	find cmd/ui -type d -empty -delete 2>/dev/null || true
 
 ##@ Build
 

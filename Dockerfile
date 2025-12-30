@@ -1,21 +1,18 @@
 # Build the UI
-FROM node:22-alpine AS ui-builder
+FROM oven/bun:1-alpine AS ui-builder
 WORKDIR /ui
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
 # Copy UI package files
-COPY ui/package.json ui/pnpm-lock.yaml* ui/.npmrc ./
+COPY ui/package.json ui/bun.lock* ui/.npmrc ./
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN bun install --frozen-lockfile
 
 # Copy UI source
 COPY ui/ ./
 
 # Build UI
-RUN pnpm build
+RUN bun run build
 
 # Build the manager binary
 FROM golang:1.25 AS builder
