@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"k8s.io/apimachinery/pkg/types"
+	_ "modernc.org/sqlite" // Pure Go SQLite driver (no CGO required)
 )
 
 // SQLiteStore implements Store using SQLite
@@ -41,7 +41,7 @@ func NewSQLiteStore(path string) *SQLiteStore {
 
 // Init initializes the SQLite database
 func (s *SQLiteStore) Init() error {
-	db, err := sql.Open("sqlite3", s.path+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", s.path+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
