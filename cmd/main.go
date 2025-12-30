@@ -257,7 +257,7 @@ func main() {
 		setupLog.Error(err, "unable to initialize store")
 		os.Exit(1)
 	}
-	defer dataStore.Close()
+	defer func() { _ = dataStore.Close() }()
 	setupLog.Info("initialized store", "type", cfg.Storage.Type)
 
 	// Initialize and add history pruner to manager

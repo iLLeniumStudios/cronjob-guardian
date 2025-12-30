@@ -37,7 +37,7 @@ import (
 // Engine handles auto-remediation actions
 type Engine interface {
 	// KillStuckJob terminates a job that has been running too long
-	KillStuckJob(ctx context.Context, job *batchv1.Job, config *v1alpha1.KillStuckJobsConfig) (*RemediationResult, error)
+	KillStuckJob(ctx context.Context, job *batchv1.Job, killCfg *v1alpha1.KillStuckJobsConfig) (*RemediationResult, error)
 
 	// TryRetry attempts to retry a failed job
 	TryRetry(ctx context.Context, monitor *v1alpha1.CronJobMonitor, failedJob *batchv1.Job, cronJobName string) (*RemediationResult, error)
@@ -82,7 +82,7 @@ func NewEngine(c client.Client) Engine {
 	}
 }
 
-func (e *engine) KillStuckJob(ctx context.Context, job *batchv1.Job, config *v1alpha1.KillStuckJobsConfig) (*RemediationResult, error) {
+func (e *engine) KillStuckJob(ctx context.Context, job *batchv1.Job, killCfg *v1alpha1.KillStuckJobsConfig) (*RemediationResult, error) {
 	logger := log.FromContext(ctx)
 	result := &RemediationResult{
 		Action:    "KillStuckJob",
@@ -98,9 +98,9 @@ func (e *engine) KillStuckJob(ctx context.Context, job *batchv1.Job, config *v1a
 	}
 
 	runningDuration := time.Since(job.Status.StartTime.Time)
-	if runningDuration < config.AfterDuration.Duration {
+	if runningDuration < killCfg.AfterDuration.Duration {
 		result.Success = false
-		result.Message = fmt.Sprintf("Job running for %s, threshold is %s", runningDuration, config.AfterDuration.Duration)
+		result.Message = fmt.Sprintf("Job running for %s, threshold is %s", runningDuration, killCfg.AfterDuration.Duration)
 		return result, nil
 	}
 
@@ -115,7 +115,7 @@ func (e *engine) KillStuckJob(ctx context.Context, job *batchv1.Job, config *v1a
 
 	// Determine delete policy
 	deletePolicy := metav1.DeletePropagationForeground
-	if config.DeletePolicy == "Orphan" {
+	if killCfg.DeletePolicy == "Orphan" {
 		deletePolicy = metav1.DeletePropagationOrphan
 	}
 
@@ -146,14 +146,14 @@ func (e *engine) TryRetry(ctx context.Context, monitor *v1alpha1.CronJobMonitor,
 		Timestamp: time.Now(),
 	}
 
-	config := monitor.Spec.Remediation
-	if config == nil || !isEnabled(config.Enabled) {
+	remediationCfg := monitor.Spec.Remediation
+	if remediationCfg == nil || !isEnabled(remediationCfg.Enabled) {
 		result.Success = false
 		result.Message = "Remediation not enabled"
 		return result, nil
 	}
 
-	retryConfig := config.AutoRetry
+	retryConfig := remediationCfg.AutoRetry
 	if retryConfig == nil || !retryConfig.Enabled {
 		result.Success = false
 		result.Message = "Auto-retry not enabled"
@@ -161,7 +161,7 @@ func (e *engine) TryRetry(ctx context.Context, monitor *v1alpha1.CronJobMonitor,
 	}
 
 	// Check dry run
-	if isEnabled(config.DryRun) {
+	if isEnabled(remediationCfg.DryRun) {
 		result.DryRun = true
 		result.Success = true
 		result.Message = "Would retry job (dry run)"
@@ -274,15 +274,15 @@ func (e *engine) createRetryJob(cronJob *batchv1.CronJob, failedJob *batchv1.Job
 }
 
 func (e *engine) CanRemediate(ctx context.Context, monitor *v1alpha1.CronJobMonitor, action string) (bool, string) {
-	config := monitor.Spec.Remediation
+	remediationCfg := monitor.Spec.Remediation
 
 	// Check if enabled
-	if config == nil || !isEnabled(config.Enabled) {
+	if remediationCfg == nil || !isEnabled(remediationCfg.Enabled) {
 		return false, "remediation not enabled"
 	}
 
 	// Check dry run
-	if isEnabled(config.DryRun) {
+	if isEnabled(remediationCfg.DryRun) {
 		return true, "dry run mode"
 	}
 

@@ -95,6 +95,8 @@ help: ## Display this help.
 # GO_PATHS defines the Go source directories to scan (excludes ui/ which has 27k+ node_modules files)
 # Each path must be specified separately for controller-gen
 GO_PATHS := paths=./api/... paths=./cmd/... paths=./internal/...
+# GO_CMD_PATHS is the same but in standard Go command format (space-separated)
+GO_CMD_PATHS := ./api/... ./cmd/... ./internal/...
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
@@ -106,11 +108,11 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
-	go fmt ./...
+	go fmt $(GO_CMD_PATHS)
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	go vet ./...
+	go vet $(GO_CMD_PATHS)
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
@@ -175,6 +177,15 @@ ui-build: ui-install ## Build UI for embedding.
 .PHONY: ui-dev
 ui-dev: ui-install ## Run UI development server.
 	cd ui && bun run dev
+
+.PHONY: ui-lint
+ui-lint: ui-install ## Run UI linting (ESLint + TypeScript).
+	cd ui && bun run lint
+	cd ui && bun run typecheck
+
+.PHONY: ui-typecheck
+ui-typecheck: ui-install ## Run TypeScript type checking.
+	cd ui && bun run typecheck
 
 .PHONY: ui-clean
 ui-clean: ## Clean UI build artifacts.

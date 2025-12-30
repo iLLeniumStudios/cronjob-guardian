@@ -675,7 +675,7 @@ func (s *MySQLStore) StoreAlert(ctx context.Context, alert AlertHistory) error {
 // ListAlertHistory returns alert history with pagination
 func (s *MySQLStore) ListAlertHistory(ctx context.Context, query AlertHistoryQuery) ([]AlertHistory, int64, error) {
 	// Build query
-	baseQuery := `FROM alert_history WHERE 1=1`
+	baseQuery := alertHistoryBaseQuery
 	args := []any{}
 
 	if query.Since != nil {
@@ -786,7 +786,7 @@ func (s *MySQLStore) GetChannelAlertStats(ctx context.Context) (map[string]Chann
 	if err != nil {
 		return nil, fmt.Errorf("query alert_history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	stats := make(map[string]ChannelAlertStats)
 	cutoff24h := time.Now().Add(-24 * time.Hour)

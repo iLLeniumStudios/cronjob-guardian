@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,15 +41,14 @@ function getSuccessRateColor(rate: number): string {
   return "text-red-600 dark:text-red-400";
 }
 
-// Pure function to filter, sort, and paginate - no side effects
+// Pure function to filter and sort - no side effects
 function getDisplayData(
   items: CronJob[] | undefined,
   namespace: string,
-  search: string,
-  page: number
-): { jobs: CronJob[]; totalFiltered: number; namespaces: string[] } {
+  search: string
+): { filtered: CronJob[]; namespaces: string[] } {
   if (!items || items.length === 0) {
-    return { jobs: [], totalFiltered: 0, namespaces: [] };
+    return { filtered: [], namespaces: [] };
   }
 
   // Get unique namespaces from original data
@@ -86,11 +85,22 @@ function getDisplayData(
     return a.name.localeCompare(b.name);
   });
 
-  // Paginate
-  const start = page * PAGE_SIZE;
+  return { filtered, namespaces };
+}
+
+// Paginate filtered results with automatic page clamping
+function paginateResults(
+  filtered: CronJob[],
+  page: number
+): { jobs: CronJob[]; totalFiltered: number; effectivePage: number } {
+  const totalFiltered = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  // Clamp page to valid range
+  const effectivePage = Math.min(page, Math.max(0, totalPages - 1));
+  const start = effectivePage * PAGE_SIZE;
   const jobs = filtered.slice(start, start + PAGE_SIZE);
 
-  return { jobs, totalFiltered: filtered.length, namespaces };
+  return { jobs, totalFiltered, effectivePage };
 }
 
 export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
@@ -98,22 +108,19 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
   const [namespace, setNamespace] = useState("all");
   const [page, setPage] = useState(0);
 
-  // Compute display data - pure function, no side effects
-  const { jobs, totalFiltered, namespaces } = getDisplayData(
-    cronJobs?.items,
-    namespace,
-    search,
-    page
+  // Compute filtered data - memoized to avoid recomputation
+  const { filtered, namespaces } = useMemo(
+    () => getDisplayData(cronJobs?.items, namespace, search),
+    [cronJobs?.items, namespace, search]
+  );
+
+  // Paginate with automatic page clamping (handles when filters reduce available pages)
+  const { jobs, totalFiltered, effectivePage } = useMemo(
+    () => paginateResults(filtered, page),
+    [filtered, page]
   );
 
   const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
-
-  // Clamp page when filters reduce available pages (useEffect to avoid setState during render)
-  useEffect(() => {
-    if (totalPages > 0 && page >= totalPages) {
-      setPage(totalPages - 1);
-    }
-  }, [page, totalPages]);
 
   const handleNamespaceChange = (value: string) => {
     setNamespace(value);
@@ -230,8 +237,8 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
           <div className="text-sm text-muted-foreground">
             {totalFiltered > 0 ? (
               <>
-                Showing {page * PAGE_SIZE + 1}-
-                {Math.min((page + 1) * PAGE_SIZE, totalFiltered)} of {totalFiltered}
+                Showing {effectivePage * PAGE_SIZE + 1}-
+                {Math.min((effectivePage + 1) * PAGE_SIZE, totalFiltered)} of {totalFiltered}
               </>
             ) : (
               "No items"
@@ -242,19 +249,19 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
               variant="outline"
               size="sm"
               onClick={handlePrevPage}
-              disabled={page === 0}
+              disabled={effectivePage === 0}
             >
               <ChevronLeft className="h-4 w-4" />
               Previous
             </Button>
             <span className="text-sm text-muted-foreground">
-              Page {page + 1} of {totalPages}
+              Page {effectivePage + 1} of {totalPages}
             </span>
             <Button
               variant="outline"
               size="sm"
               onClick={handleNextPage}
-              disabled={page >= totalPages - 1}
+              disabled={effectivePage >= totalPages - 1}
             >
               Next
               <ChevronRight className="h-4 w-4" />

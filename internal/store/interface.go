@@ -23,6 +23,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// SQL query base constants shared across store implementations
+const (
+	alertHistoryBaseQuery = "FROM alert_history WHERE 1=1"
+)
+
 // Execution represents a single CronJob execution
 type Execution struct {
 	ID               int64

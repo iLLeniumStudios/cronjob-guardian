@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState, useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Timer, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -13,16 +13,21 @@ import { StatusIndicator } from "@/components/status-indicator";
 import { listMonitors, type MonitorsResponse, type Monitor } from "@/lib/api";
 import { MonitorDetailClient } from "./monitor-detail";
 
-// Check if we're on a detail route
+// Subscribe function for useSyncExternalStore (no-op since pathname won't change without navigation)
+const emptySubscribe = () => () => {};
+
+// Check if we're on a detail route using useSyncExternalStore for proper SSR/hydration handling
 function useIsDetailRoute() {
-  const [isDetail, setIsDetail] = useState(false);
-  useEffect(() => {
-    const path = window.location.pathname;
-    const parts = path.split("/").filter(Boolean);
-    // /monitors/namespace/name has 3 parts
-    setIsDetail(parts.length >= 3 && parts[0] === "monitors");
-  }, []);
-  return isDetail;
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => {
+      const path = window.location.pathname;
+      const parts = path.split("/").filter(Boolean);
+      // /monitors/namespace/name has 3 parts
+      return parts.length >= 3 && parts[0] === "monitors";
+    },
+    () => false // Server snapshot - default to list view on SSR
+  );
 }
 
 export default function MonitorsPage() {
@@ -110,12 +115,6 @@ function MonitorsListView() {
 
 function MonitorCard({ monitor }: { monitor: Monitor }) {
   const totalJobs = monitor.summary.healthy + monitor.summary.warning + monitor.summary.critical;
-  const overallStatus =
-    monitor.summary.critical > 0
-      ? "critical"
-      : monitor.summary.warning > 0
-        ? "warning"
-        : "healthy";
 
   return (
     <Link href={`/monitors/${monitor.namespace}/${monitor.name}`}>

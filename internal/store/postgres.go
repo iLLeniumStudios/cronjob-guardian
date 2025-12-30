@@ -623,7 +623,7 @@ func (s *PostgresStore) StoreAlert(ctx context.Context, alert AlertHistory) erro
 // ListAlertHistory returns alert history with pagination
 func (s *PostgresStore) ListAlertHistory(ctx context.Context, query AlertHistoryQuery) ([]AlertHistory, int64, error) {
 	// Build query
-	baseQuery := `FROM alert_history WHERE 1=1`
+	baseQuery := alertHistoryBaseQuery
 	args := []any{}
 	argIdx := 1
 
@@ -737,7 +737,7 @@ func (s *PostgresStore) GetChannelAlertStats(ctx context.Context) (map[string]Ch
 	if err != nil {
 		return nil, fmt.Errorf("query alert_history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	stats := make(map[string]ChannelAlertStats)
 	cutoff24h := time.Now().Add(-24 * time.Hour)

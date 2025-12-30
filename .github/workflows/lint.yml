@@ -5,8 +5,8 @@ on:
   pull_request:
 
 jobs:
-  lint:
-    name: Run on Ubuntu
+  lint-go:
+    name: Go Lint
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -21,3 +21,27 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.7.2
+
+  lint-ui:
+    name: UI Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: ui
+
+      - name: Run ESLint
+        run: bun run lint
+        working-directory: ui
+
+      - name: Run TypeScript type check
+        run: bun run typecheck
+        working-directory: ui

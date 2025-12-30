@@ -44,6 +44,12 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
+// Data retention action constants
+const (
+	retentionRetain = "retain"
+	retentionReset  = "reset"
+)
+
 // JobHandler handles Job events for execution tracking
 type JobHandler struct {
 	client.Client
@@ -78,7 +84,7 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	completionTime := "nil"
 	if job.Status.CompletionTime != nil {
-		completionTime = job.Status.CompletionTime.Time.Format(time.RFC3339)
+		completionTime = job.Status.CompletionTime.Format(time.RFC3339)
 	}
 	log.V(1).Info("job fetched",
 		"succeeded", job.Status.Succeeded,
@@ -251,7 +257,7 @@ func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJ
 	// Store logs if configured
 	if h.shouldStoreLogs(monitor) {
 		maxSizeKB := h.getMaxLogSizeKB(monitor)
-		exec.Logs = h.collectAndTruncateLogs(ctx, job, pod, maxSizeKB)
+		exec.Logs = h.collectAndTruncateLogs(ctx, pod, maxSizeKB)
 	}
 
 	// Store events if configured
@@ -296,12 +302,12 @@ func (h *JobHandler) handleRecreationCheck(ctx context.Context, log logr.Logger,
 			log.Info("detected CronJob recreation", "oldUID", uid, "newUID", currentUID)
 
 			// Check onRecreation config
-			onRecreation := "retain" // default
+			onRecreation := retentionRetain // default
 			if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.OnRecreation != "" {
 				onRecreation = monitor.Spec.DataRetention.OnRecreation
 			}
 
-			if onRecreation == "reset" {
+			if onRecreation == retentionReset {
 				// Delete executions from the old UID
 				deleted, err := h.Store.DeleteExecutionsByUID(ctx, cronJob, uid)
 				if err != nil {
@@ -362,7 +368,7 @@ func (h *JobHandler) getMaxLogSizeKB(monitor *guardianv1alpha1.CronJobMonitor) i
 }
 
 // collectAndTruncateLogs collects logs and truncates to max size
-func (h *JobHandler) collectAndTruncateLogs(ctx context.Context, job *batchv1.Job, pod *corev1.Pod, maxSizeKB int) string {
+func (h *JobHandler) collectAndTruncateLogs(ctx context.Context, pod *corev1.Pod, maxSizeKB int) string {
 	if h.Clientset == nil || pod == nil {
 		return ""
 	}
@@ -461,9 +467,9 @@ func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor
 	}
 
 	// Determine severity (with nil safety)
-	severity := "critical"
+	severity := statusCritical
 	if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
-		severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.JobFailed, "critical")
+		severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.JobFailed, statusCritical)
 	}
 	log.V(1).Info("determined alert severity", "severity", severity)
 
@@ -530,7 +536,7 @@ func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor
 	}
 }
 
-func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, config *guardianv1alpha1.AlertContext) string {
+func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, alertCtx *guardianv1alpha1.AlertContext) string {
 	if h.Clientset == nil {
 		h.Log.V(1).Info("clientset not configured, cannot collect logs")
 		return ""
@@ -542,16 +548,16 @@ func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, config *
 	}
 
 	containerName := ""
-	if config != nil {
-		containerName = config.LogContainerName
+	if alertCtx != nil {
+		containerName = alertCtx.LogContainerName
 	}
 	if containerName == "" && len(pod.Spec.Containers) > 0 {
 		containerName = pod.Spec.Containers[0].Name
 	}
 
 	logLines := int32(50)
-	if config != nil && config.LogLines != nil {
-		logLines = *config.LogLines
+	if alertCtx != nil && alertCtx.LogLines != nil {
+		logLines = *alertCtx.LogLines
 	}
 	tailLines := int64(logLines)
 	opts := &corev1.PodLogOptions{

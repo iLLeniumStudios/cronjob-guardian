@@ -281,6 +281,7 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 	return status
 }
 
+//nolint:gocyclo // complexity is acceptable for a function that checks multiple alert conditions
 func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob, _ *guardianv1alpha1.CronJobStatus) []guardianv1alpha1.ActiveAlert {
 	var alerts []guardianv1alpha1.ActiveAlert
 	cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
@@ -293,9 +294,9 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 			r.Log.V(1).Error(err, "failed to get last execution", "cronJob", cj.Name)
 		} else if lastExec != nil && !lastExec.Succeeded {
 			// Last execution failed - add a warning or critical alert
-			severity := "warning"
+			severity := statusWarning
 			if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
-				severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.JobFailed, "warning")
+				severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.JobFailed, statusWarning)
 			}
 			message := "Last job execution failed"
 			if lastExec.Reason != "" {
@@ -348,9 +349,9 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 			r.Log.V(1).Error(err, "failed to check SLA", "cronJob", cj.Name)
 		} else if !result.Passed {
 			for _, v := range result.Violations {
-				severity := "warning"
+				severity := statusWarning
 				if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
-					severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.SLABreached, "warning")
+					severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.SLABreached, statusWarning)
 				}
 				r.Log.V(1).Info("SLA violation detected", "cronJob", cj.Name, "type", v.Type, "severity", severity, "message", v.Message)
 				alerts = append(alerts, guardianv1alpha1.ActiveAlert{

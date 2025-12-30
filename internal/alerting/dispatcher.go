@@ -75,7 +75,7 @@ type Channel interface {
 // Dispatcher handles alert routing and delivery
 type Dispatcher interface {
 	// Dispatch sends an alert through configured channels
-	Dispatch(ctx context.Context, alert Alert, config *v1alpha1.AlertingConfig) error
+	Dispatch(ctx context.Context, alert Alert, alertCfg *v1alpha1.AlertingConfig) error
 
 	// RegisterChannel adds or updates an alert channel
 	RegisterChannel(channel *v1alpha1.AlertChannel) error
@@ -87,7 +87,7 @@ type Dispatcher interface {
 	SendToChannel(ctx context.Context, channelName string, alert Alert) error
 
 	// IsSuppressed checks if an alert should be suppressed
-	IsSuppressed(alert Alert, config *v1alpha1.AlertingConfig) (bool, string)
+	IsSuppressed(alert Alert, alertCfg *v1alpha1.AlertingConfig) (bool, string)
 
 	// ClearAlert clears an active alert (e.g., when resolved)
 	ClearAlert(ctx context.Context, alertKey string) error
@@ -129,10 +129,10 @@ func NewDispatcher(c client.Client) Dispatcher {
 }
 
 // Dispatch sends an alert through configured channels
-func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, config *v1alpha1.AlertingConfig) error {
+func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alpha1.AlertingConfig) error {
 	logger := log.FromContext(ctx)
 
-	if config == nil || !isEnabled(config.Enabled) {
+	if alertCfg == nil || !isEnabled(alertCfg.Enabled) {
 		return nil
 	}
 
@@ -145,7 +145,7 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, config *v1alpha1
 	}
 
 	// Check suppression
-	if suppressed, reason := d.IsSuppressed(alert, config); suppressed {
+	if suppressed, reason := d.IsSuppressed(alert, alertCfg); suppressed {
 		logger.V(1).Info("alert suppressed", "key", alert.Key, "reason", reason)
 		return nil
 	}
@@ -157,7 +157,7 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, config *v1alpha1
 	}
 
 	// Collect target channels
-	targetChannels := d.resolveChannels(config, alert.Severity)
+	targetChannels := d.resolveChannels(alertCfg, alert.Severity)
 
 	// Send to each channel
 	var errs []error
@@ -238,15 +238,15 @@ func (d *dispatcher) SendToChannel(ctx context.Context, channelName string, aler
 }
 
 // IsSuppressed checks if an alert should be suppressed
-func (d *dispatcher) IsSuppressed(alert Alert, config *v1alpha1.AlertingConfig) (bool, string) {
+func (d *dispatcher) IsSuppressed(alert Alert, alertCfg *v1alpha1.AlertingConfig) (bool, string) {
 	d.alertMu.RLock()
 	defer d.alertMu.RUnlock()
 
 	// Check duplicate suppression
 	if lastSent, ok := d.sentAlerts[alert.Key]; ok {
 		suppressDuration := 1 * time.Hour
-		if config.SuppressDuplicatesFor != nil {
-			suppressDuration = config.SuppressDuplicatesFor.Duration
+		if alertCfg.SuppressDuplicatesFor != nil {
+			suppressDuration = alertCfg.SuppressDuplicatesFor.Duration
 		}
 		if time.Since(lastSent) < suppressDuration {
 			return true, "duplicate within suppression window"
@@ -306,14 +306,14 @@ func (d *dispatcher) SetStore(s store.Store) {
 }
 
 // resolveChannels resolves channel refs to actual channels
-func (d *dispatcher) resolveChannels(config *v1alpha1.AlertingConfig, severity string) []Channel {
+func (d *dispatcher) resolveChannels(alertCfg *v1alpha1.AlertingConfig, severity string) []Channel {
 	var channels []Channel
 
 	d.channelMu.RLock()
 	defer d.channelMu.RUnlock()
 
 	// Resolve channel refs
-	for _, ref := range config.ChannelRefs {
+	for _, ref := range alertCfg.ChannelRefs {
 		if ch, ok := d.channels[ref.Name]; ok {
 			if len(ref.Severities) == 0 || contains(ref.Severities, severity) {
 				channels = append(channels, ch)

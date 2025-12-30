@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -67,26 +67,39 @@ function formatAbsoluteTime(date: Date): string {
   });
 }
 
+// Custom hook for relative time with automatic updates
+function useRelativeTime(date: Date | string | null | undefined): string {
+  // Memoize the Date object to avoid recreating on every render
+  const d = useMemo(
+    () => (date ? (typeof date === "string" ? new Date(date) : date) : null),
+    [date]
+  );
+
+  // Subscribe to time updates (every minute)
+  const subscribe = useCallback((callback: () => void) => {
+    const interval = setInterval(callback, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Get current snapshot
+  const getSnapshot = useCallback(() => {
+    return d ? formatRelativeTime(d) : "";
+  }, [d]);
+
+  // Server snapshot (same as client for this case)
+  const getServerSnapshot = useCallback(() => {
+    return d ? formatRelativeTime(d) : "";
+  }, [d]);
+
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
+
 export function RelativeTime({
   date,
   className,
   showTooltip = true,
 }: RelativeTimeProps) {
-  const [relativeTime, setRelativeTime] = useState<string>("");
-
-  useEffect(() => {
-    if (!date) return;
-
-    const d = typeof date === "string" ? new Date(date) : date;
-    setRelativeTime(formatRelativeTime(d));
-
-    // Update every minute
-    const interval = setInterval(() => {
-      setRelativeTime(formatRelativeTime(d));
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [date]);
+  const relativeTime = useRelativeTime(date);
 
   if (!date) {
     return <span className={className}>-</span>;

@@ -693,7 +693,7 @@ func (s *SQLiteStore) StoreAlert(ctx context.Context, alert AlertHistory) error 
 // ListAlertHistory returns alert history with pagination
 func (s *SQLiteStore) ListAlertHistory(ctx context.Context, query AlertHistoryQuery) ([]AlertHistory, int64, error) {
 	// Build query
-	baseQuery := "FROM alert_history WHERE 1=1"
+	baseQuery := alertHistoryBaseQuery
 	args := []interface{}{}
 
 	if query.Since != nil {
@@ -809,7 +809,7 @@ func (s *SQLiteStore) GetChannelAlertStats(ctx context.Context) (map[string]Chan
 	if err != nil {
 		return nil, fmt.Errorf("query alert_history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	stats := make(map[string]ChannelAlertStats)
 	cutoff24h := time.Now().Add(-24 * time.Hour)
