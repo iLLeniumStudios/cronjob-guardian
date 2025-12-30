@@ -34,7 +34,6 @@ import (
 
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
-	"github.com/iLLeniumStudios/cronjob-guardian/internal/remediation"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
@@ -59,7 +58,6 @@ type Server struct {
 	store               store.Store
 	config              *config.Config
 	alertDispatcher     alerting.Dispatcher
-	remediationEngine   remediation.Engine
 	startTime           time.Time
 	port                int
 	server              *http.Server
@@ -73,7 +71,6 @@ type ServerOptions struct {
 	Store               store.Store
 	Config              *config.Config
 	AlertDispatcher     alerting.Dispatcher
-	RemediationEngine   remediation.Engine
 	Port                int
 	LeaderElectionCheck func() bool
 }
@@ -90,7 +87,6 @@ func NewServer(opts ServerOptions) *Server {
 		store:               opts.Store,
 		config:              opts.Config,
 		alertDispatcher:     opts.AlertDispatcher,
-		remediationEngine:   opts.RemediationEngine,
 		startTime:           time.Now(),
 		port:                opts.Port,
 		leaderElectionCheck: opts.LeaderElectionCheck,
@@ -195,7 +191,7 @@ func (s *Server) setupRoutes() chi.Router {
 	})
 
 	// Create handlers
-	h := NewHandlers(s.client, s.clientset, s.store, s.config, s.alertDispatcher, s.remediationEngine, s.startTime, s.leaderElectionCheck)
+	h := NewHandlers(s.client, s.clientset, s.store, s.config, s.alertDispatcher, s.startTime, s.leaderElectionCheck)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {

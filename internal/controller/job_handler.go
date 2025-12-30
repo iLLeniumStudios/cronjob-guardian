@@ -40,7 +40,7 @@ import (
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
-	"github.com/iLLeniumStudios/cronjob-guardian/internal/remediation"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/metrics"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
@@ -53,13 +53,12 @@ const (
 // JobHandler handles Job events for execution tracking
 type JobHandler struct {
 	client.Client
-	Log               logr.Logger // Required - must be injected
-	Scheme            *runtime.Scheme
-	Clientset         *kubernetes.Clientset
-	Store             store.Store
-	Config            *config.Config
-	AlertDispatcher   alerting.Dispatcher
-	RemediationEngine remediation.Engine
+	Log             logr.Logger // Required - must be injected
+	Scheme          *runtime.Scheme
+	Clientset       *kubernetes.Clientset
+	Store           store.Store
+	Config          *config.Config
+	AlertDispatcher alerting.Dispatcher
 }
 
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
@@ -152,6 +151,13 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				"job", job.Name,
 				"succeeded", exec.Succeeded,
 				"duration", exec.Duration.Round(time.Millisecond))
+
+			// Record Prometheus metrics
+			status := "failed"
+			if exec.Succeeded {
+				status = "success"
+			}
+			metrics.RecordExecution(job.Namespace, cronJobName, status)
 		}
 	} else {
 		log.V(1).Info("store not configured, skipping execution recording")
@@ -411,12 +417,6 @@ func (h *JobHandler) collectAndTruncateLogs(ctx context.Context, pod *corev1.Pod
 }
 
 func (h *JobHandler) handleSuccess(ctx context.Context, log logr.Logger, _ *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
-	// Reset retry counter on success
-	if h.RemediationEngine != nil {
-		log.V(1).Info("resetting retry counter")
-		h.RemediationEngine.ResetRetryCount(job.Namespace, cronJobName)
-	}
-
 	// Clear any active failure alerts for this CronJob
 	if h.AlertDispatcher != nil {
 		alertKey := fmt.Sprintf("%s/%s/JobFailed", job.Namespace, cronJobName)
@@ -506,33 +506,6 @@ func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor
 		}
 	} else {
 		log.V(1).Info("alert dispatcher not configured, skipping alert dispatch")
-	}
-
-	// Check for auto-retry
-	if monitor.Spec.Remediation != nil && isEnabled(monitor.Spec.Remediation.Enabled) {
-		log.V(1).Info("remediation enabled, checking auto-retry")
-		if monitor.Spec.Remediation.AutoRetry != nil && monitor.Spec.Remediation.AutoRetry.Enabled {
-			if h.RemediationEngine != nil {
-				log.Info("attempting auto-retry", "job", job.Name)
-				result, err := h.RemediationEngine.TryRetry(ctx, monitor, job, cronJobName)
-				if err != nil {
-					log.Error(err, "failed to retry job")
-				} else if result.Success {
-					log.Info("retry initiated",
-						"retryJob", result.JobName,
-						"message", result.Message,
-						"dryRun", result.DryRun)
-				} else {
-					log.Info("retry not initiated", "message", result.Message)
-				}
-			} else {
-				log.V(1).Info("remediation engine not configured, skipping auto-retry")
-			}
-		} else {
-			log.V(1).Info("auto-retry not enabled in monitor spec")
-		}
-	} else {
-		log.V(1).Info("remediation not enabled for this monitor")
 	}
 }
 

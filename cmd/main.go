@@ -47,7 +47,6 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/api"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/controller"
-	"github.com/iLLeniumStudios/cronjob-guardian/internal/remediation"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/scheduler"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 	// +kubebuilder:scaffold:imports
@@ -287,10 +286,6 @@ func main() {
 	alertDispatcher.SetStore(dataStore)
 	setupLog.Info("initialized alert dispatcher")
 
-	// Create remediation engine
-	remediationEngine := remediation.NewEngine(mgr.GetClient())
-	setupLog.Info("initialized remediation engine")
-
 	if err := (&controller.CronJobMonitorReconciler{
 		Client:          mgr.GetClient(),
 		Log:             ctrl.Log.WithName("controllers").WithName("CronJobMonitor"),
@@ -314,14 +309,13 @@ func main() {
 
 	// Job handler watches for Job completions to record executions
 	if err := (&controller.JobHandler{
-		Client:            mgr.GetClient(),
-		Log:               ctrl.Log.WithName("controllers").WithName("JobHandler"),
-		Scheme:            mgr.GetScheme(),
-		Clientset:         clientset,
-		Store:             dataStore,
-		Config:            cfg,
-		AlertDispatcher:   alertDispatcher,
-		RemediationEngine: remediationEngine,
+		Client:          mgr.GetClient(),
+		Log:             ctrl.Log.WithName("controllers").WithName("JobHandler"),
+		Scheme:          mgr.GetScheme(),
+		Clientset:       clientset,
+		Store:           dataStore,
+		Config:          cfg,
+		AlertDispatcher: alertDispatcher,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "JobHandler")
 		os.Exit(1)
@@ -377,7 +371,6 @@ func main() {
 			Store:               dataStore,
 			Config:              cfg,
 			AlertDispatcher:     alertDispatcher,
-			RemediationEngine:   remediationEngine,
 			Port:                cfg.API.Port,
 			LeaderElectionCheck: leaderElectionCheck,
 		})

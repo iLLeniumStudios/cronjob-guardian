@@ -56,12 +56,6 @@ export interface CronJobDetail extends Omit<CronJob, 'activeAlerts'> {
   metrics: CronJobMetrics;
   lastExecution: CronJobExecution | null;
   activeAlerts: Alert[];
-  lastRemediation: {
-    action: string;
-    time: string;
-    result: string;
-    message: string;
-  } | null;
 }
 
 export interface ExecutionHistoryResponse {
@@ -303,7 +297,6 @@ export interface Config {
     totalMonitors: number;
     totalCronJobsWatched: number;
     totalAlertsSent24h: number;
-    totalRemediations24h: number;
     storageStatus: string;
   };
 }
@@ -322,7 +315,6 @@ export interface StatsResponse {
   summary: CronJobSummary;
   activeAlerts: number;
   alertsSent24h: number;
-  remediations24h: number;
   executionsRecorded24h: number;
 }
 

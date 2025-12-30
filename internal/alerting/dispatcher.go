@@ -32,6 +32,7 @@ import (
 
 	"github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/metrics"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
@@ -168,6 +169,14 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 			errs = append(errs, err)
 		} else {
 			channelNames = append(channelNames, ch.Name())
+			// Record Prometheus metrics for successful alert delivery
+			metrics.RecordAlert(
+				alert.CronJob.Namespace,
+				alert.CronJob.Name,
+				alert.Type,
+				alert.Severity,
+				ch.Name(),
+			)
 		}
 	}
 

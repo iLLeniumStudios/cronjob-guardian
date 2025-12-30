@@ -124,8 +124,8 @@ func (s *DeadManScheduler) check(ctx context.Context) {
 				continue
 			}
 
-			// Skip if in maintenance window
-			if inMaintenanceWindow(monitor.Spec.MaintenanceWindows, time.Now(), monitor.Spec.Timezone) {
+			// Skip if in maintenance window (each window has its own timezone)
+			if inMaintenanceWindow(monitor.Spec.MaintenanceWindows, time.Now(), "") {
 				continue
 			}
 

@@ -72,9 +72,6 @@ type SchedulerConfig struct {
 	// SLARecalculationInterval is how often to recalculate SLA metrics
 	SLARecalculationInterval time.Duration `mapstructure:"sla-recalculation-interval"`
 
-	// StuckJobCheckInterval is how often to check for stuck jobs
-	StuckJobCheckInterval time.Duration `mapstructure:"stuck-job-check-interval"`
-
 	// PruneInterval is how often to prune old execution history
 	PruneInterval time.Duration `mapstructure:"prune-interval"`
 }
@@ -167,9 +164,6 @@ type HistoryRetentionConfig struct {
 type RateLimitsConfig struct {
 	// MaxAlertsPerMinute across all channels
 	MaxAlertsPerMinute int `mapstructure:"max-alerts-per-minute"`
-
-	// MaxRemediationsPerHour across all monitors
-	MaxRemediationsPerHour int `mapstructure:"max-remediations-per-hour"`
 }
 
 // APIConfig configures the REST API server
@@ -242,7 +236,6 @@ func DefaultConfig() *Config {
 		Scheduler: SchedulerConfig{
 			DeadManSwitchInterval:    1 * time.Minute,
 			SLARecalculationInterval: 5 * time.Minute,
-			StuckJobCheckInterval:    1 * time.Minute,
 			PruneInterval:            1 * time.Hour,
 		},
 		Storage: StorageConfig{
@@ -267,8 +260,7 @@ func DefaultConfig() *Config {
 			MaxDays:     90,
 		},
 		RateLimits: RateLimitsConfig{
-			MaxAlertsPerMinute:     50,
-			MaxRemediationsPerHour: 100,
+			MaxAlertsPerMinute: 50,
 		},
 		IgnoredNamespaces: []string{
 			"kube-system",
@@ -311,7 +303,6 @@ func BindFlags(flags *pflag.FlagSet) {
 	// Scheduler
 	flags.Duration("scheduler.dead-man-switch-interval", 1*time.Minute, "How often to check dead-man's switches")
 	flags.Duration("scheduler.sla-recalculation-interval", 5*time.Minute, "How often to recalculate SLA metrics")
-	flags.Duration("scheduler.stuck-job-check-interval", 1*time.Minute, "How often to check for stuck jobs")
 	flags.Duration("scheduler.prune-interval", 1*time.Hour, "How often to prune old execution history")
 
 	// Storage
@@ -339,7 +330,6 @@ func BindFlags(flags *pflag.FlagSet) {
 
 	// Rate limits
 	flags.Int("rate-limits.max-alerts-per-minute", 50, "Maximum alerts per minute across all channels")
-	flags.Int("rate-limits.max-remediations-per-hour", 100, "Maximum remediations per hour")
 
 	// Ignored namespaces
 	flags.StringSlice("ignored-namespaces", []string{"kube-system", "kube-public", "kube-node-lease"}, "Namespaces to ignore")
@@ -380,7 +370,6 @@ func Load(flags *pflag.FlagSet) (*Config, error) {
 	v.SetDefault("log-level", defaults.LogLevel)
 	v.SetDefault("scheduler.dead-man-switch-interval", defaults.Scheduler.DeadManSwitchInterval)
 	v.SetDefault("scheduler.sla-recalculation-interval", defaults.Scheduler.SLARecalculationInterval)
-	v.SetDefault("scheduler.stuck-job-check-interval", defaults.Scheduler.StuckJobCheckInterval)
 	v.SetDefault("scheduler.prune-interval", defaults.Scheduler.PruneInterval)
 	v.SetDefault("storage.type", defaults.Storage.Type)
 	v.SetDefault("storage.sqlite.path", defaults.Storage.SQLite.Path)
@@ -394,7 +383,6 @@ func Load(flags *pflag.FlagSet) (*Config, error) {
 	v.SetDefault("history-retention.default-days", defaults.HistoryRetention.DefaultDays)
 	v.SetDefault("history-retention.max-days", defaults.HistoryRetention.MaxDays)
 	v.SetDefault("rate-limits.max-alerts-per-minute", defaults.RateLimits.MaxAlertsPerMinute)
-	v.SetDefault("rate-limits.max-remediations-per-hour", defaults.RateLimits.MaxRemediationsPerHour)
 	v.SetDefault("ignored-namespaces", defaults.IgnoredNamespaces)
 	v.SetDefault("api.enabled", defaults.API.Enabled)
 	v.SetDefault("api.port", defaults.API.Port)

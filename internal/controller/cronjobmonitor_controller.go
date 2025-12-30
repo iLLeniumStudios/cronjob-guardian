@@ -37,6 +37,7 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/analyzer"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
+	prommetrics "github.com/iLLeniumStudios/cronjob-guardian/internal/metrics"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
@@ -271,6 +272,12 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 			log.V(1).Info("metrics retrieved",
 				"successRate", metrics.SuccessRate,
 				"totalRuns", metrics.TotalRuns)
+
+			// Update Prometheus metrics
+			prommetrics.UpdateSuccessRate(cj.Namespace, cj.Name, monitor.Name, metrics.SuccessRate)
+			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p50", metrics.P50DurationSeconds)
+			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p95", metrics.P95DurationSeconds)
+			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p99", metrics.P99DurationSeconds)
 		} else if err != nil {
 			log.V(1).Error(err, "failed to get metrics")
 		}
@@ -292,6 +299,12 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 			log.V(1).Info("metrics retrieved from store",
 				"successRate", metrics.SuccessRate,
 				"totalRuns", metrics.TotalRuns)
+
+			// Update Prometheus metrics
+			prommetrics.UpdateSuccessRate(cj.Namespace, cj.Name, monitor.Name, metrics.SuccessRate)
+			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p50", metrics.P50DurationSeconds)
+			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p95", metrics.P95DurationSeconds)
+			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p99", metrics.P99DurationSeconds)
 		} else if err != nil {
 			log.V(1).Error(err, "failed to get metrics from store")
 		}
@@ -300,6 +313,15 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 	// Check for active alerts
 	status.ActiveAlerts = r.checkAlerts(ctx, monitor, cj, &status)
 	log.V(1).Info("checked alerts", "activeAlertCount", len(status.ActiveAlerts))
+
+	// Update active alerts Prometheus metric by severity
+	alertsBySeverity := make(map[string]float64)
+	for _, alert := range status.ActiveAlerts {
+		alertsBySeverity[alert.Severity]++
+	}
+	for severity, count := range alertsBySeverity {
+		prommetrics.UpdateActiveAlerts(cj.Namespace, cj.Name, severity, count)
+	}
 
 	// Determine overall status
 	status.Status = r.determineStatus(&status)

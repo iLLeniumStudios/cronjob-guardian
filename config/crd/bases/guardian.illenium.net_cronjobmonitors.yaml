@@ -149,12 +149,6 @@ spec:
                         - warning
                         - info
                         type: string
-                      stuckJob:
-                        enum:
-                        - critical
-                        - warning
-                        - info
-                        type: string
                     type: object
                   suppressDuplicatesFor:
                     description: 'SuppressDuplicatesFor prevents re-alerting within
@@ -264,10 +258,6 @@ spec:
                     suppressAlerts:
                       description: 'SuppressAlerts during this window (default: true)'
                       type: boolean
-                    suppressRemediation:
-                      description: 'SuppressRemediation during this window (default:
-                        true)'
-                      type: boolean
                     timezone:
                       description: 'Timezone for the schedule (default: UTC)'
                       type: string
@@ -277,71 +267,6 @@ spec:
                   - schedule
                   type: object
                 type: array
-              remediation:
-                description: Remediation configures auto-remediation actions
-                properties:
-                  autoRetry:
-                    description: AutoRetry configures automatic job retry
-                    properties:
-                      behavior:
-                        description: 'Behavior specifies retry strategy (default:
-                          CreateNewJob)'
-                        enum:
-                        - CreateNewJob
-                        - WaitForBackoff
-                        type: string
-                      delayBetweenRetries:
-                        description: 'DelayBetweenRetries is wait time between retries
-                          (default: 5m)'
-                        type: string
-                      enabled:
-                        description: 'Enabled turns on auto-retry (default: false)'
-                        type: boolean
-                      maxRetries:
-                        description: 'MaxRetries is maximum retry attempts (default:
-                          2)'
-                        format: int32
-                        type: integer
-                      onlyForExitCodes:
-                        description: OnlyForExitCodes limits retries to specific exit
-                          codes (empty = all failures)
-                        items:
-                          format: int32
-                          type: integer
-                        type: array
-                    required:
-                    - enabled
-                    type: object
-                  dryRun:
-                    description: 'DryRun logs actions without executing (default:
-                      false)'
-                    type: boolean
-                  enabled:
-                    description: 'Enabled turns on remediation (default: false)'
-                    type: boolean
-                  killStuckJobs:
-                    description: KillStuckJobs configures stuck job termination
-                    properties:
-                      afterDuration:
-                        description: AfterDuration kills jobs running longer than
-                          this
-                        type: string
-                      deletePolicy:
-                        description: 'DeletePolicy specifies how to handle the job
-                          (default: Delete)'
-                        enum:
-                        - Delete
-                        - Orphan
-                        type: string
-                      enabled:
-                        description: 'Enabled turns on stuck job killing (default:
-                          false)'
-                        type: boolean
-                    required:
-                    - afterDuration
-                    - enabled
-                    type: object
-                type: object
               selector:
                 description: Selector specifies which CronJobs to monitor
                 properties:
@@ -435,9 +360,6 @@ spec:
                       suspended (default: true)'
                     type: boolean
                 type: object
-              timezone:
-                description: 'Timezone for schedule interpretation (default: UTC)'
-                type: string
             type: object
           status:
             description: CronJobMonitorStatus defines the observed state of CronJobMonitor
@@ -537,24 +459,6 @@ spec:
                       description: LastFailedTime is when the last Job failed
                       format: date-time
                       type: string
-                    lastRemediation:
-                      description: LastRemediation describes the most recent remediation
-                        action
-                      properties:
-                        action:
-                          type: string
-                        message:
-                          type: string
-                        result:
-                          type: string
-                        time:
-                          format: date-time
-                          type: string
-                      required:
-                      - action
-                      - result
-                      - time
-                      type: object
                     lastRunDuration:
                       description: LastRunDuration is the duration of the last completed
                         Job

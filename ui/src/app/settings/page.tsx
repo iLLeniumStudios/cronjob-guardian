@@ -235,7 +235,7 @@ export default function SettingsPage() {
             <CardTitle className="text-base font-medium">Activity (24h)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+            <div className="grid grid-cols-3 gap-6">
               <div className="text-center">
                 <p className="text-3xl font-semibold">{config?.status?.totalMonitors ?? 0}</p>
                 <p className="mt-1 text-sm text-muted-foreground">Monitors</p>
@@ -247,10 +247,6 @@ export default function SettingsPage() {
               <div className="text-center">
                 <p className="text-3xl font-semibold">{config?.status?.totalAlertsSent24h ?? 0}</p>
                 <p className="mt-1 text-sm text-muted-foreground">Alerts Sent</p>
-              </div>
-              <div className="text-center">
-                <p className="text-3xl font-semibold">{config?.status?.totalRemediations24h ?? 0}</p>
-                <p className="mt-1 text-sm text-muted-foreground">Remediations</p>
               </div>
             </div>
           </CardContent>

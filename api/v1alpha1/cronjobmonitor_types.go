@@ -42,10 +42,6 @@ type CronJobMonitorSpec struct {
 	// +optional
 	MaintenanceWindows []MaintenanceWindow `json:"maintenanceWindows,omitempty"`
 
-	// Remediation configures auto-remediation actions
-	// +optional
-	Remediation *RemediationConfig `json:"remediation,omitempty"`
-
 	// Alerting configures alert channels and behavior
 	// +optional
 	Alerting *AlertingConfig `json:"alerting,omitempty"`
@@ -53,10 +49,6 @@ type CronJobMonitorSpec struct {
 	// DataRetention configures data lifecycle management
 	// +optional
 	DataRetention *DataRetentionConfig `json:"dataRetention,omitempty"`
-
-	// Timezone for schedule interpretation (default: UTC)
-	// +optional
-	Timezone string `json:"timezone,omitempty"`
 }
 
 // CronJobSelector specifies which CronJobs to monitor
@@ -164,66 +156,6 @@ type MaintenanceWindow struct {
 	// SuppressAlerts during this window (default: true)
 	// +optional
 	SuppressAlerts *bool `json:"suppressAlerts,omitempty"`
-
-	// SuppressRemediation during this window (default: true)
-	// +optional
-	SuppressRemediation *bool `json:"suppressRemediation,omitempty"`
-}
-
-// RemediationConfig configures auto-remediation
-type RemediationConfig struct {
-	// Enabled turns on remediation (default: false)
-	// +optional
-	Enabled *bool `json:"enabled,omitempty"`
-
-	// DryRun logs actions without executing (default: false)
-	// +optional
-	DryRun *bool `json:"dryRun,omitempty"`
-
-	// KillStuckJobs configures stuck job termination
-	// +optional
-	KillStuckJobs *KillStuckJobsConfig `json:"killStuckJobs,omitempty"`
-
-	// AutoRetry configures automatic job retry
-	// +optional
-	AutoRetry *AutoRetryConfig `json:"autoRetry,omitempty"`
-}
-
-// KillStuckJobsConfig configures stuck job termination
-type KillStuckJobsConfig struct {
-	// Enabled turns on stuck job killing (default: false)
-	Enabled bool `json:"enabled"`
-
-	// AfterDuration kills jobs running longer than this
-	AfterDuration metav1.Duration `json:"afterDuration"`
-
-	// DeletePolicy specifies how to handle the job (default: Delete)
-	// +kubebuilder:validation:Enum=Delete;Orphan
-	// +optional
-	DeletePolicy string `json:"deletePolicy,omitempty"`
-}
-
-// AutoRetryConfig configures automatic job retry
-type AutoRetryConfig struct {
-	// Enabled turns on auto-retry (default: false)
-	Enabled bool `json:"enabled"`
-
-	// MaxRetries is maximum retry attempts (default: 2)
-	// +optional
-	MaxRetries *int32 `json:"maxRetries,omitempty"`
-
-	// DelayBetweenRetries is wait time between retries (default: 5m)
-	// +optional
-	DelayBetweenRetries *metav1.Duration `json:"delayBetweenRetries,omitempty"`
-
-	// Behavior specifies retry strategy (default: CreateNewJob)
-	// +kubebuilder:validation:Enum=CreateNewJob;WaitForBackoff
-	// +optional
-	Behavior string `json:"behavior,omitempty"`
-
-	// OnlyForExitCodes limits retries to specific exit codes (empty = all failures)
-	// +optional
-	OnlyForExitCodes []int32 `json:"onlyForExitCodes,omitempty"`
 }
 
 // AlertingConfig configures alerting behavior
@@ -307,9 +239,6 @@ type SeverityOverrides struct {
 	// +kubebuilder:validation:Enum=critical;warning;info
 	// +optional
 	DurationRegression string `json:"durationRegression,omitempty"`
-	// +kubebuilder:validation:Enum=critical;warning;info
-	// +optional
-	StuckJob string `json:"stuckJob,omitempty"`
 }
 
 // DataRetentionConfig configures data lifecycle management for this monitor
@@ -432,10 +361,6 @@ type CronJobStatus struct {
 	// ActiveAlerts lists current alerts for this CronJob
 	// +optional
 	ActiveAlerts []ActiveAlert `json:"activeAlerts,omitempty"`
-
-	// LastRemediation describes the most recent remediation action
-	// +optional
-	LastRemediation *RemediationStatus `json:"lastRemediation,omitempty"`
 }
 
 // CronJobMetrics contains SLA metrics for a CronJob
@@ -472,14 +397,6 @@ type ActiveAlert struct {
 	// LastNotified is when the alert was last sent
 	// +optional
 	LastNotified *metav1.Time `json:"lastNotified,omitempty"`
-}
-
-// RemediationStatus describes a remediation action
-type RemediationStatus struct {
-	Action  string      `json:"action"`
-	Time    metav1.Time `json:"time"`
-	Result  string      `json:"result"`
-	Message string      `json:"message,omitempty"`
 }
 
 // +kubebuilder:object:root=true

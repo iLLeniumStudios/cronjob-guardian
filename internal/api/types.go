@@ -42,7 +42,6 @@ type StatsResponse struct {
 	Summary               SummaryStats `json:"summary"`
 	ActiveAlerts          int32        `json:"activeAlerts"`
 	AlertsSent24h         int32        `json:"alertsSent24h"`
-	Remediations24h       int32        `json:"remediations24h"`
 	ExecutionsRecorded24h int64        `json:"executionsRecorded24h"`
 }
 
@@ -94,18 +93,17 @@ type CronJobListItem struct {
 
 // CronJobDetailResponse is the response for GET /api/v1/cronjobs/:namespace/:name
 type CronJobDetailResponse struct {
-	Name            string            `json:"name"`
-	Namespace       string            `json:"namespace"`
-	Status          string            `json:"status"`
-	Schedule        string            `json:"schedule"`
-	Timezone        string            `json:"timezone,omitempty"`
-	Suspended       bool              `json:"suspended"`
-	MonitorRef      *NamespacedRef    `json:"monitorRef,omitempty"`
-	Metrics         *CronJobMetrics   `json:"metrics,omitempty"`
-	LastExecution   *ExecutionSummary `json:"lastExecution,omitempty"`
-	NextRun         *time.Time        `json:"nextRun,omitempty"`
-	ActiveAlerts    []AlertItem       `json:"activeAlerts"`
-	LastRemediation *RemediationItem  `json:"lastRemediation,omitempty"`
+	Name          string            `json:"name"`
+	Namespace     string            `json:"namespace"`
+	Status        string            `json:"status"`
+	Schedule      string            `json:"schedule"`
+	Timezone      string            `json:"timezone,omitempty"`
+	Suspended     bool              `json:"suspended"`
+	MonitorRef    *NamespacedRef    `json:"monitorRef,omitempty"`
+	Metrics       *CronJobMetrics   `json:"metrics,omitempty"`
+	LastExecution *ExecutionSummary `json:"lastExecution,omitempty"`
+	NextRun       *time.Time        `json:"nextRun,omitempty"`
+	ActiveAlerts  []AlertItem       `json:"activeAlerts"`
 }
 
 // CronJobMetrics contains SLA metrics
@@ -238,14 +236,6 @@ type ChannelSummary struct {
 	Total    int `json:"total"`
 	Ready    int `json:"ready"`
 	NotReady int `json:"notReady"`
-}
-
-// RemediationItem describes a remediation action
-type RemediationItem struct {
-	Action  string    `json:"action"`
-	Time    time.Time `json:"time"`
-	Result  string    `json:"result"`
-	Message string    `json:"message,omitempty"`
 }
 
 // TriggerResponse is the response for POST /api/v1/cronjobs/:namespace/:name/trigger

@@ -38,7 +38,6 @@ import (
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
-	"github.com/iLLeniumStudios/cronjob-guardian/internal/remediation"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
@@ -55,20 +54,18 @@ type Handlers struct {
 	store               store.Store
 	config              *config.Config
 	alertDispatcher     alerting.Dispatcher
-	remediationEngine   remediation.Engine
 	startTime           time.Time
 	leaderElectionCheck func() bool
 }
 
 // NewHandlers creates a new Handlers instance
-func NewHandlers(c client.Client, cs *kubernetes.Clientset, s store.Store, cfg *config.Config, ad alerting.Dispatcher, re remediation.Engine, startTime time.Time, leaderCheck func() bool) *Handlers {
+func NewHandlers(c client.Client, cs *kubernetes.Clientset, s store.Store, cfg *config.Config, ad alerting.Dispatcher, startTime time.Time, leaderCheck func() bool) *Handlers {
 	return &Handlers{
 		client:              c,
 		clientset:           cs,
 		store:               s,
 		config:              cfg,
 		alertDispatcher:     ad,
-		remediationEngine:   re,
 		startTime:           startTime,
 		leaderElectionCheck: leaderCheck,
 	}
@@ -154,11 +151,6 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		alertsSent24h = h.alertDispatcher.GetAlertCount24h()
 	}
 
-	remediations24h := int32(0)
-	if h.remediationEngine != nil {
-		remediations24h = h.remediationEngine.GetRemediationCount24h()
-	}
-
 	// Count executions from store in last 24h
 	executionsRecorded24h := int64(0)
 	if h.store != nil {
@@ -174,7 +166,6 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		Summary:               summary,
 		ActiveAlerts:          activeAlerts,
 		AlertsSent24h:         alertsSent24h,
-		Remediations24h:       remediations24h,
 		ExecutionsRecorded24h: executionsRecorded24h,
 	}
 
@@ -416,15 +407,6 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 							Message:  a.Message,
 							Since:    a.Since.Time,
 						})
-					}
-
-					if cjStatus.LastRemediation != nil {
-						resp.LastRemediation = &RemediationItem{
-							Action:  cjStatus.LastRemediation.Action,
-							Time:    cjStatus.LastRemediation.Time.Time,
-							Result:  cjStatus.LastRemediation.Result,
-							Message: cjStatus.LastRemediation.Message,
-						}
 					}
 
 					break
