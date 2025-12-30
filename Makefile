@@ -153,10 +153,35 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+##@ UI
+
+.PHONY: ui-install
+ui-install: ## Install UI dependencies.
+	cd ui && pnpm install
+
+.PHONY: ui-build
+ui-build: ui-install ## Build UI for embedding.
+	cd ui && pnpm build
+	rm -rf cmd/ui
+	mkdir -p cmd/ui
+	cp -r ui/out cmd/ui/
+
+.PHONY: ui-dev
+ui-dev: ui-install ## Run UI development server.
+	cd ui && pnpm dev
+
+.PHONY: ui-clean
+ui-clean: ## Clean UI build artifacts.
+	rm -rf ui/out ui/.next ui/node_modules cmd/ui
+
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+build: manifests generate fmt vet ui-build ## Build manager binary with embedded UI.
+	go build -o bin/manager cmd/main.go
+
+.PHONY: build-no-ui
+build-no-ui: manifests generate fmt vet ## Build manager binary without UI (for development).
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run

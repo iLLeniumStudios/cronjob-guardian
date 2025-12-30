@@ -18,9 +18,14 @@ package main
 
 import (
 	"crypto/tls"
+	"embed"
 	"flag"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/go-logr/zerologr"
+	"github.com/rs/zerolog"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -28,19 +33,23 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/api"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
+
+//go:embed all:ui/out
+var uiAssets embed.FS
 
 var (
 	scheme   = runtime.NewScheme()
@@ -63,10 +72,13 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var apiPort int
+	var logLevel string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.IntVar(&apiPort, "api-port", 8080, "The port the API server listens on.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -81,13 +93,24 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
+	flag.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	// Set up zerolog
+	level, err := zerolog.ParseLevel(logLevel)
+	if err != nil {
+		level = zerolog.InfoLevel
+	}
+	zerolog.SetGlobalLevel(level)
+	zl := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
+		With().
+		Timestamp().
+		Logger()
+	logger := zerologr.New(&zl)
+	ctrl.SetLogger(logger)
+
+	// Share zerolog with API server for chi middleware
+	api.SetLogger(&zl)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -247,6 +270,27 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	// Create clientset for API server
+	clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
+	if err != nil {
+		setupLog.Error(err, "unable to create clientset")
+		os.Exit(1)
+	}
+
+	// Set up API server with embedded UI assets
+	api.UIAssets = uiAssets
+	apiServer := api.NewServer(api.ServerOptions{
+		Client:    mgr.GetClient(),
+		Clientset: clientset,
+		Port:      apiPort,
+	})
+
+	// Add API server to manager
+	if err := mgr.Add(apiServer); err != nil {
+		setupLog.Error(err, "unable to add API server to manager")
 		os.Exit(1)
 	}
 

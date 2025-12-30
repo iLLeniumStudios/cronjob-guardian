@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/zerolog"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,6 +42,14 @@ var Version = "dev"
 
 // UIAssets holds the embedded UI files (set from main)
 var UIAssets embed.FS
+
+// logger is the zerolog logger for the API server
+var logger *zerolog.Logger
+
+// SetLogger sets the zerolog logger for the API server
+func SetLogger(l *zerolog.Logger) {
+	logger = l
+}
 
 // Server is the REST API server
 type Server struct {
@@ -112,6 +122,46 @@ func (s *Server) Start(ctx context.Context) error {
 	return s.server.Shutdown(shutdownCtx)
 }
 
+// zerologMiddleware is a chi middleware that logs requests using zerolog
+func zerologMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if logger == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Skip logging for static assets (UI files)
+		if strings.HasPrefix(r.URL.Path, "/_next/") ||
+			strings.HasSuffix(r.URL.Path, ".js") ||
+			strings.HasSuffix(r.URL.Path, ".css") ||
+			strings.HasSuffix(r.URL.Path, ".svg") ||
+			strings.HasSuffix(r.URL.Path, ".ico") ||
+			strings.HasSuffix(r.URL.Path, ".woff2") ||
+			strings.HasSuffix(r.URL.Path, ".woff") ||
+			strings.HasSuffix(r.URL.Path, ".png") ||
+			strings.HasSuffix(r.URL.Path, ".jpg") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+		defer func() {
+			logger.Info().
+				Str("method", r.Method).
+				Str("path", r.URL.Path).
+				Int("status", ww.Status()).
+				Int("bytes", ww.BytesWritten()).
+				Dur("duration", time.Since(start)).
+				Str("remote", r.RemoteAddr).
+				Msg("http request")
+		}()
+
+		next.ServeHTTP(ww, r)
+	})
+}
+
 // setupRoutes configures the router
 func (s *Server) setupRoutes() chi.Router {
 	r := chi.NewRouter()
@@ -119,9 +169,9 @@ func (s *Server) setupRoutes() chi.Router {
 	// Middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(zerologMiddleware)
 
 	// CORS for UI
 	r.Use(func(next http.Handler) http.Handler {
@@ -181,7 +231,7 @@ func (s *Server) setupRoutes() chi.Router {
 // serveUI serves the embedded UI files
 func (s *Server) serveUI(r chi.Router) {
 	// Try to serve embedded UI files
-	uiFS, err := fs.Sub(UIAssets, "ui/dist")
+	uiFS, err := fs.Sub(UIAssets, "ui/out")
 	if err != nil {
 		// No embedded UI, serve a simple message
 		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {

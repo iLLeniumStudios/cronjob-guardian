@@ -1,3 +1,36 @@
 # More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
 # Ignore build and test binaries.
 bin/
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# CI
+.github
+
+# Development
+Makefile
+.golangci.yml
+.devcontainer
+
+# UI build artifacts (will be built in container)
+ui/node_modules
+ui/.next
+ui/out
+cmd/ui
+
+# Documentation
+docs
+*.md
+!ui/README.md
+
+# Other
+.claude
+CLAUDE.md
