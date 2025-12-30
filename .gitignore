@@ -28,3 +28,5 @@ go.work
 docs
 .claude
 CLAUDE.md
+
+node_modules
