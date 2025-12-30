@@ -56,7 +56,7 @@ type Engine interface {
 
 // RemediationResult describes the outcome of a remediation action
 type RemediationResult struct {
-	Action    string    // "KillStuckJob", "RetryJob"
+	Action    string // "KillStuckJob", "RetryJob"
 	Success   bool
 	Message   string
 	JobName   string // Name of affected/created job
@@ -253,7 +253,7 @@ func (e *engine) createRetryJob(cronJob *batchv1.CronJob, failedJob *batchv1.Job
 			Name:      name,
 			Namespace: cronJob.Namespace,
 			Labels: map[string]string{
-				"guardian.illenium.net/retry":    "true",
+				"guardian.illenium.net/retry":   "true",
 				"guardian.illenium.net/cronjob": cronJob.Name,
 			},
 			Annotations: map[string]string{
