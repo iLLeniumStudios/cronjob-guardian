@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusIndicator, StatusBadge } from "@/components/status-indicator";
 import { RelativeTime } from "@/components/relative-time";
+import { AggregateCharts } from "@/components/monitor/aggregate-charts";
 import { getMonitor, type MonitorDetail } from "@/lib/api";
 
 export function MonitorDetailClient() {
@@ -238,6 +239,9 @@ export function MonitorDetailClient() {
             </CardContent>
           </Card>
         )}
+
+        {/* Aggregate Charts */}
+        <AggregateCharts monitor={monitor} />
 
         {/* Configuration */}
         <Card>

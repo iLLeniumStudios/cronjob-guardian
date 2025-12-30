@@ -1,0 +1,400 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package store
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/glebarez/sqlite" // Pure Go SQLite driver (no CGO required)
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+	"k8s.io/apimachinery/pkg/types"
+)
+
+// GormStore implements Store using GORM
+type GormStore struct {
+	db      *gorm.DB
+	dialect string
+}
+
+// NewGormStore creates a new GORM-based store
+func NewGormStore(dialect string, dsn string) (*GormStore, error) {
+	var dialector gorm.Dialector
+	switch dialect {
+	case "sqlite":
+		dialector = sqlite.Open(dsn)
+	case "postgres":
+		dialector = postgres.Open(dsn)
+	case "mysql":
+		dialector = mysql.Open(dsn)
+	default:
+		return nil, fmt.Errorf("unsupported dialect: %s", dialect)
+	}
+
+	db, err := gorm.Open(dialector, &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	return &GormStore{db: db, dialect: dialect}, nil
+}
+
+// Init initializes the store (creates tables via auto-migration)
+func (s *GormStore) Init() error {
+	return s.db.AutoMigrate(&Execution{}, &AlertHistory{})
+}
+
+// Close closes the store and releases resources
+func (s *GormStore) Close() error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
+// RecordExecution stores a new execution record
+func (s *GormStore) RecordExecution(ctx context.Context, exec Execution) error {
+	return s.db.WithContext(ctx).Create(&exec).Error
+}
+
+// GetExecutions returns executions for a CronJob since a given time
+func (s *GormStore) GetExecutions(ctx context.Context, cronJob types.NamespacedName, since time.Time) ([]Execution, error) {
+	var execs []Execution
+	err := s.db.WithContext(ctx).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?",
+			cronJob.Namespace, cronJob.Name, since).
+		Order("start_time DESC").
+		Find(&execs).Error
+	return execs, err
+}
+
+// GetLastExecution returns the most recent execution
+func (s *GormStore) GetLastExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error) {
+	var exec Execution
+	err := s.db.WithContext(ctx).
+		Where("cronjob_ns = ? AND cronjob_name = ?", cronJob.Namespace, cronJob.Name).
+		Order("start_time DESC").
+		First(&exec).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &exec, nil
+}
+
+// GetLastSuccessfulExecution returns the most recent successful execution
+func (s *GormStore) GetLastSuccessfulExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error) {
+	var exec Execution
+	err := s.db.WithContext(ctx).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND succeeded = ?",
+			cronJob.Namespace, cronJob.Name, true).
+		Order("start_time DESC").
+		First(&exec).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &exec, nil
+}
+
+// GetMetrics calculates SLA metrics for a CronJob
+func (s *GormStore) GetMetrics(ctx context.Context, cronJob types.NamespacedName, windowDays int) (*Metrics, error) {
+	since := time.Now().AddDate(0, 0, -windowDays)
+
+	// Count query
+	type countResult struct {
+		Total     int64
+		Succeeded int64
+		Failed    int64
+	}
+	var result countResult
+
+	err := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?",
+			cronJob.Namespace, cronJob.Name, since).
+		Select("COUNT(*) as total, "+
+			"SUM(CASE WHEN succeeded = ? THEN 1 ELSE 0 END) as succeeded, "+
+			"SUM(CASE WHEN succeeded = ? THEN 1 ELSE 0 END) as failed",
+			true, false).
+		Scan(&result).Error
+	if err != nil {
+		return nil, err
+	}
+
+	metrics := &Metrics{
+		WindowDays:     int32(windowDays),
+		TotalRuns:      int32(result.Total),
+		SuccessfulRuns: int32(result.Succeeded),
+		FailedRuns:     int32(result.Failed),
+	}
+
+	if result.Total > 0 {
+		metrics.SuccessRate = float64(result.Succeeded) / float64(result.Total) * 100
+	}
+
+	// Get durations for percentile calculation
+	var durations []float64
+	err = s.db.WithContext(ctx).Model(&Execution{}).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL",
+			cronJob.Namespace, cronJob.Name, since).
+		Order("duration_secs").
+		Pluck("duration_secs", &durations).Error
+	if err != nil {
+		return nil, err
+	}
+
+	if len(durations) > 0 {
+		var sum float64
+		for _, d := range durations {
+			sum += d
+		}
+		metrics.AvgDurationSeconds = sum / float64(len(durations))
+		metrics.P50DurationSeconds = percentile(durations, 50)
+		metrics.P95DurationSeconds = percentile(durations, 95)
+		metrics.P99DurationSeconds = percentile(durations, 99)
+	}
+
+	return metrics, nil
+}
+
+// GetDurationPercentile calculates a duration percentile
+func (s *GormStore) GetDurationPercentile(ctx context.Context, cronJob types.NamespacedName, p int, windowDays int) (time.Duration, error) {
+	since := time.Now().AddDate(0, 0, -windowDays)
+
+	var durations []float64
+	err := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL",
+			cronJob.Namespace, cronJob.Name, since).
+		Order("duration_secs").
+		Pluck("duration_secs", &durations).Error
+	if err != nil {
+		return 0, err
+	}
+
+	if len(durations) == 0 {
+		return 0, nil
+	}
+
+	return time.Duration(percentile(durations, p) * float64(time.Second)), nil
+}
+
+// GetSuccessRate calculates success rate
+func (s *GormStore) GetSuccessRate(ctx context.Context, cronJob types.NamespacedName, windowDays int) (float64, error) {
+	since := time.Now().AddDate(0, 0, -windowDays)
+
+	type countResult struct {
+		Total     int64
+		Succeeded int64
+	}
+	var result countResult
+
+	err := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?",
+			cronJob.Namespace, cronJob.Name, since).
+		Select("COUNT(*) as total, "+
+			"SUM(CASE WHEN succeeded = ? THEN 1 ELSE 0 END) as succeeded", true).
+		Scan(&result).Error
+	if err != nil {
+		return 0, err
+	}
+
+	if result.Total == 0 {
+		return 100, nil // No data = assume healthy
+	}
+
+	return float64(result.Succeeded) / float64(result.Total) * 100, nil
+}
+
+// Prune removes old execution records
+func (s *GormStore) Prune(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("start_time < ?", olderThan).
+		Delete(&Execution{})
+	return result.RowsAffected, result.Error
+}
+
+// PruneLogs removes logs from executions older than the given time
+func (s *GormStore) PruneLogs(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("start_time < ? AND (logs IS NOT NULL OR events IS NOT NULL)", olderThan).
+		Updates(map[string]interface{}{"logs": nil, "events": nil})
+	return result.RowsAffected, result.Error
+}
+
+// DeleteExecutionsByCronJob deletes all executions for a specific CronJob
+func (s *GormStore) DeleteExecutionsByCronJob(ctx context.Context, cronJob types.NamespacedName) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("cronjob_ns = ? AND cronjob_name = ?", cronJob.Namespace, cronJob.Name).
+		Delete(&Execution{})
+	return result.RowsAffected, result.Error
+}
+
+// DeleteExecutionsByUID deletes executions for a specific CronJob UID
+func (s *GormStore) DeleteExecutionsByUID(ctx context.Context, cronJob types.NamespacedName, uid string) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND cronjob_uid = ?",
+			cronJob.Namespace, cronJob.Name, uid).
+		Delete(&Execution{})
+	return result.RowsAffected, result.Error
+}
+
+// GetCronJobUIDs returns distinct UIDs for a CronJob
+func (s *GormStore) GetCronJobUIDs(ctx context.Context, cronJob types.NamespacedName) ([]string, error) {
+	var uids []string
+	err := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND cronjob_uid IS NOT NULL AND cronjob_uid != ''",
+			cronJob.Namespace, cronJob.Name).
+		Distinct("cronjob_uid").
+		Order("cronjob_uid").
+		Pluck("cronjob_uid", &uids).Error
+	return uids, err
+}
+
+// GetExecutionCount returns the total number of executions
+func (s *GormStore) GetExecutionCount(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&Execution{}).Count(&count).Error
+	return count, err
+}
+
+// GetExecutionCountSince returns the count of executions since a given time
+func (s *GormStore) GetExecutionCountSince(ctx context.Context, since time.Time) (int64, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("start_time >= ?", since).
+		Count(&count).Error
+	return count, err
+}
+
+// StoreAlert stores an alert in history
+func (s *GormStore) StoreAlert(ctx context.Context, alert AlertHistory) error {
+	return s.db.WithContext(ctx).Create(&alert).Error
+}
+
+// ListAlertHistory returns alert history with pagination
+func (s *GormStore) ListAlertHistory(ctx context.Context, query AlertHistoryQuery) ([]AlertHistory, int64, error) {
+	var alerts []AlertHistory
+	var total int64
+
+	db := s.db.WithContext(ctx).Model(&AlertHistory{})
+
+	if query.Since != nil {
+		db = db.Where("occurred_at >= ?", *query.Since)
+	}
+	if query.Severity != "" {
+		db = db.Where("severity = ?", query.Severity)
+	}
+
+	// Get count first (before pagination)
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Apply pagination
+	if query.Limit > 0 {
+		db = db.Limit(query.Limit)
+	}
+	if query.Offset > 0 {
+		db = db.Offset(query.Offset)
+	}
+
+	err := db.Order("occurred_at DESC").Find(&alerts).Error
+	return alerts, total, err
+}
+
+// ResolveAlert marks an alert as resolved
+func (s *GormStore) ResolveAlert(ctx context.Context, alertType, cronJobNs, cronJobName string) error {
+	now := time.Now()
+	return s.db.WithContext(ctx).Model(&AlertHistory{}).
+		Where("alert_type = ? AND cronjob_ns = ? AND cronjob_name = ? AND resolved_at IS NULL",
+			alertType, cronJobNs, cronJobName).
+		Update("resolved_at", &now).Error
+}
+
+// GetChannelAlertStats returns alert statistics for all channels
+func (s *GormStore) GetChannelAlertStats(ctx context.Context) (map[string]ChannelAlertStats, error) {
+	// Fetch all alerts with channels and process in Go
+	// (channels_notified is comma-separated, which requires app-level processing)
+	type alertRow struct {
+		ChannelsNotified string
+		OccurredAt       time.Time
+	}
+	var rows []alertRow
+
+	err := s.db.WithContext(ctx).Model(&AlertHistory{}).
+		Select("channels_notified, occurred_at").
+		Where("channels_notified IS NOT NULL AND channels_notified != ''").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("query alert_history: %w", err)
+	}
+
+	stats := make(map[string]ChannelAlertStats)
+	cutoff24h := time.Now().Add(-24 * time.Hour)
+
+	for _, row := range rows {
+		channels := strings.Split(row.ChannelsNotified, ",")
+		for _, ch := range channels {
+			ch = strings.TrimSpace(ch)
+			if ch == "" {
+				continue
+			}
+			st := stats[ch]
+			st.ChannelName = ch
+			st.AlertsSentTotal++
+			if row.OccurredAt.After(cutoff24h) {
+				st.AlertsSent24h++
+			}
+			stats[ch] = st
+		}
+	}
+
+	return stats, nil
+}
+
+// Health checks if the store is healthy
+func (s *GormStore) Health(ctx context.Context) error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.PingContext(ctx)
+}
+
+// percentile calculates the p-th percentile from sorted data
+func percentile(data []float64, p int) float64 {
+	if len(data) == 0 {
+		return 0
+	}
+	sort.Float64s(data)
+	idx := int(float64(len(data)-1) * float64(p) / 100)
+	return data[idx]
+}

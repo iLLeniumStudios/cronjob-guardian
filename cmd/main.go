@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"embed"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -226,29 +227,28 @@ func main() {
 	}
 
 	// Initialize the storage backend
-	var dataStore store.Store
+	var dsn string
 	switch cfg.Storage.Type {
 	case "sqlite":
-		dataStore = store.NewSQLiteStore(cfg.Storage.SQLite.Path)
+		dsn = cfg.Storage.SQLite.Path + "?_journal_mode=WAL&_busy_timeout=5000"
 	case "postgres":
-		dataStore = store.NewPostgresStore(
-			cfg.Storage.PostgreSQL.Host,
-			int32(cfg.Storage.PostgreSQL.Port),
-			cfg.Storage.PostgreSQL.Database,
-			cfg.Storage.PostgreSQL.Username,
-			cfg.Storage.PostgreSQL.Password,
-			cfg.Storage.PostgreSQL.SSLMode,
-		)
+		dsn = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+			cfg.Storage.PostgreSQL.Host, cfg.Storage.PostgreSQL.Port,
+			cfg.Storage.PostgreSQL.Username, cfg.Storage.PostgreSQL.Password,
+			cfg.Storage.PostgreSQL.Database, cfg.Storage.PostgreSQL.SSLMode)
 	case "mysql":
-		dataStore = store.NewMySQLStore(
-			cfg.Storage.MySQL.Host,
-			int32(cfg.Storage.MySQL.Port),
-			cfg.Storage.MySQL.Database,
-			cfg.Storage.MySQL.Username,
-			cfg.Storage.MySQL.Password,
-		)
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+			cfg.Storage.MySQL.Username, cfg.Storage.MySQL.Password,
+			cfg.Storage.MySQL.Host, cfg.Storage.MySQL.Port,
+			cfg.Storage.MySQL.Database)
 	default:
 		setupLog.Error(nil, "unsupported storage type", "type", cfg.Storage.Type)
+		os.Exit(1)
+	}
+
+	dataStore, err := store.NewGormStore(cfg.Storage.Type, dsn)
+	if err != nil {
+		setupLog.Error(err, "unable to create store")
 		os.Exit(1)
 	}
 

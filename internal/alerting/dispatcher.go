@@ -198,9 +198,9 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 			CronJobName:      alert.CronJob.Name,
 			MonitorNamespace: alert.MonitorRef.Namespace,
 			MonitorName:      alert.MonitorRef.Name,
-			ChannelsNotified: channelNames,
 			OccurredAt:       alert.Timestamp,
 		}
+		alertHistory.SetChannelsNotified(channelNames)
 		if err := d.store.StoreAlert(ctx, alertHistory); err != nil {
 			logger.Error(err, "failed to store alert in history")
 		}

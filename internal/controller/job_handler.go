@@ -134,12 +134,12 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	exec := h.buildExecution(ctx, job, cronJobName, cronJobUID, monitors[0])
 	log.V(1).Info("built execution record",
 		"succeeded", exec.Succeeded,
-		"duration", exec.Duration,
+		"duration", exec.Duration(),
 		"exitCode", exec.ExitCode,
 		"reason", exec.Reason,
 		"cronJobUID", exec.CronJobUID,
-		"hasLogs", exec.Logs != "",
-		"hasEvents", exec.Events != "")
+		"hasLogs", exec.Logs != nil && *exec.Logs != "",
+		"hasEvents", exec.Events != nil && *exec.Events != "")
 
 	if h.Store != nil {
 		log.V(1).Info("recording execution to store")
@@ -150,7 +150,7 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				"cronJob", cronJobName,
 				"job", job.Name,
 				"succeeded", exec.Succeeded,
-				"duration", exec.Duration.Round(time.Millisecond))
+				"duration", exec.Duration().Round(time.Millisecond))
 
 			// Record Prometheus metrics
 			status := "failed"
@@ -239,7 +239,7 @@ func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJ
 
 	if job.Status.CompletionTime != nil {
 		exec.CompletionTime = job.Status.CompletionTime.Time
-		exec.Duration = exec.CompletionTime.Sub(exec.StartTime)
+		exec.SetDuration(exec.CompletionTime.Sub(exec.StartTime))
 	}
 
 	// Get exit code from pod
@@ -263,7 +263,8 @@ func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJ
 	// Store logs if configured
 	if h.shouldStoreLogs(monitor) {
 		maxSizeKB := h.getMaxLogSizeKB(monitor)
-		exec.Logs = h.collectAndTruncateLogs(ctx, pod, maxSizeKB)
+		logs := h.collectAndTruncateLogs(ctx, pod, maxSizeKB)
+		exec.Logs = &logs
 	}
 
 	// Store events if configured
@@ -271,7 +272,8 @@ func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJ
 		events := h.collectEvents(ctx, job)
 		if len(events) > 0 {
 			eventsJSON, _ := json.Marshal(events)
-			exec.Events = string(eventsJSON)
+			eventsStr := string(eventsJSON)
+			exec.Events = &eventsStr
 		}
 	}
 

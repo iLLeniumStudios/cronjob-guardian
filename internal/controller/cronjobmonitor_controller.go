@@ -242,10 +242,10 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 		lastSuccess, _ := r.Store.GetLastSuccessfulExecution(ctx, cronJobNN)
 		if lastSuccess != nil {
 			status.LastSuccessfulTime = &metav1.Time{Time: lastSuccess.CompletionTime}
-			status.LastRunDuration = &metav1.Duration{Duration: lastSuccess.Duration}
+			status.LastRunDuration = &metav1.Duration{Duration: lastSuccess.Duration()}
 			log.V(1).Info("found last successful execution",
 				"completionTime", lastSuccess.CompletionTime,
-				"duration", lastSuccess.Duration)
+				"duration", lastSuccess.Duration())
 		} else {
 			log.V(1).Info("no last successful execution found")
 		}

@@ -33,7 +33,11 @@ import { StatusBadge } from "@/components/status-indicator";
 import { MetricsCards } from "@/components/cronjob/metrics-cards";
 import { DurationChart } from "@/components/cronjob/duration-chart";
 import { SuccessRateChart } from "@/components/cronjob/success-rate-chart";
+import { HealthHeatmap } from "@/components/cronjob/health-heatmap";
 import { ExecutionHistory } from "@/components/cronjob/execution-history";
+import { ExportButton } from "@/components/export/export-button";
+import { exportExecutionsToCSV } from "@/lib/export/csv";
+import { generateCronJobPDFReport } from "@/lib/export/pdf";
 import {
   getCronJob,
   getExecutions,
@@ -171,6 +175,36 @@ export function CronJobDetailClient() {
     }
   };
 
+  const handleExportCSV = () => {
+    if (executions?.items && executions.items.length > 0) {
+      exportExecutionsToCSV(executions.items, cronJob?.name || name);
+      toast.success("CSV exported successfully");
+    } else {
+      toast.error("No execution data to export");
+    }
+  };
+
+  const handleExportPDF = () => {
+    if (cronJob && executions?.items) {
+      generateCronJobPDFReport({
+        title: `CronJob Report: ${cronJob.name}`,
+        cronJobName: cronJob.name,
+        namespace: cronJob.namespace,
+        generatedAt: new Date(),
+        metrics: cronJob.metrics,
+        recentExecutions: executions.items,
+        alerts: cronJob.activeAlerts?.map((a) => ({
+          severity: a.severity,
+          title: a.title,
+          message: a.message,
+          since: a.since,
+        })),
+      });
+    } else {
+      toast.error("No data available for PDF export");
+    }
+  };
+
   // If no URL params, show a message
   if (!namespace || !name) {
     return (
@@ -239,6 +273,11 @@ export function CronJobDetailClient() {
         isRefreshing={isRefreshing}
         actions={
           <div className="flex items-center gap-2">
+            <ExportButton
+              onExportCSV={handleExportCSV}
+              onExportPDF={handleExportPDF}
+              isLoading={!!actionLoading}
+            />
             <Button
               variant="outline"
               size="sm"
@@ -423,6 +462,9 @@ export function CronJobDetailClient() {
           <DurationChart executions={executions?.items ?? []} />
           <SuccessRateChart executions={executions?.items ?? []} />
         </div>
+
+        {/* Health Heatmap */}
+        <HealthHeatmap executions={executions?.items ?? []} />
 
         {/* Execution history */}
         <ExecutionHistory

@@ -141,12 +141,12 @@ func (a *analyzer) CheckSLA(ctx context.Context, cronJob types.NamespacedName, c
 	if config.MaxDuration != nil {
 		lastExec, err := a.store.GetLastExecution(ctx, cronJob)
 		if err == nil && lastExec != nil {
-			if lastExec.Duration > config.MaxDuration.Duration {
+			if lastExec.Duration() > config.MaxDuration.Duration {
 				result.Passed = false
 				result.Violations = append(result.Violations, Violation{
 					Type:      "MaxDuration",
-					Message:   fmt.Sprintf("Last duration %s exceeded max %s", lastExec.Duration, config.MaxDuration.Duration),
-					Current:   lastExec.Duration.Seconds(),
+					Message:   fmt.Sprintf("Last duration %s exceeded max %s", lastExec.Duration(), config.MaxDuration.Duration),
+					Current:   lastExec.Duration().Seconds(),
 					Threshold: config.MaxDuration.Seconds(),
 				})
 			}

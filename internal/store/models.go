@@ -1,0 +1,125 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package store
+
+import (
+	"strings"
+	"time"
+)
+
+// Execution represents a CronJob execution record (GORM model)
+type Execution struct {
+	ID               int64      `gorm:"primaryKey;autoIncrement"`
+	CronJobNamespace string     `gorm:"column:cronjob_ns;size:253;not null;index:idx_cronjob_time,priority:1;index:idx_cronjob_uid,priority:1"`
+	CronJobName      string     `gorm:"column:cronjob_name;size:253;not null;index:idx_cronjob_time,priority:2;index:idx_cronjob_uid,priority:2"`
+	CronJobUID       string     `gorm:"column:cronjob_uid;size:36;index:idx_cronjob_uid,priority:3"`
+	JobName          string     `gorm:"column:job_name;size:253;not null;index"`
+	ScheduledTime    *time.Time `gorm:"column:scheduled_time"`
+	StartTime        time.Time  `gorm:"column:start_time;not null;index:idx_cronjob_time,priority:3,sort:desc;index:idx_start_time"`
+	CompletionTime   time.Time  `gorm:"column:completion_time"`
+	DurationSecs     *float64   `gorm:"column:duration_secs"`
+	Succeeded        bool       `gorm:"column:succeeded;not null"`
+	ExitCode         int32      `gorm:"column:exit_code"`
+	Reason           string     `gorm:"column:reason;size:255"`
+	IsRetry          bool       `gorm:"column:is_retry;default:false"`
+	RetryOf          string     `gorm:"column:retry_of;size:253"`
+	Logs             *string    `gorm:"column:logs;type:text"`
+	Events           *string    `gorm:"column:events;type:text"`
+	CreatedAt        time.Time  `gorm:"column:created_at;autoCreateTime"`
+}
+
+// TableName specifies the table name for Execution
+func (Execution) TableName() string {
+	return "executions"
+}
+
+// Duration returns the duration as time.Duration
+func (e *Execution) Duration() time.Duration {
+	if e.DurationSecs == nil {
+		return 0
+	}
+	return time.Duration(*e.DurationSecs * float64(time.Second))
+}
+
+// SetDuration sets the duration from time.Duration
+func (e *Execution) SetDuration(d time.Duration) {
+	secs := d.Seconds()
+	e.DurationSecs = &secs
+}
+
+// AlertHistory represents an alert event record (GORM model)
+type AlertHistory struct {
+	ID               int64      `gorm:"primaryKey;autoIncrement"`
+	Type             string     `gorm:"column:alert_type;size:100;not null"`
+	Severity         string     `gorm:"column:severity;size:20;not null;index:idx_alert_severity"`
+	Title            string     `gorm:"column:title;size:500;not null"`
+	Message          string     `gorm:"column:message;type:text"`
+	CronJobNamespace string     `gorm:"column:cronjob_ns;size:253;index:idx_alert_cronjob,priority:1"`
+	CronJobName      string     `gorm:"column:cronjob_name;size:253;index:idx_alert_cronjob,priority:2"`
+	MonitorNamespace string     `gorm:"column:monitor_ns;size:253"`
+	MonitorName      string     `gorm:"column:monitor_name;size:253"`
+	ChannelsNotified string     `gorm:"column:channels_notified;type:text"` // Comma-separated
+	OccurredAt       time.Time  `gorm:"column:occurred_at;not null;index:idx_alert_occurred,sort:desc"`
+	ResolvedAt       *time.Time `gorm:"column:resolved_at"`
+}
+
+// TableName specifies the table name for AlertHistory
+func (AlertHistory) TableName() string {
+	return "alert_history"
+}
+
+// GetChannelsNotified returns the channels as a slice
+func (a *AlertHistory) GetChannelsNotified() []string {
+	if a.ChannelsNotified == "" {
+		return nil
+	}
+	return strings.Split(a.ChannelsNotified, ",")
+}
+
+// SetChannelsNotified sets the channels from a slice
+func (a *AlertHistory) SetChannelsNotified(channels []string) {
+	a.ChannelsNotified = strings.Join(channels, ",")
+}
+
+// Metrics contains aggregated SLA metrics (query result, not a GORM model)
+type Metrics struct {
+	SuccessRate        float64
+	WindowDays         int32
+	TotalRuns          int32
+	SuccessfulRuns     int32
+	FailedRuns         int32
+	MissedRuns         int32
+	AvgDurationSeconds float64
+	P50DurationSeconds float64
+	P95DurationSeconds float64
+	P99DurationSeconds float64
+}
+
+// AlertHistoryQuery contains parameters for querying alert history
+type AlertHistoryQuery struct {
+	Limit    int
+	Offset   int
+	Since    *time.Time
+	Severity string
+}
+
+// ChannelAlertStats contains alert statistics for a channel
+type ChannelAlertStats struct {
+	ChannelName     string
+	AlertsSent24h   int64
+	AlertsSentTotal int64
+}

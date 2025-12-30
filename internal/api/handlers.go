@@ -427,7 +427,7 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 				JobName:   lastExec.JobName,
 				Status:    status,
 				StartTime: lastExec.StartTime,
-				Duration:  lastExec.Duration.String(),
+				Duration:  lastExec.Duration().String(),
 				ExitCode:  lastExec.ExitCode,
 			}
 			if !lastExec.CompletionTime.IsZero() {
@@ -537,7 +537,7 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 			JobName:   e.JobName,
 			Status:    status,
 			StartTime: e.StartTime,
-			Duration:  e.Duration.String(),
+			Duration:  e.Duration().String(),
 			ExitCode:  e.ExitCode,
 			Reason:    e.Reason,
 			IsRetry:   e.IsRetry,
@@ -858,7 +858,7 @@ func (h *Handlers) GetAlertHistory(w http.ResponseWriter, r *http.Request) {
 			Message:          a.Message,
 			OccurredAt:       a.OccurredAt,
 			ResolvedAt:       a.ResolvedAt,
-			ChannelsNotified: a.ChannelsNotified,
+			ChannelsNotified: a.GetChannelsNotified(),
 		}
 		if a.CronJobNamespace != "" || a.CronJobName != "" {
 			item.CronJob = &NamespacedRef{
@@ -1209,13 +1209,13 @@ func (h *Handlers) GetExecutionWithLogs(w http.ResponseWriter, r *http.Request) 
 				JobName:          e.JobName,
 				Status:           status,
 				StartTime:        e.StartTime,
-				Duration:         e.Duration.String(),
+				Duration:         e.Duration().String(),
 				ExitCode:         e.ExitCode,
 				Reason:           e.Reason,
 				IsRetry:          e.IsRetry,
 				RetryOf:          e.RetryOf,
-				StoredLogs:       e.Logs,
-				StoredEvents:     e.Events,
+				StoredLogs:       ptr.Deref(e.Logs, ""),
+				StoredEvents:     ptr.Deref(e.Events, ""),
 			}
 			if !e.CompletionTime.IsZero() {
 				resp.CompletionTime = &e.CompletionTime

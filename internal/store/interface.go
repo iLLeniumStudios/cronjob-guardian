@@ -23,78 +23,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// SQL query base constants shared across store implementations
-const (
-	alertHistoryBaseQuery = "FROM alert_history WHERE 1=1"
-)
-
-// Execution represents a single CronJob execution
-type Execution struct {
-	ID               int64
-	CronJobNamespace string
-	CronJobName      string
-	CronJobUID       string // UID of the CronJob for recreation detection
-	JobName          string
-	ScheduledTime    *time.Time
-	StartTime        time.Time
-	CompletionTime   time.Time
-	Duration         time.Duration
-	Succeeded        bool
-	ExitCode         int32
-	Reason           string
-	IsRetry          bool
-	RetryOf          string
-	Logs             string // Optional stored logs
-	Events           string // Optional stored events (JSON)
-	CreatedAt        time.Time
-}
-
-// Metrics contains aggregated SLA metrics
-type Metrics struct {
-	SuccessRate        float64
-	WindowDays         int32
-	TotalRuns          int32
-	SuccessfulRuns     int32
-	FailedRuns         int32
-	MissedRuns         int32
-	AvgDurationSeconds float64
-	P50DurationSeconds float64
-	P95DurationSeconds float64
-	P99DurationSeconds float64
-}
-
-// AlertHistory represents a historical alert record
-type AlertHistory struct {
-	ID               int64
-	Type             string // JobFailed, MissedSchedule, DeadManTriggered, SLAViolation
-	Severity         string // critical, warning, info
-	Title            string
-	Message          string
-	CronJobNamespace string
-	CronJobName      string
-	MonitorNamespace string
-	MonitorName      string
-	ChannelsNotified []string
-	OccurredAt       time.Time
-	ResolvedAt       *time.Time
-}
-
-// AlertHistoryQuery contains parameters for querying alert history
-type AlertHistoryQuery struct {
-	Limit    int
-	Offset   int
-	Since    *time.Time
-	Severity string
-}
-
-// ChannelAlertStats contains alert statistics for a channel
-type ChannelAlertStats struct {
-	ChannelName     string
-	AlertsSent24h   int64
-	AlertsSentTotal int64
-}
-
 // Store defines the storage interface for execution history
+// All struct types (Execution, AlertHistory, Metrics, etc.) are defined in models.go
 type Store interface {
 	// Init initializes the store (creates tables, connections, etc.)
 	Init() error

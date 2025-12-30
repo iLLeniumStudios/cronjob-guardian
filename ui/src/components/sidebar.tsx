@@ -7,6 +7,7 @@ import {
   Radio,
   Settings,
   Shield,
+  Target,
 } from "lucide-react";
 import { NavLink } from "./nav-link";
 
@@ -26,6 +27,9 @@ export function Sidebar() {
         </NavLink>
         <NavLink href="/monitors" icon={Timer}>
           Monitors
+        </NavLink>
+        <NavLink href="/sla" icon={Target}>
+          SLA Compliance
         </NavLink>
         <NavLink href="/channels" icon={Radio}>
           Channels
