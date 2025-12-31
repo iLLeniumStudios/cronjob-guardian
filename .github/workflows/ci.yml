@@ -9,7 +9,7 @@ env:
 
 jobs:
   # =============================================================================
-  # UI Jobs - build-ui => lint-ui
+  # UI Chain: build-ui => lint-ui
   # =============================================================================
   build-ui:
     name: Build UI
@@ -82,10 +82,27 @@ jobs:
         working-directory: ui
 
   # =============================================================================
-  # Go Jobs - run independently (no UI dependency)
+  # Go Chain: build-go => lint-go => test-go
   # =============================================================================
+  build-go:
+    name: Build Go
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
   lint-go:
     name: Lint Go
+    needs: build-go
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -103,7 +120,8 @@ jobs:
           version: v2.7.2
 
   test-go:
-    name: Go Tests
+    name: Test Go
+    needs: lint-go
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -119,11 +137,11 @@ jobs:
         run: make test
 
   # =============================================================================
-  # Full build - runs after tests pass
+  # Full Build - depends on both chains completing
   # =============================================================================
   build-full:
     name: Full Build
-    needs: [lint-go, lint-ui, test-go]
+    needs: [lint-ui, test-go]
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
