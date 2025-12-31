@@ -97,6 +97,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Cache Go tools
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: go-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: go-tools-${{ runner.os }}-
+
       - name: Build
         run: go build ./...
 
@@ -132,6 +139,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Cache Go tools
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: go-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: go-tools-${{ runner.os }}-
 
       - name: Run tests
         run: make test
@@ -187,6 +201,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Cache Go tools
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: go-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: go-tools-${{ runner.os }}-
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
