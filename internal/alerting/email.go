@@ -108,6 +108,11 @@ func (e *emailChannel) Name() string {
 	return e.name
 }
 
+// Type returns the channel type
+func (e *emailChannel) Type() string {
+	return "email"
+}
+
 // Send delivers an alert via email
 func (e *emailChannel) Send(ctx context.Context, alert Alert) error {
 	if !e.rateLimiter.Allow() {

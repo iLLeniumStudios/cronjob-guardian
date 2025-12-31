@@ -66,6 +66,9 @@ type Channel interface {
 	// Name returns the channel name
 	Name() string
 
+	// Type returns the channel type (slack, pagerduty, webhook, email)
+	Type() string
+
 	// Send delivers an alert
 	Send(ctx context.Context, alert Alert) error
 
@@ -160,14 +163,47 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 	// Collect target channels
 	targetChannels := d.resolveChannels(alertCfg, alert.Severity)
 
+	if len(targetChannels) == 0 {
+		logger.V(1).Info("no channels configured for alert",
+			"alertKey", alert.Key,
+			"severity", alert.Severity,
+			"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name))
+		return nil
+	}
+
+	// Log which channels will receive the alert
+	channelInfo := make([]string, 0, len(targetChannels))
+	for _, ch := range targetChannels {
+		channelInfo = append(channelInfo, fmt.Sprintf("%s(%s)", ch.Name(), ch.Type()))
+	}
+	logger.Info("dispatching alert to channels",
+		"alertKey", alert.Key,
+		"alertType", alert.Type,
+		"severity", alert.Severity,
+		"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name),
+		"channels", strings.Join(channelInfo, ", "))
+
 	// Send to each channel
 	var errs []error
 	var channelNames []string
 	for _, ch := range targetChannels {
+		logger.V(1).Info("sending alert to channel",
+			"channel", ch.Name(),
+			"provider", ch.Type(),
+			"alertKey", alert.Key)
+
 		if err := ch.Send(ctx, alert); err != nil {
-			logger.Error(err, "failed to send alert", "channel", ch.Name())
+			logger.Error(err, "failed to send alert to channel",
+				"channel", ch.Name(),
+				"provider", ch.Type(),
+				"alertKey", alert.Key)
 			errs = append(errs, err)
 		} else {
+			logger.Info("alert sent successfully",
+				"channel", ch.Name(),
+				"provider", ch.Type(),
+				"alertKey", alert.Key,
+				"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name))
 			channelNames = append(channelNames, ch.Name())
 			// Record Prometheus metrics for successful alert delivery
 			metrics.RecordAlert(

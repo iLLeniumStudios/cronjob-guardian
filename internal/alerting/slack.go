@@ -86,6 +86,11 @@ func (s *slackChannel) Name() string {
 	return s.name
 }
 
+// Type returns the channel type
+func (s *slackChannel) Type() string {
+	return "slack"
+}
+
 // Send delivers an alert to Slack
 func (s *slackChannel) Send(ctx context.Context, alert Alert) error {
 	// Check rate limit

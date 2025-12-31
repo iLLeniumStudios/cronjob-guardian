@@ -274,7 +274,7 @@ func (r *CronJobMonitorReconciler) getAllNamespaces(ctx context.Context) ([]stri
 		return nil, err
 	}
 
-	var namespaces []string
+	namespaces := make([]string, 0, len(nsList.Items))
 	for _, ns := range nsList.Items {
 		namespaces = append(namespaces, ns.Name)
 	}
@@ -293,7 +293,7 @@ func (r *CronJobMonitorReconciler) getNamespacesBySelector(ctx context.Context, 
 		return nil, err
 	}
 
-	var namespaces []string
+	namespaces := make([]string, 0, len(nsList.Items))
 	for _, ns := range nsList.Items {
 		namespaces = append(namespaces, ns.Name)
 	}
@@ -532,14 +532,14 @@ func (r *CronJobMonitorReconciler) getActiveJobs(ctx context.Context, cj *batchv
 		return nil, err
 	}
 
-	var activeJobs []guardianv1alpha1.ActiveJob
+	activeJobs := make([]guardianv1alpha1.ActiveJob, 0, len(jobList.Items))
 	now := time.Now()
 
 	for _, job := range jobList.Items {
 		// Check if this job is owned by the CronJob
 		isOwned := false
 		for _, ref := range job.OwnerReferences {
-			if ref.Kind == "CronJob" && ref.Name == cj.Name {
+			if ref.Kind == kindCronJob && ref.Name == cj.Name {
 				isOwned = true
 				break
 			}

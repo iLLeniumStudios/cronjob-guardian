@@ -76,6 +76,11 @@ func (p *pagerdutyChannel) Name() string {
 	return p.name
 }
 
+// Type returns the channel type
+func (p *pagerdutyChannel) Type() string {
+	return "pagerduty"
+}
+
 // Send delivers an alert to PagerDuty
 func (p *pagerdutyChannel) Send(ctx context.Context, alert Alert) error {
 	if !p.rateLimiter.Allow() {

@@ -91,6 +91,11 @@ func (w *webhookChannel) Name() string {
 	return w.name
 }
 
+// Type returns the channel type
+func (w *webhookChannel) Type() string {
+	return "webhook"
+}
+
 // Send delivers an alert via webhook
 func (w *webhookChannel) Send(ctx context.Context, alert Alert) error {
 	if !w.rateLimiter.Allow() {

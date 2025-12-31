@@ -48,6 +48,7 @@ import (
 const (
 	retentionRetain = "retain"
 	retentionReset  = "reset"
+	kindCronJob     = "CronJob"
 )
 
 // JobHandler handles Job events for execution tracking
@@ -183,7 +184,7 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 func (h *JobHandler) getCronJobOwner(job *batchv1.Job) string {
 	for _, ref := range job.OwnerReferences {
-		if ref.Kind == "CronJob" {
+		if ref.Kind == kindCronJob {
 			return ref.Name
 		}
 	}
