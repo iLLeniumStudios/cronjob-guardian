@@ -14,6 +14,8 @@ import {
   Timer,
   Trash2,
   AlertTriangle,
+  Loader2,
+  Container,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
@@ -101,7 +103,7 @@ export function CronJobDetailClient() {
   useEffect(() => {
     if (namespace && name) {
       fetchData();
-      const interval = setInterval(() => fetchData(), 30000);
+      const interval = setInterval(() => fetchData(), 5000);
       return () => clearInterval(interval);
     }
   }, [fetchData, namespace, name]);
@@ -236,7 +238,7 @@ export function CronJobDetailClient() {
               <Skeleton key={i} className="h-20" />
             ))}
           </div>
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
             <Skeleton className="h-64" />
             <Skeleton className="h-64" />
           </div>
@@ -322,21 +324,21 @@ export function CronJobDetailClient() {
         }
       />
 
-      <div className="flex-1 space-y-6 overflow-auto p-6">
+      <div className="flex-1 space-y-4 md:space-y-6 overflow-auto p-4 md:p-6">
         {/* Back button and header info */}
         <div className="flex items-start justify-between">
-          <div className="flex items-start gap-4">
+          <div className="flex items-start gap-3 md:gap-4">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => router.push("/")}
-              className="mt-0.5"
+              className="mt-0.5 h-8 w-8 md:h-9 md:w-9 cursor-pointer"
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
-              <div className="flex items-center gap-3">
-                <h2 className="text-xl font-semibold">{cronJob.name}</h2>
+              <div className="flex flex-wrap items-center gap-2 md:gap-3">
+                <h2 className="text-lg md:text-xl font-semibold">{cronJob.name}</h2>
                 <StatusBadge status={cronJob.status} />
                 {cronJob.suspended && (
                   <Badge variant="secondary">Suspended</Badge>
@@ -353,7 +355,7 @@ export function CronJobDetailClient() {
 
         {/* Info bar */}
         <Card>
-          <CardContent className="flex items-center gap-6 py-3">
+          <CardContent className="flex flex-wrap items-center gap-4 md:gap-6 py-3">
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm">
@@ -399,6 +401,63 @@ export function CronJobDetailClient() {
             </button>
           </CardContent>
         </Card>
+
+        {/* Active Jobs */}
+        {cronJob.activeJobs && cronJob.activeJobs.length > 0 && (
+          <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+            <CardHeader className="py-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+                Running Jobs ({cronJob.activeJobs.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="space-y-3">
+                {cronJob.activeJobs.map((job) => (
+                  <div
+                    key={job.name}
+                    className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 rounded-lg border bg-background p-3"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <Play className="h-4 w-4 text-blue-500 fill-blue-500 shrink-0" />
+                      <span className="font-mono text-sm truncate">{job.name}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-sm text-muted-foreground">
+                      {job.runningDuration && (
+                        <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20">
+                          <Clock className="h-3 w-3 mr-1" />
+                          {job.runningDuration}
+                        </Badge>
+                      )}
+                      {job.podPhase && (
+                        <Badge variant="outline" className={
+                          job.podPhase === "Running"
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                            : job.podPhase === "Pending"
+                            ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+                            : "bg-slate-500/10 text-slate-700 dark:text-slate-400 border-slate-500/20"
+                        }>
+                          {job.podPhase}
+                        </Badge>
+                      )}
+                      {job.podName && (
+                        <span className="flex items-center gap-1 text-xs">
+                          <Container className="h-3 w-3" />
+                          <span className="font-mono truncate max-w-[200px]">{job.podName}</span>
+                        </span>
+                      )}
+                      {job.ready && (
+                        <span className="text-xs">
+                          Ready: {job.ready}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Metrics cards */}
         <MetricsCards metrics={cronJob.metrics} nextRun={cronJob.nextRun} />
@@ -458,7 +517,7 @@ export function CronJobDetailClient() {
         )}
 
         {/* Charts */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
           <DurationChart executions={executions?.items ?? []} />
           <SuccessRateChart executions={executions?.items ?? []} />
         </div>

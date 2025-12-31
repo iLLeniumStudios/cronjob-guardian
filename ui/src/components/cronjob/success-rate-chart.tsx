@@ -161,8 +161,8 @@ export function SuccessRateChart({ executions, defaultDays = 14, targetSLA }: Su
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
+                  backgroundColor: "var(--card)",
+                  border: "1px solid var(--border)",
                   borderRadius: "4px",
                   fontSize: "12px",
                 }}
@@ -177,13 +177,13 @@ export function SuccessRateChart({ executions, defaultDays = 14, targetSLA }: Su
               {targetSLA && (
                 <ReferenceLine
                   y={targetSLA}
-                  stroke="hsl(var(--chart-3))"
+                  stroke="var(--chart-3)"
                   strokeDasharray="5 5"
                   label={{
                     value: `SLA Target: ${targetSLA}%`,
                     position: "right",
                     fontSize: 10,
-                    fill: "hsl(var(--chart-3))",
+                    fill: "var(--chart-3)",
                   }}
                 />
               )}
@@ -193,10 +193,10 @@ export function SuccessRateChart({ executions, defaultDays = 14, targetSLA }: Su
                     key={`cell-${index}`}
                     fill={
                       entry.successRate === 100
-                        ? "hsl(var(--chart-2))"
+                        ? "var(--chart-2)"
                         : entry.successRate >= 80
-                          ? "hsl(var(--chart-4))"
-                          : "hsl(var(--destructive))"
+                          ? "var(--chart-4)"
+                          : "var(--destructive)"
                     }
                   />
                 ))}

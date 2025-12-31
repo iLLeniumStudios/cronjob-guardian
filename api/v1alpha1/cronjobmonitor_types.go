@@ -61,9 +61,24 @@ type CronJobSelector struct {
 	// +optional
 	MatchExpressions []metav1.LabelSelectorRequirement `json:"matchExpressions,omitempty"`
 
-	// MatchNames explicitly lists CronJob names to monitor
+	// MatchNames explicitly lists CronJob names to monitor (only valid when watching a single namespace)
 	// +optional
 	MatchNames []string `json:"matchNames,omitempty"`
+
+	// Namespaces explicitly lists namespaces to watch for CronJobs.
+	// If empty and namespaceSelector is not set, watches only the monitor's namespace.
+	// +optional
+	Namespaces []string `json:"namespaces,omitempty"`
+
+	// NamespaceSelector selects namespaces by labels.
+	// CronJobs in matching namespaces will be monitored.
+	// +optional
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+
+	// AllNamespaces watches CronJobs in all namespaces (except globally ignored ones).
+	// Takes precedence over namespaces and namespaceSelector.
+	// +optional
+	AllNamespaces bool `json:"allNamespaces,omitempty"`
 }
 
 // DeadManSwitchConfig configures dead-man's switch behavior
@@ -320,6 +335,7 @@ type MonitorSummary struct {
 	Warning       int32 `json:"warning"`
 	Critical      int32 `json:"critical"`
 	Suspended     int32 `json:"suspended"`
+	Running       int32 `json:"running"`
 	ActiveAlerts  int32 `json:"activeAlerts"`
 }
 
@@ -357,6 +373,10 @@ type CronJobStatus struct {
 	// Metrics contains SLA metrics
 	// +optional
 	Metrics *CronJobMetrics `json:"metrics,omitempty"`
+
+	// ActiveJobs lists currently running jobs for this CronJob
+	// +optional
+	ActiveJobs []ActiveJob `json:"activeJobs,omitempty"`
 
 	// ActiveAlerts lists current alerts for this CronJob
 	// +optional
@@ -397,6 +417,31 @@ type ActiveAlert struct {
 	// LastNotified is when the alert was last sent
 	// +optional
 	LastNotified *metav1.Time `json:"lastNotified,omitempty"`
+}
+
+// ActiveJob represents a currently running job
+type ActiveJob struct {
+	// Name of the Job
+	Name string `json:"name"`
+
+	// StartTime is when the Job started
+	StartTime metav1.Time `json:"startTime"`
+
+	// RunningDuration is how long the job has been running
+	// +optional
+	RunningDuration *metav1.Duration `json:"runningDuration,omitempty"`
+
+	// PodPhase is the current phase of the job's pod (Pending, Running, etc.)
+	// +optional
+	PodPhase string `json:"podPhase,omitempty"`
+
+	// PodName is the name of the pod running the job
+	// +optional
+	PodName string `json:"podName,omitempty"`
+
+	// Ready indicates how many pods are ready vs total
+	// +optional
+	Ready string `json:"ready,omitempty"`
 }
 
 // +kubebuilder:object:root=true

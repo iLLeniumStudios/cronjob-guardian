@@ -25,7 +25,7 @@ go.work
 *.swp
 *.swo
 *~
-docs
+docs-old
 .claude
 CLAUDE.md
 

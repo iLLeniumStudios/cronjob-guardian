@@ -5,12 +5,22 @@ export interface CronJobSummary {
   healthy: number;
   warning: number;
   critical: number;
+  running: number;
+}
+
+export interface ActiveJob {
+  name: string;
+  startTime: string;
+  runningDuration?: string;
+  podPhase?: string;
+  podName?: string;
+  ready?: string;
 }
 
 export interface CronJob {
   name: string;
   namespace: string;
-  status: "healthy" | "warning" | "critical" | "suspended";
+  status: "healthy" | "warning" | "critical" | "suspended" | "running";
   schedule: string;
   timezone?: string;
   suspended: boolean;
@@ -18,6 +28,7 @@ export interface CronJob {
   lastSuccess: string | null;
   lastRunDuration: string | null;
   nextRun: string | null;
+  activeJobs?: ActiveJob[];
   activeAlerts: number;
   monitorRef?: {
     name: string;
@@ -55,6 +66,7 @@ export interface CronJobExecution {
 export interface CronJobDetail extends Omit<CronJob, 'activeAlerts'> {
   metrics: CronJobMetrics;
   lastExecution: CronJobExecution | null;
+  activeJobs?: ActiveJob[];
   activeAlerts: Alert[];
 }
 
@@ -126,6 +138,7 @@ export interface Monitor {
     healthy: number;
     warning: number;
     critical: number;
+    running: number;
   };
   activeAlerts: number;
   lastReconcile: string;
@@ -263,41 +276,47 @@ export interface ChannelDetail {
   };
 }
 
+// Config matches the actual API response from /api/v1/config
 export interface Config {
-  metadata: {
-    name: string;
-  };
-  spec: {
-    deadManSwitchInterval: string;
-    slaRecalculationInterval: string;
-    historyRetention: {
-      defaultDays: number;
-      maxDays: number;
+  logLevel: string;
+  storage: {
+    type: string;
+    sqlite?: {
+      path: string;
     };
-    storage: {
-      type: "sqlite" | "postgresql" | "mysql";
-      sqlite?: {
-        path: string;
-      };
-      postgresql?: {
-        host: string;
-        port: number;
-        database: string;
-      };
-      mysql?: {
-        host: string;
-        port: number;
-        database: string;
-      };
+    postgres?: {
+      host: string;
+      port: number;
+      database: string;
+      username?: string;
+      sslMode?: string;
     };
-    ignoredNamespaces: string[];
+    mysql?: {
+      host: string;
+      port: number;
+      database: string;
+      username?: string;
+    };
+    logStorageEnabled: boolean;
+    eventStorageEnabled: boolean;
+    maxLogSizeKB: number;
+    logRetentionDays: number;
   };
-  status: {
-    activeLeader: string;
-    totalMonitors: number;
-    totalCronJobsWatched: number;
-    totalAlertsSent24h: number;
-    storageStatus: string;
+  historyRetention: {
+    defaultDays: number;
+    maxDays: number;
+  };
+  rateLimits: {
+    maxAlertsPerMinute: number;
+  };
+  ui: {
+    enabled: boolean;
+    port: number;
+  };
+  scheduler: {
+    deadManSwitchInterval: number; // Duration in nanoseconds
+    slaRecalculationInterval: number; // Duration in nanoseconds
+    pruneInterval: number; // Duration in nanoseconds
   };
 }
 

@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, Search, Timer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -158,17 +158,14 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
     );
   }
 
-  // Calculate empty rows needed for consistent height
-  const emptyRowCount = PAGE_SIZE - jobs.length;
-
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <CardTitle className="text-base font-medium">CronJobs</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             <Select value={namespace} onValueChange={handleNamespaceChange}>
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-full sm:w-40">
                 <SelectValue placeholder="All namespaces" />
               </SelectTrigger>
               <SelectContent>
@@ -180,7 +177,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                 ))}
               </SelectContent>
             </Select>
-            <div className="relative w-56">
+            <div className="relative w-full sm:w-56">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search cronjobs..."
@@ -193,48 +190,63 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8"></TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Namespace</TableHead>
-                <TableHead>Schedule</TableHead>
-                <TableHead className="text-right">Success Rate</TableHead>
-                <TableHead>Last Successful Run</TableHead>
-                <TableHead>Next Run</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {jobs.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-12 text-center">
-                    {search || namespace !== "all"
-                      ? "No cronjobs match your filters"
-                      : "No cronjobs found"}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                jobs.map((job) => (
-                  <CronJobRow key={`${job.namespace}/${job.name}`} job={job} />
-                ))
+        <div className="h-[520px] flex flex-col">
+          {jobs.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
+              <Timer className="mb-3 h-12 w-12 text-muted-foreground/50" />
+              <p className="text-lg font-medium text-muted-foreground">
+                {search || namespace !== "all"
+                  ? "No CronJobs match your filters"
+                  : "No CronJobs found"}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground/70">
+                {search || namespace !== "all"
+                  ? "Try adjusting your search or filter criteria"
+                  : "CronJobs being monitored will appear here"}
+              </p>
+              {(search || namespace !== "all") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => {
+                    setSearch("");
+                    setNamespace("all");
+                    setPage(0);
+                  }}
+                >
+                  Clear filters
+                </Button>
               )}
-              {/* Empty rows for consistent height */}
-              {emptyRowCount > 0 &&
-                Array.from({ length: jobs.length === 0 ? PAGE_SIZE - 1 : emptyRowCount }).map((_, i) => (
-                  <TableRow key={`empty-${i}`} className="pointer-events-none">
-                    <TableCell colSpan={7} className="h-12">
-                      &nbsp;
-                    </TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
+            </div>
+          ) : (
+            <div className="flex-1 rounded border overflow-hidden">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-8"></TableHead>
+                      <TableHead className="min-w-[120px]">Name</TableHead>
+                      <TableHead className="min-w-[100px]">Namespace</TableHead>
+                      <TableHead className="min-w-[100px]">Schedule</TableHead>
+                      <TableHead className="text-right min-w-[100px]">Success Rate</TableHead>
+                      <TableHead className="min-w-[140px]">Last Successful Run</TableHead>
+                      <TableHead className="min-w-[100px]">Next Run</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {jobs.map((job) => (
+                      <CronJobRow key={`${job.namespace}/${job.name}`} job={job} />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
         </div>
         {/* Pagination */}
-        <div className="flex items-center justify-between border-t pt-4 mt-4">
-          <div className="text-sm text-muted-foreground">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-4 mt-4">
+          <div className="text-sm text-muted-foreground order-2 sm:order-1">
             {totalFiltered > 0 ? (
               <>
                 Showing {effectivePage * PAGE_SIZE + 1}-
@@ -244,26 +256,28 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
               "No items"
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 order-1 sm:order-2">
             <Button
               variant="outline"
               size="sm"
               onClick={handlePrevPage}
               disabled={effectivePage === 0}
+              className="cursor-pointer disabled:cursor-not-allowed"
             >
               <ChevronLeft className="h-4 w-4" />
-              Previous
+              <span className="hidden sm:inline">Previous</span>
             </Button>
-            <span className="text-sm text-muted-foreground">
-              Page {effectivePage + 1} of {totalPages}
+            <span className="text-sm text-muted-foreground whitespace-nowrap">
+              {effectivePage + 1} / {totalPages}
             </span>
             <Button
               variant="outline"
               size="sm"
               onClick={handleNextPage}
               disabled={effectivePage >= totalPages - 1}
+              className="cursor-pointer disabled:cursor-not-allowed"
             >
-              Next
+              <span className="hidden sm:inline">Next</span>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -274,18 +288,29 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
 }
 
 function CronJobRow({ job }: { job: CronJob }) {
+  const hasActiveJobs = job.activeJobs && job.activeJobs.length > 0;
+  const displayStatus = hasActiveJobs ? "running" : job.status;
+
   return (
     <TableRow className="cursor-pointer hover:bg-muted/50 h-12">
       <TableCell>
-        <StatusIndicator status={job.status} />
+        <StatusIndicator status={displayStatus} />
       </TableCell>
       <TableCell>
-        <Link
-          href={`/cronjob/${job.namespace}/${job.name}`}
-          className="font-medium hover:underline"
-        >
-          {job.name}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/cronjob/${job.namespace}/${job.name}`}
+            className="font-medium hover:underline"
+          >
+            {job.name}
+          </Link>
+          {hasActiveJobs && (
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20 gap-1">
+              <Play className="h-3 w-3 fill-current" />
+              {job.activeJobs!.length} running
+            </Badge>
+          )}
+        </div>
       </TableCell>
       <TableCell>
         <Badge variant="outline" className="font-normal">

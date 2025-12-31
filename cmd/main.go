@@ -347,8 +347,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set up API server with embedded UI assets
-	if cfg.API.Enabled {
+	// Set up UI server with embedded UI assets (serves both web UI and REST API)
+	if cfg.UI.Enabled {
 		api.UIAssets = uiAssets
 
 		// Create leader election check function
@@ -371,7 +371,7 @@ func main() {
 			Store:               dataStore,
 			Config:              cfg,
 			AlertDispatcher:     alertDispatcher,
-			Port:                cfg.API.Port,
+			Port:                cfg.UI.Port,
 			LeaderElectionCheck: leaderElectionCheck,
 		})
 

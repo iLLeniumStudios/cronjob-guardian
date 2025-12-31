@@ -1,0 +1,34 @@
+{{- if and .Values.ui.enabled .Values.ui.route.enabled -}}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "cronjob-guardian.fullname" . }}-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cronjob-guardian.labels" . | nindent 4 }}
+  {{- with .Values.ui.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ui.route.host }}
+  host: {{ .Values.ui.route.host | quote }}
+  {{- end }}
+  {{- if .Values.ui.route.path }}
+  path: {{ .Values.ui.route.path | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ include "cronjob-guardian.fullname" . }}-ui
+    weight: 100
+  port:
+    targetPort: http
+  {{- if .Values.ui.route.tls.enabled }}
+  tls:
+    termination: {{ .Values.ui.route.tls.termination }}
+    {{- if .Values.ui.route.tls.insecureEdgeTerminationPolicy }}
+    insecureEdgeTerminationPolicy: {{ .Values.ui.route.tls.insecureEdgeTerminationPolicy }}
+    {{- end }}
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}

@@ -51,6 +51,17 @@ type SummaryStats struct {
 	Warning   int32 `json:"warning"`
 	Critical  int32 `json:"critical"`
 	Suspended int32 `json:"suspended"`
+	Running   int32 `json:"running"`
+}
+
+// ActiveJobItem represents a currently running job
+type ActiveJobItem struct {
+	Name            string    `json:"name"`
+	StartTime       time.Time `json:"startTime"`
+	RunningDuration string    `json:"runningDuration,omitempty"`
+	PodPhase        string    `json:"podPhase,omitempty"`
+	PodName         string    `json:"podName,omitempty"`
+	Ready           string    `json:"ready,omitempty"`
 }
 
 // MonitorListResponse is the response for GET /api/v1/monitors
@@ -77,18 +88,19 @@ type CronJobListResponse struct {
 
 // CronJobListItem is a single CronJob in the list
 type CronJobListItem struct {
-	Name            string         `json:"name"`
-	Namespace       string         `json:"namespace"`
-	Status          string         `json:"status"`
-	Schedule        string         `json:"schedule"`
-	Timezone        string         `json:"timezone,omitempty"`
-	Suspended       bool           `json:"suspended"`
-	SuccessRate     float64        `json:"successRate"`
-	LastSuccess     *time.Time     `json:"lastSuccess,omitempty"`
-	LastRunDuration string         `json:"lastRunDuration,omitempty"`
-	NextRun         *time.Time     `json:"nextRun,omitempty"`
-	ActiveAlerts    int            `json:"activeAlerts"`
-	MonitorRef      *NamespacedRef `json:"monitorRef,omitempty"`
+	Name            string          `json:"name"`
+	Namespace       string          `json:"namespace"`
+	Status          string          `json:"status"`
+	Schedule        string          `json:"schedule"`
+	Timezone        string          `json:"timezone,omitempty"`
+	Suspended       bool            `json:"suspended"`
+	SuccessRate     float64         `json:"successRate"`
+	LastSuccess     *time.Time      `json:"lastSuccess,omitempty"`
+	LastRunDuration string          `json:"lastRunDuration,omitempty"`
+	NextRun         *time.Time      `json:"nextRun,omitempty"`
+	ActiveJobs      []ActiveJobItem `json:"activeJobs,omitempty"`
+	ActiveAlerts    int             `json:"activeAlerts"`
+	MonitorRef      *NamespacedRef  `json:"monitorRef,omitempty"`
 }
 
 // CronJobDetailResponse is the response for GET /api/v1/cronjobs/:namespace/:name
@@ -103,6 +115,7 @@ type CronJobDetailResponse struct {
 	Metrics       *CronJobMetrics   `json:"metrics,omitempty"`
 	LastExecution *ExecutionSummary `json:"lastExecution,omitempty"`
 	NextRun       *time.Time        `json:"nextRun,omitempty"`
+	ActiveJobs    []ActiveJobItem   `json:"activeJobs,omitempty"`
 	ActiveAlerts  []AlertItem       `json:"activeAlerts"`
 }
 

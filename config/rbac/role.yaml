@@ -8,6 +8,7 @@ rules:
   - ""
   resources:
   - events
+  - namespaces
   - pods
   - secrets
   verbs:

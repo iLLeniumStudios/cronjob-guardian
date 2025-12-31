@@ -1,0 +1,28 @@
+apiVersion: v2
+name: cronjob-guardian
+description: A Kubernetes operator for intelligent CronJob monitoring, SLA tracking, and auto-remediation
+
+type: application
+
+version: 0.1.0
+
+appVersion: "0.1.0"
+
+keywords:
+  - kubernetes
+  - operator
+  - cronjob
+  - monitoring
+  - alerting
+  - sla
+
+home: https://github.com/iLLeniumStudios/cronjob-guardian
+
+sources:
+  - https://github.com/iLLeniumStudios/cronjob-guardian
+
+maintainers:
+  - name: iLLeniumStudios
+    url: https://github.com/iLLeniumStudios
+
+kubeVersion: ">=1.26.0-0"

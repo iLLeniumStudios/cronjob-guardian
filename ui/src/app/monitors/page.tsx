@@ -63,7 +63,7 @@ function MonitorsListView() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => fetchData(), 30000);
+    const interval = setInterval(() => fetchData(), 5000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
@@ -103,9 +103,15 @@ function MonitorsListView() {
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {monitors?.items.map((monitor) => (
-              <MonitorCard key={`${monitor.namespace}/${monitor.name}`} monitor={monitor} />
-            ))}
+            {[...(monitors?.items ?? [])]
+              .sort((a, b) => {
+                const nsCompare = a.namespace.localeCompare(b.namespace);
+                if (nsCompare !== 0) return nsCompare;
+                return a.name.localeCompare(b.name);
+              })
+              .map((monitor) => (
+                <MonitorCard key={`${monitor.namespace}/${monitor.name}`} monitor={monitor} />
+              ))}
           </div>
         )}
       </div>

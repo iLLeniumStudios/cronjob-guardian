@@ -1,0 +1,23 @@
+# CronJob with Timezone (Kubernetes 1.27+)
+# Runs at a specific time in a given timezone
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: morning-report
+  namespace: production
+  labels:
+    tier: high
+    type: report
+spec:
+  # Run at 9 AM Eastern time
+  timeZone: "America/New_York"
+  schedule: "0 9 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: report
+              image: report-generator:latest
+              command: ["/generate-report.sh"]
+          restartPolicy: Never

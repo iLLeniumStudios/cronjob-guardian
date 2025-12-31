@@ -59,11 +59,77 @@ Metrics are available at `/metrics` endpoint on port 8080.
 
 ### Prerequisites
 
-- Kubernetes 1.27+ (for CronJob timezone support)
+- Kubernetes 1.26+
 - kubectl configured with cluster access
-- Helm 3.x (optional)
+- Helm 3.8+ (for OCI registry support)
 
 ### Installation
+
+#### Helm (Recommended)
+
+CronJob Guardian is distributed as an OCI Helm chart:
+
+```bash
+# Install with default configuration (SQLite storage)
+helm install cronjob-guardian oci://ghcr.io/illeniumstudios/charts/cronjob-guardian \
+  --namespace cronjob-guardian \
+  --create-namespace
+
+# Install with custom values
+helm install cronjob-guardian oci://ghcr.io/illeniumstudios/charts/cronjob-guardian \
+  --namespace cronjob-guardian \
+  --create-namespace \
+  --values values.yaml
+```
+
+#### Quick Start with PostgreSQL
+
+```bash
+# Create a secret for database credentials
+kubectl create namespace cronjob-guardian
+kubectl create secret generic postgres-credentials \
+  --namespace cronjob-guardian \
+  --from-literal=password=your-secure-password
+
+# Install with PostgreSQL storage
+helm install cronjob-guardian oci://ghcr.io/illeniumstudios/charts/cronjob-guardian \
+  --namespace cronjob-guardian \
+  --set config.storage.type=postgres \
+  --set config.storage.postgres.host=postgres.database.svc \
+  --set config.storage.postgres.database=guardian \
+  --set config.storage.postgres.username=guardian \
+  --set config.storage.postgres.existingSecret=postgres-credentials
+```
+
+#### High Availability Setup
+
+```bash
+helm install cronjob-guardian oci://ghcr.io/illeniumstudios/charts/cronjob-guardian \
+  --namespace cronjob-guardian \
+  --create-namespace \
+  --set replicaCount=2 \
+  --set leaderElection.enabled=true \
+  --set config.storage.type=postgres \
+  --set config.storage.postgres.host=postgres.database.svc \
+  --set config.storage.postgres.database=guardian \
+  --set config.storage.postgres.username=guardian \
+  --set config.storage.postgres.existingSecret=postgres-credentials
+```
+
+#### Install from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/iLLeniumStudios/cronjob-guardian.git
+cd cronjob-guardian
+
+# Install using local chart
+helm install cronjob-guardian ./deploy/helm/cronjob-guardian \
+  --namespace cronjob-guardian \
+  --create-namespace
+```
+
+#### kubectl (Alternative)
 
 ```bash
 # Install CRDs and operator
@@ -77,356 +143,98 @@ make docker-build docker-push IMG=your-registry/cronjob-guardian:latest
 make deploy IMG=your-registry/cronjob-guardian:latest
 ```
 
+### Helm Configuration
+
+The Helm chart supports extensive configuration for storage backends, high availability, metrics, and more.
+
+See the **[Helm Chart Documentation](deploy/helm/README.md)** for complete configuration reference including:
+
+- Storage backends (SQLite, PostgreSQL, MySQL)
+- High availability with leader election
+- Ingress and OpenShift Route support for UI access
+- Prometheus ServiceMonitor integration
+- Resource limits and scheduling
+- All available values and their defaults
+
 ### Basic Setup
 
 1. **Create an AlertChannel** for notifications:
 
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: AlertChannel
-metadata:
-  name: slack-ops
-spec:
-  type: slack
-  slack:
-    webhookSecretRef:
-      name: slack-webhook
-      namespace: guardian-system
-      key: url
+```bash
+kubectl apply -f examples/alertchannels/slack.yaml
 ```
 
 2. **Create a CronJobMonitor** to watch your jobs:
 
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: CronJobMonitor
-metadata:
-  name: critical-jobs
-  namespace: production
-spec:
-  selector:
-    matchLabels:
-      tier: critical
-  deadManSwitch:
-    enabled: true
-    maxTimeSinceLastSuccess: 25h
-  sla:
-    enabled: true
-    minSuccessRate: 99
-    windowDays: 7
-  alerting:
-    channelRefs:
-      - name: slack-ops
+```bash
+kubectl apply -f examples/monitors/basic.yaml
 ```
+
+See the **[examples/](examples/)** directory for complete configuration examples.
 
 ## Configuration
 
 ### CronJobMonitor
 
-The main resource for configuring what to monitor.
+The main resource for configuring what to monitor. Select CronJobs by labels, expressions, names, or namespaces.
 
-#### Selector
+| Selector Pattern | Example |
+|------------------|---------|
+| All in namespace | `selector: {}` |
+| By labels | `matchLabels: {tier: critical}` |
+| By expressions | `matchExpressions: [{key: tier, operator: In, values: [critical]}]` |
+| By names | `matchNames: [daily-backup, weekly-report]` |
+| Multiple namespaces | `namespaces: [prod, staging]` |
+| Namespace labels | `namespaceSelector: {matchLabels: {env: prod}}` |
+| Cluster-wide | `allNamespaces: true` |
 
-Select CronJobs by labels, expressions, or explicit names:
+See [examples/monitors/](examples/monitors/) for complete examples of each pattern.
 
-```yaml
-spec:
-  selector:
-    # Match by labels
-    matchLabels:
-      app: backup
-      environment: production
+#### Key Features
 
-    # Or by label expressions
-    matchExpressions:
-      - key: tier
-        operator: In
-        values: [critical, high]
-
-    # Or by explicit names
-    matchNames:
-      - daily-backup
-      - weekly-report
-```
-
-#### Dead-Man's Switch
-
-Alert when jobs don't run on schedule:
-
-```yaml
-spec:
-  deadManSwitch:
-    enabled: true
-    maxTimeSinceLastSuccess: 25h  # Alert if no success within 25 hours
-```
-
-#### SLA Tracking
-
-Monitor success rates and performance:
-
-```yaml
-spec:
-  sla:
-    enabled: true
-    minSuccessRate: 95        # Minimum 95% success rate
-    windowDays: 7             # Over rolling 7-day window
-```
-
-#### Maintenance Windows
-
-Suppress alerts during planned maintenance:
-
-```yaml
-spec:
-  maintenanceWindows:
-    - name: weekly-maintenance
-      schedule: "0 2 * * 0"    # Every Sunday at 2 AM
-      duration: 4h
-      suppressAlerts: true
-```
-
-#### Alerting Configuration
-
-Route alerts to channels with severity filtering:
-
-```yaml
-spec:
-  alerting:
-    enabled: true
-    channelRefs:
-      - name: pagerduty-oncall
-        severities: [critical]
-      - name: slack-ops
-        severities: [critical, warning]
-      - name: slack-info
-        severities: [info]
-
-    severityOverrides:
-      jobFailed: critical
-      slaBreached: warning
-      missedSchedule: warning
-
-    suppressDuplicatesFor: 1h
-
-    context:
-      includeLogs: true
-      logLines: 100
-      includeEvents: true
-      includeSuggestedFix: true
-```
+| Feature | Description |
+|---------|-------------|
+| **Dead-Man's Switch** | Alert when jobs don't run within expected window |
+| **SLA Tracking** | Monitor success rates over rolling time windows |
+| **Maintenance Windows** | Suppress alerts during planned maintenance |
+| **Severity Routing** | Route critical/warning/info to different channels |
 
 ### AlertChannel
 
-Define where to send alerts. AlertChannel resources are cluster-scoped and can be referenced by any CronJobMonitor.
+Define where to send alerts. AlertChannel resources are cluster-scoped.
 
-#### Slack
-
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: AlertChannel
-metadata:
-  name: slack-alerts
-spec:
-  type: slack
-  slack:
-    webhookSecretRef:
-      name: slack-webhook
-      namespace: guardian-system
-      key: url
-    defaultChannel: "#alerts"
-  rateLimiting:
-    maxPerHour: 100
-    burstSize: 10
-```
-
-#### PagerDuty
-
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: AlertChannel
-metadata:
-  name: pagerduty-critical
-spec:
-  type: pagerduty
-  pagerduty:
-    routingKeySecretRef:
-      name: pagerduty-key
-      namespace: guardian-system
-      key: routing-key
-    severity: critical
-```
-
-#### Webhook
-
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: AlertChannel
-metadata:
-  name: custom-webhook
-spec:
-  type: webhook
-  webhook:
-    urlSecretRef:
-      name: webhook-url
-      namespace: guardian-system
-      key: url
-    method: POST
-    headers:
-      Content-Type: application/json
-      X-Custom-Header: guardian
-```
-
-#### Email
-
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: AlertChannel
-metadata:
-  name: email-team
-spec:
-  type: email
-  email:
-    smtpSecretRef:
-      name: smtp-credentials
-      namespace: guardian-system
-    from: guardian@example.com
-    to:
-      - ops-team@example.com
-      - oncall@example.com
-```
+| Type | Description | Example |
+|------|-------------|---------|
+| **Slack** | Incoming webhook | [slack.yaml](examples/alertchannels/slack.yaml) |
+| **PagerDuty** | Events API | [pagerduty.yaml](examples/alertchannels/pagerduty.yaml) |
+| **Webhook** | Generic HTTP | [webhook.yaml](examples/alertchannels/webhook.yaml) |
+| **Email** | SMTP | [email.yaml](examples/alertchannels/email.yaml) |
 
 ## Native Kubernetes Features
 
-CronJob Guardian focuses on monitoring and alerting, leaving job execution control to native Kubernetes features. Use these built-in CronJob/Job spec options:
+CronJob Guardian focuses on monitoring and alerting, leaving job execution control to native Kubernetes features:
 
-### Handling Stuck Jobs
-
-Use `activeDeadlineSeconds` on the Job template to automatically terminate long-running jobs:
-
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-spec:
-  jobTemplate:
-    spec:
-      activeDeadlineSeconds: 3600  # Kill after 1 hour
-```
-
-### Auto-Retry Failed Jobs
-
-Use `backoffLimit` on the Job template to configure retry behavior:
-
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-spec:
-  jobTemplate:
-    spec:
-      backoffLimit: 3  # Retry up to 3 times
-```
-
-### Timezone Configuration
-
-Use `timeZone` on the CronJob spec (Kubernetes 1.27+):
-
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-spec:
-  timeZone: "America/New_York"
-  schedule: "0 9 * * *"  # 9 AM Eastern
-```
-
-### Concurrency Control
-
-Use `concurrencyPolicy` to control overlapping executions:
-
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-spec:
-  concurrencyPolicy: Forbid  # Skip if previous still running
-```
+| Feature | Spec Field | Description | Example |
+|---------|------------|-------------|---------|
+| **Timeout** | `activeDeadlineSeconds` | Kill stuck jobs | [with-timeout.yaml](examples/cronjobs/with-timeout.yaml) |
+| **Retry** | `backoffLimit` | Auto-retry failed jobs | [with-retry.yaml](examples/cronjobs/with-retry.yaml) |
+| **Timezone** | `timeZone` | Schedule in specific timezone | [with-timezone.yaml](examples/cronjobs/with-timezone.yaml) |
+| **Concurrency** | `concurrencyPolicy` | Prevent overlapping runs | [with-concurrency.yaml](examples/cronjobs/with-concurrency.yaml) |
 
 ## Use Cases
 
-### Database Backups
+Example monitors for common scenarios:
 
-Monitor critical backup jobs with strict SLA:
-
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: CronJobMonitor
-metadata:
-  name: database-backups
-  namespace: databases
-spec:
-  selector:
-    matchLabels:
-      type: backup
-  deadManSwitch:
-    enabled: true
-    maxTimeSinceLastSuccess: 25h
-  sla:
-    enabled: true
-    minSuccessRate: 100
-  alerting:
-    channelRefs:
-      - name: pagerduty-dba
-        severities: [critical]
-```
-
-### Data Pipeline Jobs
-
-Track ETL performance and catch regressions:
-
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: CronJobMonitor
-metadata:
-  name: etl-pipeline
-  namespace: data-eng
-spec:
-  selector:
-    matchLabels:
-      pipeline: etl
-  sla:
-    enabled: true
-    minSuccessRate: 95
-    windowDays: 7
-  alerting:
-    channelRefs:
-      - name: slack-data-eng
-```
-
-### Report Generation
-
-Monitor business-critical reports:
-
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: CronJobMonitor
-metadata:
-  name: financial-reports
-  namespace: finance
-spec:
-  selector:
-    matchNames:
-      - daily-revenue-report
-      - weekly-summary
-  deadManSwitch:
-    enabled: true
-    maxTimeSinceLastSuccess: 25h
-  maintenanceWindows:
-    - name: quarter-end
-      schedule: "0 0 1 1,4,7,10 *"
-      duration: 24h
-      suppressAlerts: true
-```
+| Use Case | Description | Example |
+|----------|-------------|---------|
+| **Database Backups** | Critical backups with 100% SLA | [database-backups.yaml](examples/monitors/database-backups.yaml) |
+| **Data Pipelines** | ETL with performance tracking | [data-pipeline.yaml](examples/monitors/data-pipeline.yaml) |
+| **Reports** | Business reports with maintenance windows | [financial-reports.yaml](examples/monitors/financial-reports.yaml) |
+| **Full Featured** | All configuration options | [full-featured.yaml](examples/monitors/full-featured.yaml) |
 
 ## Web Dashboard
 
-CronJob Guardian includes a feature-rich web dashboard accessible on port 8080.
+CronJob Guardian includes a feature-rich web UI that serves both an interactive dashboard and REST API on port 8080.
 
 ### Dashboard Features
 
@@ -453,134 +261,41 @@ CronJob Guardian includes a feature-rich web dashboard accessible on port 8080.
 ### Accessing the Dashboard
 
 ```bash
-kubectl port-forward -n guardian-system svc/cronjob-guardian 8080:8080
+kubectl port-forward -n cronjob-guardian svc/cronjob-guardian-ui 8080:8080
 ```
 
 Then open http://localhost:8080 in your browser.
 
+For production deployments, you can expose the UI via Ingress or OpenShift Route. See the [Helm Chart Documentation](deploy/helm/README.md) for configuration details.
+
 ## REST API
 
-The operator exposes a REST API for programmatic access.
-
-### Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/health` | Operator health status |
-| GET | `/api/v1/stats` | Summary statistics |
-| GET | `/api/v1/monitors` | List all monitors |
-| GET | `/api/v1/monitors/{ns}/{name}` | Get monitor details |
-| GET | `/api/v1/cronjobs` | List monitored CronJobs |
-| GET | `/api/v1/cronjobs/{ns}/{name}` | Get CronJob details with metrics |
-| GET | `/api/v1/cronjobs/{ns}/{name}/executions` | Execution history |
-| POST | `/api/v1/cronjobs/{ns}/{name}/trigger` | Manually trigger a job |
-| POST | `/api/v1/cronjobs/{ns}/{name}/suspend` | Suspend a CronJob |
-| POST | `/api/v1/cronjobs/{ns}/{name}/resume` | Resume a CronJob |
-| DELETE | `/api/v1/cronjobs/{ns}/{name}/history` | Delete execution history |
-| GET | `/api/v1/alerts` | Active alerts |
-| GET | `/api/v1/alerts/history` | Alert history |
-| GET | `/api/v1/channels` | List alert channels |
-| GET | `/api/v1/channels/{name}` | Get channel details |
-| POST | `/api/v1/channels/{name}/test` | Send test alert |
-| GET | `/api/v1/config` | Get operator configuration |
-| GET | `/api/v1/admin/storage-stats` | Storage statistics |
-| POST | `/api/v1/admin/prune` | Prune old execution records |
-| GET | `/metrics` | Prometheus metrics |
-
-### Example
+The operator exposes a REST API for programmatic access to monitoring data, CronJob management, and alerting.
 
 ```bash
 # Get all monitored CronJobs
 curl http://localhost:8080/api/v1/cronjobs
 
-# Get execution history for a specific job
+# Get execution history
 curl http://localhost:8080/api/v1/cronjobs/production/daily-backup/executions
 
-# Get Prometheus metrics
-curl http://localhost:8080/metrics
+# Trigger a job manually
+curl -X POST http://localhost:8080/api/v1/cronjobs/production/daily-backup/trigger
 ```
+
+See the **[API Reference](docs/api.md)** for complete endpoint documentation.
 
 ## Storage Backends
 
-CronJob Guardian supports multiple storage backends for execution history.
+CronJob Guardian supports multiple storage backends for execution history:
 
-### SQLite (Default)
+| Backend | Use Case | HA Support |
+|---------|----------|------------|
+| **SQLite** (default) | Single-replica, lightweight | No |
+| **PostgreSQL** | Production, high-availability | Yes |
+| **MySQL/MariaDB** | Enterprise environments | Yes |
 
-Lightweight, requires a PVC. Good for single-replica deployments.
-
-```yaml
-# In GuardianConfig
-spec:
-  storage:
-    type: sqlite
-    sqlite:
-      path: /data/guardian.db
-```
-
-### PostgreSQL
-
-For high-availability deployments with multiple replicas.
-
-```yaml
-spec:
-  storage:
-    type: postgresql
-    postgresql:
-      host: postgres.database.svc
-      port: 5432
-      database: guardian
-      secretRef:
-        name: postgres-credentials
-        namespace: guardian-system
-```
-
-### MySQL/MariaDB
-
-Alternative enterprise database option.
-
-```yaml
-spec:
-  storage:
-    type: mysql
-    mysql:
-      host: mysql.database.svc
-      port: 3306
-      database: guardian
-      secretRef:
-        name: mysql-credentials
-        namespace: guardian-system
-```
-
-## GuardianConfig
-
-Global operator settings are configured via the `GuardianConfig` resource (singleton named "default").
-
-```yaml
-apiVersion: guardian.illenium.net/v1alpha1
-kind: GuardianConfig
-metadata:
-  name: default
-spec:
-  # Background task intervals
-  deadManSwitchInterval: 1m
-  slaRecalculationInterval: 5m
-
-  # History retention
-  historyRetention:
-    defaultDays: 30
-    maxDays: 90
-
-  # Storage configuration
-  storage:
-    type: sqlite
-    sqlite:
-      path: /data/guardian.db
-
-  # Namespaces to ignore
-  ignoredNamespaces:
-    - kube-system
-    - kube-public
-```
+Configure via Helm values or the `GuardianConfig` resource. See [Helm Chart Documentation](deploy/helm/README.md) for details.
 
 ## Development
 
@@ -631,34 +346,47 @@ make test-e2e
 ```
 ├── api/v1alpha1/          # CRD type definitions
 ├── cmd/                   # Main entrypoint
-├── config/                # Kubernetes manifests
-│   ├── crd/              # Generated CRD YAML
-│   ├── manager/          # Operator deployment
-│   ├── rbac/             # RBAC rules
-│   └── samples/          # Example CRs
+├── config/                # Kubernetes manifests (CRDs, RBAC, etc.)
+├── deploy/helm/           # Helm chart
+├── docs/                  # Documentation
+│   └── api.md            # REST API reference
+├── examples/              # Example configurations
+│   ├── alertchannels/    # AlertChannel examples
+│   ├── monitors/         # CronJobMonitor examples
+│   └── cronjobs/         # CronJob examples
 ├── internal/
 │   ├── controller/       # Kubernetes reconcilers
 │   ├── alerting/         # Alert dispatcher and channels
 │   ├── analyzer/         # SLA calculation
-│   ├── scheduler/        # Background tasks (dead-man switch, SLA recalc)
-│   ├── store/            # Database abstraction
+│   ├── scheduler/        # Background tasks
+│   ├── store/            # Database abstraction (GORM)
 │   ├── api/              # REST API server
-│   ├── metrics/          # Prometheus metrics
 │   └── config/           # Configuration handling
-└── ui/                   # Next.js dashboard
-    └── src/
-        ├── app/          # Pages (dashboard, monitors, sla, alerts, etc.)
-        ├── components/   # React components
-        └── lib/          # API client and utilities
+└── ui/                   # React dashboard
 ```
 
 ## Uninstalling
 
+### Helm
+
+```bash
+# Uninstall the release
+helm uninstall cronjob-guardian --namespace cronjob-guardian
+
+# Delete CRDs (optional - this removes all CronJobMonitor and AlertChannel data)
+kubectl delete crd cronjobmonitors.guardian.illenium.net
+kubectl delete crd alertchannels.guardian.illenium.net
+
+# Delete the namespace
+kubectl delete namespace cronjob-guardian
+```
+
+### kubectl
+
 ```bash
 # Remove all CronJobMonitor and AlertChannel resources
 kubectl delete cronjobmonitors --all-namespaces --all
-kubectl delete alertchannels --all
-kubectl delete guardianconfigs --all
+kubectl delete alertchannels --all-namespaces --all
 
 # Remove the operator
 make undeploy

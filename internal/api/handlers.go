@@ -141,6 +141,7 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 			summary.Warning += m.Status.Summary.Warning
 			summary.Critical += m.Status.Summary.Critical
 			summary.Suspended += m.Status.Summary.Suspended
+			summary.Running += m.Status.Summary.Running
 			totalCronJobs += m.Status.Summary.TotalCronJobs
 			activeAlerts += m.Status.Summary.ActiveAlerts
 		}
@@ -203,6 +204,7 @@ func (h *Handlers) ListMonitors(w http.ResponseWriter, r *http.Request) {
 				Warning:   m.Status.Summary.Warning,
 				Critical:  m.Status.Summary.Critical,
 				Suspended: m.Status.Summary.Suspended,
+				Running:   m.Status.Summary.Running,
 			}
 			item.ActiveAlerts = m.Status.Summary.ActiveAlerts
 		}
@@ -319,6 +321,24 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 				item.NextRun = &t
 			}
 
+			// Convert active jobs
+			if len(cjStatus.ActiveJobs) > 0 {
+				item.ActiveJobs = make([]ActiveJobItem, 0, len(cjStatus.ActiveJobs))
+				for _, aj := range cjStatus.ActiveJobs {
+					activeJob := ActiveJobItem{
+						Name:      aj.Name,
+						StartTime: aj.StartTime.Time,
+						PodPhase:  aj.PodPhase,
+						PodName:   aj.PodName,
+						Ready:     aj.Ready,
+					}
+					if aj.RunningDuration != nil {
+						activeJob.RunningDuration = aj.RunningDuration.Duration.String()
+					}
+					item.ActiveJobs = append(item.ActiveJobs, activeJob)
+				}
+			}
+
 			items = append(items, item)
 
 			// Update summary
@@ -332,6 +352,9 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 			}
 			if cjStatus.Suspended {
 				summary.Suspended++
+			}
+			if len(cjStatus.ActiveJobs) > 0 {
+				summary.Running++
 			}
 		}
 	}
@@ -396,6 +419,24 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 					if cjStatus.NextScheduledTime != nil {
 						t := cjStatus.NextScheduledTime.Time
 						resp.NextRun = &t
+					}
+
+					// Convert active jobs
+					if len(cjStatus.ActiveJobs) > 0 {
+						resp.ActiveJobs = make([]ActiveJobItem, 0, len(cjStatus.ActiveJobs))
+						for _, aj := range cjStatus.ActiveJobs {
+							activeJob := ActiveJobItem{
+								Name:      aj.Name,
+								StartTime: aj.StartTime.Time,
+								PodPhase:  aj.PodPhase,
+								PodName:   aj.PodName,
+								Ready:     aj.Ready,
+							}
+							if aj.RunningDuration != nil {
+								activeJob.RunningDuration = aj.RunningDuration.Duration.String()
+							}
+							resp.ActiveJobs = append(resp.ActiveJobs, activeJob)
+						}
 					}
 
 					// Convert active alerts
@@ -1013,13 +1054,12 @@ func (h *Handlers) TestChannel(w http.ResponseWriter, r *http.Request) {
 
 // ConfigResponse represents the operator configuration for the API
 type ConfigResponse struct {
-	LogLevel          string                        `json:"logLevel"`
-	Storage           config.StorageConfig          `json:"storage"`
-	HistoryRetention  config.HistoryRetentionConfig `json:"historyRetention"`
-	RateLimits        config.RateLimitsConfig       `json:"rateLimits"`
-	IgnoredNamespaces []string                      `json:"ignoredNamespaces"`
-	API               config.APIConfig              `json:"api"`
-	Scheduler         config.SchedulerConfig        `json:"scheduler"`
+	LogLevel         string                        `json:"logLevel"`
+	Storage          config.StorageConfig          `json:"storage"`
+	HistoryRetention config.HistoryRetentionConfig `json:"historyRetention"`
+	RateLimits       config.RateLimitsConfig       `json:"rateLimits"`
+	UI               config.UIConfig               `json:"ui"`
+	Scheduler        config.SchedulerConfig        `json:"scheduler"`
 }
 
 // GetConfig handles GET /api/v1/config
@@ -1030,13 +1070,12 @@ func (h *Handlers) GetConfig(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	resp := ConfigResponse{
-		LogLevel:          h.config.LogLevel,
-		Storage:           h.config.Storage,
-		HistoryRetention:  h.config.HistoryRetention,
-		RateLimits:        h.config.RateLimits,
-		IgnoredNamespaces: h.config.IgnoredNamespaces,
-		API:               h.config.API,
-		Scheduler:         h.config.Scheduler,
+		LogLevel:         h.config.LogLevel,
+		Storage:          h.config.Storage,
+		HistoryRetention: h.config.HistoryRetention,
+		RateLimits:       h.config.RateLimits,
+		UI:               h.config.UI,
+		Scheduler:        h.config.Scheduler,
 	}
 
 	writeJSON(w, http.StatusOK, resp)

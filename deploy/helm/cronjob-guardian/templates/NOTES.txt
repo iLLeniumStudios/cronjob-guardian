@@ -1,0 +1,108 @@
+CronJob Guardian has been installed!
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+=== Configuration ===
+
+Storage backend: {{ .Values.config.storage.type }}
+{{- if eq .Values.config.storage.type "sqlite" }}
+SQLite path: {{ .Values.config.storage.sqlite.path }}
+{{- if .Values.persistence.enabled }}
+Persistence: Enabled ({{ .Values.persistence.size }})
+{{- else }}
+WARNING: Persistence is disabled! Data will be lost on pod restart.
+{{- end }}
+{{- else if eq .Values.config.storage.type "postgres" }}
+PostgreSQL: {{ .Values.config.storage.postgres.host }}:{{ .Values.config.storage.postgres.port }}/{{ .Values.config.storage.postgres.database }}
+{{- else if eq .Values.config.storage.type "mysql" }}
+MySQL: {{ .Values.config.storage.mysql.host }}:{{ .Values.config.storage.mysql.port }}/{{ .Values.config.storage.mysql.database }}
+{{- end }}
+
+{{- if .Values.ui.enabled }}
+
+=== Web UI & REST API ===
+
+The UI server is enabled on port {{ .Values.ui.port }}.
+
+{{- if .Values.ui.ingress.enabled }}
+Access the UI via Ingress:
+{{- range .Values.ui.ingress.hosts }}
+  http{{ if $.Values.ui.ingress.tls }}s{{ end }}://{{ .host }}{{ (first .paths).path }}
+{{- end }}
+{{- else if .Values.ui.route.enabled }}
+Access the UI via OpenShift Route:
+  oc get route -n {{ .Release.Namespace }} {{ include "cronjob-guardian.fullname" . }}-ui -o jsonpath='{.spec.host}'
+{{- else if eq .Values.ui.service.type "ClusterIP" }}
+To access the UI locally, run:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "cronjob-guardian.fullname" . }}-ui {{ .Values.ui.service.port }}:{{ .Values.ui.service.port }}
+
+Then visit: http://localhost:{{ .Values.ui.service.port }}
+{{- else if eq .Values.ui.service.type "NodePort" }}
+To access the UI, get the NodePort:
+
+  export NODE_PORT=$(kubectl get -n {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" svc {{ include "cronjob-guardian.fullname" . }}-ui)
+  export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "UI available at: http://$NODE_IP:$NODE_PORT"
+{{- else if eq .Values.ui.service.type "LoadBalancer" }}
+To access the UI, wait for the LoadBalancer IP:
+
+  kubectl get -n {{ .Release.Namespace }} svc {{ include "cronjob-guardian.fullname" . }}-ui -w
+{{- end }}
+{{- end }}
+
+{{- if .Values.metrics.enabled }}
+
+=== Metrics ===
+
+Metrics endpoint: {{ .Values.metrics.bindAddress }}
+Secure (HTTPS): {{ .Values.metrics.secure }}
+
+{{- if .Values.serviceMonitor.enabled }}
+ServiceMonitor is enabled for Prometheus Operator integration.
+{{- else }}
+To enable Prometheus scraping, set serviceMonitor.enabled=true or configure your
+Prometheus to scrape the metrics service:
+
+  {{ include "cronjob-guardian.fullname" . }}-metrics:{{ regexReplaceAll "^:?" .Values.metrics.bindAddress "" }}
+{{- end }}
+{{- end }}
+
+=== Getting Started ===
+
+1. Create a CronJobMonitor to start monitoring a CronJob:
+
+   kubectl apply -f - <<EOF
+   apiVersion: guardian.illenium.net/v1alpha1
+   kind: CronJobMonitor
+   metadata:
+     name: my-cronjob-monitor
+     namespace: default
+   spec:
+     cronJobRef:
+       name: my-cronjob
+     sla:
+       successRateThreshold: 95
+       maxDurationSeconds: 300
+   EOF
+
+2. Create an AlertChannel for notifications:
+
+   kubectl apply -f - <<EOF
+   apiVersion: guardian.illenium.net/v1alpha1
+   kind: AlertChannel
+   metadata:
+     name: slack-alerts
+     namespace: default
+   spec:
+     type: slack
+     slack:
+       webhookURL: "https://hooks.slack.com/services/..."
+   EOF
+
+3. Check the operator logs:
+
+   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "cronjob-guardian.name" . }} -f
+
+For more information, visit: https://github.com/iLLeniumStudios/cronjob-guardian

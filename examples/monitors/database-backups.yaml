@@ -1,0 +1,21 @@
+# Database Backup Monitoring
+# Monitors critical backup jobs with strict SLA requirements
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: database-backups
+  namespace: databases
+spec:
+  selector:
+    matchLabels:
+      type: backup
+  deadManSwitch:
+    enabled: true
+    maxTimeSinceLastSuccess: 25h
+  sla:
+    enabled: true
+    minSuccessRate: 100  # Backups must never fail
+  alerting:
+    channelRefs:
+      - name: pagerduty-dba
+        severities: [critical]

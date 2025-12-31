@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 
-type Status = "healthy" | "warning" | "critical" | "suspended" | "unknown";
+type Status = "healthy" | "warning" | "critical" | "suspended" | "running" | "unknown";
 
 interface StatusIndicatorProps {
   status: Status;
@@ -15,6 +15,7 @@ const statusColors: Record<Status, string> = {
   warning: "bg-amber-500",
   critical: "bg-red-500",
   suspended: "bg-slate-400",
+  running: "bg-blue-500",
   unknown: "bg-slate-400",
 };
 
@@ -29,12 +30,14 @@ export function StatusIndicator({
   size = "md",
   className,
 }: StatusIndicatorProps) {
+  const isRunning = status === "running";
   return (
     <span
       className={cn(
         "inline-block rounded-full",
         statusColors[status] || statusColors.unknown,
         sizeClasses[size],
+        isRunning && "animate-pulse",
         className
       )}
       title={status}
@@ -52,6 +55,7 @@ const badgeColors: Record<Status, string> = {
   warning: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
   critical: "bg-red-500/10 text-red-700 dark:text-red-400",
   suspended: "bg-slate-500/10 text-slate-700 dark:text-slate-400",
+  running: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
   unknown: "bg-slate-500/10 text-slate-700 dark:text-slate-400",
 };
 

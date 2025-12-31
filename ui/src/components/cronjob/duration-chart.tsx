@@ -39,7 +39,10 @@ function parseDuration(duration: string): number {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 60) {
+    const rounded = Math.round(seconds * 100) / 100;
+    return `${rounded}s`;
+  }
   if (seconds < 3600) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.round(seconds % 60);
@@ -172,8 +175,8 @@ export function DurationChart({ executions, defaultDays = 14 }: DurationChartPro
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
+                  backgroundColor: "var(--card)",
+                  border: "1px solid var(--border)",
                   borderRadius: "4px",
                   fontSize: "12px",
                 }}
@@ -189,13 +192,13 @@ export function DurationChart({ executions, defaultDays = 14 }: DurationChartPro
               {regressionInfo && (
                 <ReferenceLine
                   y={regressionInfo.baseline}
-                  stroke="hsl(var(--destructive))"
+                  stroke="var(--destructive)"
                   strokeDasharray="5 5"
                   label={{
                     value: `Baseline: ${formatDuration(regressionInfo.baseline)}`,
                     position: "right",
                     fontSize: 10,
-                    fill: "hsl(var(--destructive))",
+                    fill: "var(--destructive)",
                   }}
                 />
               )}
@@ -203,7 +206,7 @@ export function DurationChart({ executions, defaultDays = 14 }: DurationChartPro
                 type="monotone"
                 dataKey="p50"
                 name="P50"
-                stroke="hsl(var(--chart-1))"
+                stroke="var(--chart-1)"
                 strokeWidth={2}
                 dot={false}
               />
@@ -211,7 +214,7 @@ export function DurationChart({ executions, defaultDays = 14 }: DurationChartPro
                 type="monotone"
                 dataKey="p95"
                 name="P95"
-                stroke="hsl(var(--chart-2))"
+                stroke="var(--chart-2)"
                 strokeWidth={2}
                 dot={false}
               />

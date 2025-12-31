@@ -67,7 +67,7 @@ export function MonitorDetailClient() {
   useEffect(() => {
     if (namespace && name) {
       fetchData();
-      const interval = setInterval(() => fetchData(), 30000);
+      const interval = setInterval(() => fetchData(), 5000);
       return () => clearInterval(interval);
     }
   }, [fetchData, namespace, name]);

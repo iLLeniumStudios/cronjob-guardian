@@ -1,0 +1,304 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: alertchannels.guardian.illenium.net
+spec:
+  group: guardian.illenium.net
+  names:
+    kind: AlertChannel
+    listKind: AlertChannelList
+    plural: alertchannels
+    singular: alertchannel
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .status.lastAlertTime
+      name: Last Alert
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: AlertChannel is the Schema for the alertchannels API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AlertChannelSpec defines the desired state of AlertChannel
+            properties:
+              email:
+                description: Email configuration
+                properties:
+                  bodyTemplate:
+                    description: BodyTemplate is a Go template for body
+                    type: string
+                  from:
+                    description: From is the sender address
+                    type: string
+                  smtpSecretRef:
+                    description: SMTPSecretRef references Secret with host, port,
+                      username, password
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    type: object
+                  subjectTemplate:
+                    description: SubjectTemplate is a Go template for subject
+                    type: string
+                  to:
+                    description: To is the list of recipient addresses
+                    items:
+                      type: string
+                    type: array
+                required:
+                - from
+                - smtpSecretRef
+                - to
+                type: object
+              pagerduty:
+                description: PagerDuty configuration
+                properties:
+                  routingKeySecretRef:
+                    description: RoutingKeySecretRef references the Secret containing
+                      routing key
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
+                  severity:
+                    description: Severity is the default PagerDuty severity
+                    enum:
+                    - critical
+                    - error
+                    - warning
+                    - info
+                    type: string
+                required:
+                - routingKeySecretRef
+                type: object
+              rateLimiting:
+                description: RateLimiting prevents alert storms
+                properties:
+                  burstLimit:
+                    description: 'BurstLimit limits alerts per minute (default: 10)'
+                    format: int32
+                    type: integer
+                  maxAlertsPerHour:
+                    description: 'MaxAlertsPerHour limits alerts per hour (default:
+                      100)'
+                    format: int32
+                    type: integer
+                type: object
+              slack:
+                description: Slack configuration
+                properties:
+                  defaultChannel:
+                    description: DefaultChannel overrides webhook's default channel
+                    type: string
+                  messageTemplate:
+                    description: MessageTemplate is a Go template for message formatting
+                    type: string
+                  webhookSecretRef:
+                    description: WebhookSecretRef references the Secret containing
+                      webhook URL
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
+                required:
+                - webhookSecretRef
+                type: object
+              testOnSave:
+                description: 'TestOnSave sends a test alert when saved (default: false)'
+                type: boolean
+              type:
+                description: Type of alert channel
+                enum:
+                - slack
+                - pagerduty
+                - webhook
+                - email
+                type: string
+              webhook:
+                description: Webhook configuration
+                properties:
+                  headers:
+                    additionalProperties:
+                      type: string
+                    description: Headers to include in requests
+                    type: object
+                  method:
+                    description: 'Method is the HTTP method (default: POST)'
+                    enum:
+                    - POST
+                    - PUT
+                    type: string
+                  payloadTemplate:
+                    description: PayloadTemplate is a Go template for JSON payload
+                    type: string
+                  urlSecretRef:
+                    description: URLSecretRef references the Secret containing webhook
+                      URL
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
+                required:
+                - urlSecretRef
+                type: object
+            required:
+            - type
+            type: object
+          status:
+            description: AlertChannelStatus defines the observed state of AlertChannel
+            properties:
+              alertsSentLast24h:
+                description: AlertsSentLast24h is alerts sent in last 24 hours
+                format: int32
+                type: integer
+              alertsSentTotal:
+                description: AlertsSentTotal is total alerts sent via this channel
+                format: int64
+                type: integer
+              conditions:
+                description: Conditions represent latest observations
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastAlertTime:
+                description: LastAlertTime is when the last alert was sent
+                format: date-time
+                type: string
+              lastTestError:
+                description: LastTestError is the error from the last test
+                type: string
+              lastTestResult:
+                description: LastTestResult is the result of the last test
+                enum:
+                - success
+                - failed
+                type: string
+              lastTestTime:
+                description: LastTestTime is when the channel was last tested
+                format: date-time
+                type: string
+              ready:
+                description: Ready indicates the channel is operational
+                type: boolean
+            required:
+            - alertsSentLast24h
+            - alertsSentTotal
+            - ready
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

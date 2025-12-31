@@ -1,0 +1,310 @@
+# Default values for cronjob-guardian.
+# This is a YAML-formatted file.
+
+# -- Number of replicas. Use 1 for leader election, or increase with leaderElection.enabled=true
+replicaCount: 1
+
+# -- Image configuration
+image:
+  # -- Image registry (optional, prepended to repository if set)
+  registry: ""
+  # -- Image repository
+  repository: ghcr.io/illeniumstudios/cronjob-guardian
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag (defaults to appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the name of the chart
+nameOverride: ""
+# -- Override the full name of the chart
+fullnameOverride: ""
+
+# -- ServiceAccount configuration
+serviceAccount:
+  # -- Create a ServiceAccount
+  create: true
+  # -- Automatically mount ServiceAccount token
+  automount: true
+  # -- ServiceAccount annotations
+  annotations: {}
+  # -- ServiceAccount name (auto-generated if not set)
+  name: ""
+
+# -- RBAC configuration
+rbac:
+  # -- Create ClusterRole and ClusterRoleBinding
+  create: true
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Pod labels
+podLabels: {}
+
+# -- Pod security context
+podSecurityContext: {}
+
+# -- Container security context
+securityContext: {}
+
+# -- Termination grace period in seconds
+terminationGracePeriodSeconds: 10
+
+# -- Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# -- Liveness probe configuration
+livenessProbe:
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 1
+  failureThreshold: 3
+
+# -- Readiness probe configuration
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 1
+  failureThreshold: 3
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# -- Additional environment variables
+extraEnv: []
+
+# -- Additional volume mounts
+extraVolumeMounts: []
+
+# -- Additional volumes
+extraVolumes: []
+
+# =============================================================================
+# Operator Configuration
+# =============================================================================
+
+# -- Operator configuration (generates config.yaml)
+config:
+  # -- Log level (debug, info, warn, error)
+  logLevel: info
+
+  # -- Scheduler configuration
+  scheduler:
+    # -- Dead-man's switch check interval
+    deadManSwitchInterval: 1m
+    # -- SLA recalculation interval
+    slaRecalculationInterval: 5m
+    # -- History prune interval
+    pruneInterval: 1h
+
+  # -- Storage backend configuration
+  storage:
+    # -- Storage type: sqlite, postgres, or mysql
+    type: sqlite
+
+    # -- SQLite configuration (used when type=sqlite)
+    sqlite:
+      # -- Path to SQLite database file
+      path: /data/guardian.db
+
+    # -- PostgreSQL configuration (used when type=postgres)
+    postgres:
+      # -- PostgreSQL host
+      host: ""
+      # -- PostgreSQL port
+      port: 5432
+      # -- PostgreSQL database name
+      database: ""
+      # -- PostgreSQL username
+      username: ""
+      # -- PostgreSQL password (ignored if existingSecret is set)
+      password: ""
+      # -- Use existing secret for password
+      existingSecret: ""
+      # -- Key in existing secret containing password
+      existingSecretKey: password
+      # -- PostgreSQL SSL mode
+      sslMode: require
+
+    # -- MySQL configuration (used when type=mysql)
+    mysql:
+      # -- MySQL host
+      host: ""
+      # -- MySQL port
+      port: 3306
+      # -- MySQL database name
+      database: ""
+      # -- MySQL username
+      username: ""
+      # -- MySQL password (ignored if existingSecret is set)
+      password: ""
+      # -- Use existing secret for password
+      existingSecret: ""
+      # -- Key in existing secret containing password
+      existingSecretKey: password
+
+    # -- Enable storing job logs in database
+    logStorageEnabled: false
+    # -- Enable storing K8s events in database
+    eventStorageEnabled: false
+    # -- Maximum log size to store per execution (KB)
+    maxLogSizeKB: 100
+    # -- Log retention days (0 = use history-retention.default-days)
+    logRetentionDays: 0
+
+  # -- History retention configuration
+  historyRetention:
+    # -- Default retention period in days
+    defaultDays: 30
+    # -- Maximum retention period in days
+    maxDays: 90
+
+  # -- Rate limits configuration
+  rateLimits:
+    # -- Maximum alerts per minute across all channels
+    maxAlertsPerMinute: 50
+
+# -- Persistence configuration for SQLite
+persistence:
+  # -- Enable persistence (required for SQLite)
+  enabled: true
+  # -- Storage class (use "-" for default, or specify a class name)
+  storageClass: ""
+  # -- Access modes
+  accessModes:
+    - ReadWriteOnce
+  # -- Storage size
+  size: 1Gi
+  # -- PVC annotations
+  annotations: {}
+  # -- PVC selector
+  selector: {}
+
+# -- UI server configuration (serves both web UI and REST API)
+ui:
+  # -- Enable UI server
+  enabled: true
+  # -- UI server port
+  port: 8080
+  # -- UI service configuration
+  service:
+    # -- Service type (ClusterIP, NodePort, LoadBalancer)
+    type: ClusterIP
+    # -- Service port
+    port: 8080
+    # -- NodePort (only used if type=NodePort)
+    nodePort: null
+    # -- Service annotations
+    annotations: {}
+
+  # -- Ingress configuration for UI
+  ingress:
+    # -- Enable ingress
+    enabled: false
+    # -- Ingress class name
+    className: ""
+    # -- Ingress annotations
+    annotations: {}
+    # -- Ingress hosts
+    hosts:
+      - host: cronjob-guardian.local
+        paths:
+          - path: /
+            pathType: Prefix
+    # -- Ingress TLS configuration
+    tls: []
+    #  - secretName: cronjob-guardian-tls
+    #    hosts:
+    #      - cronjob-guardian.local
+
+  # -- OpenShift Route configuration (alternative to ingress)
+  route:
+    # -- Enable OpenShift Route
+    enabled: false
+    # -- Route host (leave empty for auto-generated)
+    host: ""
+    # -- Route path
+    path: ""
+    # -- Route annotations
+    annotations: {}
+    # -- TLS configuration
+    tls:
+      # -- Enable TLS termination
+      enabled: true
+      # -- TLS termination type (edge, passthrough, reencrypt)
+      termination: edge
+      # -- Insecure edge termination policy (Allow, Redirect, None)
+      insecureEdgeTerminationPolicy: Redirect
+
+# -- Metrics server configuration
+metrics:
+  # -- Enable metrics endpoint
+  enabled: true
+  # -- Metrics bind address (port only, e.g., ":8443")
+  bindAddress: ":8443"
+  # -- Enable HTTPS for metrics
+  secure: true
+  # -- Path to TLS certificate directory
+  certPath: ""
+  # -- TLS certificate file name
+  certName: tls.crt
+  # -- TLS key file name
+  certKey: tls.key
+
+# -- Health probes configuration
+probes:
+  # -- Probes bind address
+  bindAddress: ":8081"
+
+# -- Leader election configuration
+leaderElection:
+  # -- Enable leader election (required for multiple replicas)
+  enabled: false
+  # -- Leader lease duration
+  leaseDuration: 15s
+  # -- Leader renew deadline
+  renewDeadline: 10s
+  # -- Leader retry period
+  retryPeriod: 2s
+
+# -- Webhook configuration
+webhook:
+  # -- Path to TLS certificate directory
+  certPath: ""
+  # -- TLS certificate file name
+  certName: tls.crt
+  # -- TLS key file name
+  certKey: tls.key
+  # -- Enable HTTP/2 for webhook server
+  enableHTTP2: false
+
+# -- ServiceMonitor configuration for Prometheus Operator
+serviceMonitor:
+  # -- Enable ServiceMonitor
+  enabled: false
+  # -- ServiceMonitor labels
+  labels: {}
+  # -- Scrape interval
+  interval: 30s
+  # -- Scrape timeout
+  scrapeTimeout: 10s
+  # -- Metric relabelings
+  metricRelabelings: []
+  # -- Relabelings
+  relabelings: []

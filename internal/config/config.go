@@ -45,11 +45,8 @@ type Config struct {
 	// RateLimits for alerts and remediations
 	RateLimits RateLimitsConfig `mapstructure:"rate-limits"`
 
-	// IgnoredNamespaces to skip when watching CronJobs
-	IgnoredNamespaces []string `mapstructure:"ignored-namespaces"`
-
-	// API server configuration
-	API APIConfig `mapstructure:"api"`
+	// UI server configuration (serves both web UI and REST API)
+	UI UIConfig `mapstructure:"ui"`
 
 	// Metrics server configuration
 	Metrics MetricsConfig `mapstructure:"metrics"`
@@ -67,112 +64,112 @@ type Config struct {
 // SchedulerConfig configures background schedulers
 type SchedulerConfig struct {
 	// DeadManSwitchInterval is how often to check dead-man's switches
-	DeadManSwitchInterval time.Duration `mapstructure:"dead-man-switch-interval"`
+	DeadManSwitchInterval time.Duration `mapstructure:"dead-man-switch-interval" json:"deadManSwitchInterval"`
 
 	// SLARecalculationInterval is how often to recalculate SLA metrics
-	SLARecalculationInterval time.Duration `mapstructure:"sla-recalculation-interval"`
+	SLARecalculationInterval time.Duration `mapstructure:"sla-recalculation-interval" json:"slaRecalculationInterval"`
 
 	// PruneInterval is how often to prune old execution history
-	PruneInterval time.Duration `mapstructure:"prune-interval"`
+	PruneInterval time.Duration `mapstructure:"prune-interval" json:"pruneInterval"`
 }
 
 // StorageConfig configures the storage backend
 type StorageConfig struct {
 	// Type is the storage backend type (sqlite, postgres, mysql)
-	Type string `mapstructure:"type"`
+	Type string `mapstructure:"type" json:"type"`
 
 	// SQLite configuration
-	SQLite SQLiteConfig `mapstructure:"sqlite"`
+	SQLite SQLiteConfig `mapstructure:"sqlite" json:"sqlite,omitempty"`
 
 	// PostgreSQL configuration
-	PostgreSQL PostgreSQLConfig `mapstructure:"postgres"`
+	PostgreSQL PostgreSQLConfig `mapstructure:"postgres" json:"postgres,omitempty"`
 
 	// MySQL configuration
-	MySQL MySQLConfig `mapstructure:"mysql"`
+	MySQL MySQLConfig `mapstructure:"mysql" json:"mysql,omitempty"`
 
 	// LogStorageEnabled is the cluster-wide default for storing logs
 	// Per-monitor settings can override this
-	LogStorageEnabled bool `mapstructure:"log-storage-enabled"`
+	LogStorageEnabled bool `mapstructure:"log-storage-enabled" json:"logStorageEnabled"`
 
 	// EventStorageEnabled is the cluster-wide default for storing events
 	// Per-monitor settings can override this
-	EventStorageEnabled bool `mapstructure:"event-storage-enabled"`
+	EventStorageEnabled bool `mapstructure:"event-storage-enabled" json:"eventStorageEnabled"`
 
 	// MaxLogSizeKB is the default max log size in KB (default: 100)
-	MaxLogSizeKB int `mapstructure:"max-log-size-kb"`
+	MaxLogSizeKB int `mapstructure:"max-log-size-kb" json:"maxLogSizeKB"`
 
 	// LogRetentionDays is how long to keep logs (default: same as history retention)
 	// If 0, uses history-retention.default-days
-	LogRetentionDays int `mapstructure:"log-retention-days"`
+	LogRetentionDays int `mapstructure:"log-retention-days" json:"logRetentionDays"`
 }
 
 // SQLiteConfig configures SQLite storage
 type SQLiteConfig struct {
 	// Path to database file
-	Path string `mapstructure:"path"`
+	Path string `mapstructure:"path" json:"path"`
 }
 
 // PostgreSQLConfig configures PostgreSQL storage
 type PostgreSQLConfig struct {
 	// Host is the database host
-	Host string `mapstructure:"host"`
+	Host string `mapstructure:"host" json:"host,omitempty"`
 
 	// Port is the database port
-	Port int `mapstructure:"port"`
+	Port int `mapstructure:"port" json:"port,omitempty"`
 
 	// Database name
-	Database string `mapstructure:"database"`
+	Database string `mapstructure:"database" json:"database,omitempty"`
 
 	// Username for authentication
-	Username string `mapstructure:"username"`
+	Username string `mapstructure:"username" json:"username,omitempty"`
 
-	// Password for authentication
-	Password string `mapstructure:"password"`
+	// Password for authentication (omitted from JSON for security)
+	Password string `mapstructure:"password" json:"-"`
 
 	// SSLMode for connection
-	SSLMode string `mapstructure:"ssl-mode"`
+	SSLMode string `mapstructure:"ssl-mode" json:"sslMode,omitempty"`
 }
 
 // MySQLConfig configures MySQL/MariaDB storage
 type MySQLConfig struct {
 	// Host is the database host
-	Host string `mapstructure:"host"`
+	Host string `mapstructure:"host" json:"host,omitempty"`
 
 	// Port is the database port
-	Port int `mapstructure:"port"`
+	Port int `mapstructure:"port" json:"port,omitempty"`
 
 	// Database name
-	Database string `mapstructure:"database"`
+	Database string `mapstructure:"database" json:"database,omitempty"`
 
 	// Username for authentication
-	Username string `mapstructure:"username"`
+	Username string `mapstructure:"username" json:"username,omitempty"`
 
-	// Password for authentication
-	Password string `mapstructure:"password"`
+	// Password for authentication (omitted from JSON for security)
+	Password string `mapstructure:"password" json:"-"`
 }
 
 // HistoryRetentionConfig configures retention
 type HistoryRetentionConfig struct {
 	// DefaultDays is default retention period
-	DefaultDays int `mapstructure:"default-days"`
+	DefaultDays int `mapstructure:"default-days" json:"defaultDays"`
 
 	// MaxDays is maximum allowed retention
-	MaxDays int `mapstructure:"max-days"`
+	MaxDays int `mapstructure:"max-days" json:"maxDays"`
 }
 
 // RateLimitsConfig configures global rate limits
 type RateLimitsConfig struct {
 	// MaxAlertsPerMinute across all channels
-	MaxAlertsPerMinute int `mapstructure:"max-alerts-per-minute"`
+	MaxAlertsPerMinute int `mapstructure:"max-alerts-per-minute" json:"maxAlertsPerMinute"`
 }
 
-// APIConfig configures the REST API server
-type APIConfig struct {
-	// Enabled turns on the API server
-	Enabled bool `mapstructure:"enabled"`
+// UIConfig configures the web UI and REST API server
+type UIConfig struct {
+	// Enabled turns on the UI server (serves both web UI and REST API)
+	Enabled bool `mapstructure:"enabled" json:"enabled"`
 
-	// Port for API server
-	Port int `mapstructure:"port"`
+	// Port for UI server
+	Port int `mapstructure:"port" json:"port"`
 }
 
 // MetricsConfig configures the metrics server
@@ -262,12 +259,7 @@ func DefaultConfig() *Config {
 		RateLimits: RateLimitsConfig{
 			MaxAlertsPerMinute: 50,
 		},
-		IgnoredNamespaces: []string{
-			"kube-system",
-			"kube-public",
-			"kube-node-lease",
-		},
-		API: APIConfig{
+		UI: UIConfig{
 			Enabled: true,
 			Port:    8080,
 		},
@@ -331,12 +323,9 @@ func BindFlags(flags *pflag.FlagSet) {
 	// Rate limits
 	flags.Int("rate-limits.max-alerts-per-minute", 50, "Maximum alerts per minute across all channels")
 
-	// Ignored namespaces
-	flags.StringSlice("ignored-namespaces", []string{"kube-system", "kube-public", "kube-node-lease"}, "Namespaces to ignore")
-
-	// API
-	flags.Bool("api.enabled", true, "Enable the REST API server")
-	flags.Int("api.port", 8080, "API server port")
+	// UI server (serves both web UI and REST API)
+	flags.Bool("ui.enabled", true, "Enable the UI server (serves both web UI and REST API)")
+	flags.Int("ui.port", 8080, "UI server port")
 
 	// Metrics
 	flags.String("metrics.bind-address", "0", "Metrics endpoint bind address (0 to disable)")
@@ -383,9 +372,8 @@ func Load(flags *pflag.FlagSet) (*Config, error) {
 	v.SetDefault("history-retention.default-days", defaults.HistoryRetention.DefaultDays)
 	v.SetDefault("history-retention.max-days", defaults.HistoryRetention.MaxDays)
 	v.SetDefault("rate-limits.max-alerts-per-minute", defaults.RateLimits.MaxAlertsPerMinute)
-	v.SetDefault("ignored-namespaces", defaults.IgnoredNamespaces)
-	v.SetDefault("api.enabled", defaults.API.Enabled)
-	v.SetDefault("api.port", defaults.API.Port)
+	v.SetDefault("ui.enabled", defaults.UI.Enabled)
+	v.SetDefault("ui.port", defaults.UI.Port)
 	v.SetDefault("metrics.bind-address", defaults.Metrics.BindAddress)
 	v.SetDefault("metrics.secure", defaults.Metrics.Secure)
 	v.SetDefault("metrics.cert-name", defaults.Metrics.CertName)
@@ -439,16 +427,6 @@ func Load(flags *pflag.FlagSet) (*Config, error) {
 	cfg.configFileUsed = configFileUsed
 
 	return cfg, nil
-}
-
-// IsNamespaceIgnored checks if a namespace should be ignored
-func (c *Config) IsNamespaceIgnored(namespace string) bool {
-	for _, ns := range c.IgnoredNamespaces {
-		if ns == namespace {
-			return true
-		}
-	}
-	return false
 }
 
 // ConfigFileUsed returns the path to the config file that was loaded (empty if none)

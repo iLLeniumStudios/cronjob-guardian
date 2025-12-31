@@ -50,7 +50,16 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
     );
   }
 
-  const sortedAlerts = [...(alerts?.items ?? [])].sort((a, b) => {
+  // Deduplicate alerts by ID to prevent duplicates from appearing
+  const uniqueAlerts = alerts?.items?.reduce((acc, alert) => {
+    const key = alert.id || `${alert.cronjob.namespace}-${alert.cronjob.name}-${alert.type}`;
+    if (!acc.has(key)) {
+      acc.set(key, alert);
+    }
+    return acc;
+  }, new Map<string, Alert>());
+
+  const sortedAlerts = [...(uniqueAlerts?.values() ?? [])].sort((a, b) => {
     const severityOrder = { critical: 0, warning: 1, info: 2 };
     return severityOrder[a.severity] - severityOrder[b.severity];
   });
@@ -69,7 +78,7 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
       </CardHeader>
       <CardContent>
         {sortedAlerts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="flex h-[520px] flex-col items-center justify-center text-center rounded-lg border border-dashed">
             <Bell className="mb-2 h-8 w-8 text-muted-foreground/50" />
             <p className="text-sm text-muted-foreground">No active alerts</p>
             <p className="text-xs text-muted-foreground/70">
@@ -77,10 +86,10 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
             </p>
           </div>
         ) : (
-          <ScrollArea className="h-[320px]">
+          <ScrollArea className="h-[520px]">
             <div className="space-y-2 pr-3">
               {sortedAlerts.map((alert) => (
-                <AlertItem key={alert.id} alert={alert} />
+                <AlertItem key={alert.id || `${alert.cronjob.namespace}-${alert.cronjob.name}-${alert.type}`} alert={alert} />
               ))}
             </div>
           </ScrollArea>
@@ -91,7 +100,9 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
 }
 
 function AlertItem({ alert }: { alert: Alert }) {
-  const styles = severityStyles[alert.severity] || severityStyles.info;
+  // Normalize severity to lowercase and default to warning for unknown values
+  const normalizedSeverity = (alert.severity?.toLowerCase() || "warning") as keyof typeof severityStyles;
+  const styles = severityStyles[normalizedSeverity] || severityStyles.warning;
 
   return (
     <Link

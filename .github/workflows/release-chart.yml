@@ -1,0 +1,66 @@
+name: Release Helm Chart
+
+on:
+  push:
+    tags:
+      - 'chart-v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release-chart:
+    name: Package and Push Chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Extract chart version
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/chart-v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update Chart.yaml version
+        run: |
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.VERSION }}/" deploy/helm/cronjob-guardian/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.VERSION }}\"/" deploy/helm/cronjob-guardian/Chart.yaml
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Package chart
+        run: helm package deploy/helm/cronjob-guardian
+
+      - name: Push to OCI registry
+        run: |
+          helm push cronjob-guardian-${{ steps.version.outputs.VERSION }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Helm Chart v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Helm Chart Release v${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+
+            ```bash
+            helm install cronjob-guardian oci://ghcr.io/${{ github.repository_owner }}/charts/cronjob-guardian --version ${{ steps.version.outputs.VERSION }}
+            ```
+
+            ### Upgrade
+
+            ```bash
+            helm upgrade cronjob-guardian oci://ghcr.io/${{ github.repository_owner }}/charts/cronjob-guardian --version ${{ steps.version.outputs.VERSION }}
+            ```
+          files: |
+            cronjob-guardian-${{ steps.version.outputs.VERSION }}.tgz

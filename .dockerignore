@@ -27,7 +27,7 @@ ui/out
 cmd/ui
 
 # Documentation
-docs
+docs-old
 *.md
 !ui/README.md
 

@@ -1,0 +1,23 @@
+# Monitor all CronJobs cluster-wide
+# Watches all namespaces with optional label filtering
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: cluster-wide-monitor
+  namespace: cronjob-guardian
+spec:
+  selector:
+    # Watch all namespaces
+    allNamespaces: true
+    # Optionally filter by labels
+    matchLabels:
+      tier: critical
+  deadManSwitch:
+    enabled: true
+    maxTimeSinceLastSuccess: 25h
+  alerting:
+    channelRefs:
+      - name: pagerduty-critical
+        severities: [critical]
+      - name: slack-ops
+        severities: [critical, warning]

@@ -1,0 +1,640 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: cronjobmonitors.guardian.illenium.net
+spec:
+  group: guardian.illenium.net
+  names:
+    kind: CronJobMonitor
+    listKind: CronJobMonitorList
+    plural: cronjobmonitors
+    singular: cronjobmonitor
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.summary.totalCronJobs
+      name: CronJobs
+      type: integer
+    - jsonPath: .status.summary.healthy
+      name: Healthy
+      type: integer
+    - jsonPath: .status.summary.warning
+      name: Warning
+      type: integer
+    - jsonPath: .status.summary.critical
+      name: Critical
+      type: integer
+    - jsonPath: .status.summary.activeAlerts
+      name: Alerts
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CronJobMonitor is the Schema for the cronjobmonitors API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CronJobMonitorSpec defines the desired state of CronJobMonitor
+            properties:
+              alerting:
+                description: Alerting configures alert channels and behavior
+                properties:
+                  channelRefs:
+                    description: ChannelRefs references cluster-scoped AlertChannel
+                      CRs
+                    items:
+                      description: ChannelRef references an AlertChannel CR
+                      properties:
+                        name:
+                          description: Name of the AlertChannel CR
+                          type: string
+                        severities:
+                          description: Severities to send to this channel (empty =
+                            all)
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  enabled:
+                    description: 'Enabled turns on alerting (default: true)'
+                    type: boolean
+                  includeContext:
+                    description: IncludeContext specifies what context to include
+                      in alerts
+                    properties:
+                      events:
+                        description: 'Events includes Kubernetes events (default:
+                          true)'
+                        type: boolean
+                      includeInitContainerLogs:
+                        description: 'IncludeInitContainerLogs includes init container
+                          logs (default: false)'
+                        type: boolean
+                      logContainerName:
+                        description: 'LogContainerName specifies container for logs
+                          (default: first container)'
+                        type: string
+                      logLines:
+                        description: 'LogLines is number of log lines to include (default:
+                          50)'
+                        format: int32
+                        type: integer
+                      logs:
+                        description: 'Logs includes pod logs (default: true)'
+                        type: boolean
+                      podStatus:
+                        description: 'PodStatus includes pod status details (default:
+                          true)'
+                        type: boolean
+                      suggestedFixes:
+                        description: 'SuggestedFixes includes fix suggestions (default:
+                          true)'
+                        type: boolean
+                    type: object
+                  severityOverrides:
+                    description: SeverityOverrides customizes severity for alert types
+                    properties:
+                      deadManTriggered:
+                        enum:
+                        - critical
+                        - warning
+                        - info
+                        type: string
+                      durationRegression:
+                        enum:
+                        - critical
+                        - warning
+                        - info
+                        type: string
+                      jobFailed:
+                        enum:
+                        - critical
+                        - warning
+                        - info
+                        type: string
+                      missedSchedule:
+                        enum:
+                        - critical
+                        - warning
+                        - info
+                        type: string
+                      slaBreached:
+                        enum:
+                        - critical
+                        - warning
+                        - info
+                        type: string
+                    type: object
+                  suppressDuplicatesFor:
+                    description: 'SuppressDuplicatesFor prevents re-alerting within
+                      this window (default: 1h)'
+                    type: string
+                type: object
+              dataRetention:
+                description: DataRetention configures data lifecycle management
+                properties:
+                  logRetentionDays:
+                    description: |-
+                      LogRetentionDays specifies how long to keep stored logs
+                      If not set, uses the same value as retentionDays
+                    format: int32
+                    type: integer
+                  maxLogSizeKB:
+                    description: |-
+                      MaxLogSizeKB is the maximum log size to store per execution in KB
+                      If not set, uses global --storage.max-log-size-kb setting
+                    format: int32
+                    type: integer
+                  onCronJobDeletion:
+                    description: OnCronJobDeletion defines behavior when a monitored
+                      CronJob is deleted
+                    enum:
+                    - retain
+                    - purge
+                    - purge-after-days
+                    type: string
+                  onRecreation:
+                    description: |-
+                      OnRecreation defines behavior when a CronJob is recreated (detected via UID change)
+                      "retain" keeps old history, "reset" deletes history from the old UID
+                    enum:
+                    - retain
+                    - reset
+                    type: string
+                  purgeAfterDays:
+                    description: |-
+                      PurgeAfterDays specifies how long to wait before purging data
+                      Only used when onCronJobDeletion is "purge-after-days"
+                    format: int32
+                    type: integer
+                  retentionDays:
+                    description: |-
+                      RetentionDays overrides global retention for this monitor's execution history
+                      If not set, uses global history-retention.default-days setting
+                    format: int32
+                    type: integer
+                  storeEvents:
+                    description: |-
+                      StoreEvents enables storing Kubernetes events in the database
+                      If nil, uses global --storage.event-storage-enabled setting
+                    type: boolean
+                  storeLogs:
+                    description: |-
+                      StoreLogs enables storing job logs in the database
+                      If nil, uses global --storage.log-storage-enabled setting
+                    type: boolean
+                type: object
+              deadManSwitch:
+                description: DeadManSwitch configures dead-man's switch alerting
+                properties:
+                  autoFromSchedule:
+                    description: AutoFromSchedule auto-calculates expected interval
+                      from cron schedule
+                    properties:
+                      buffer:
+                        description: 'Buffer adds extra time to expected interval
+                          (default: 1h)'
+                        type: string
+                      enabled:
+                        description: 'Enabled turns on auto-detection (default: false)'
+                        type: boolean
+                      missedScheduleThreshold:
+                        description: 'MissedScheduleThreshold alerts after this many
+                          missed schedules (default: 1)'
+                        format: int32
+                        type: integer
+                    required:
+                    - enabled
+                    type: object
+                  enabled:
+                    description: 'Enabled turns on dead-man''s switch monitoring (default:
+                      true)'
+                    type: boolean
+                  maxTimeSinceLastSuccess:
+                    description: |-
+                      MaxTimeSinceLastSuccess alerts if no success within this duration
+                      Example: "25h" for daily jobs with 1h buffer
+                    type: string
+                type: object
+              maintenanceWindows:
+                description: MaintenanceWindows defines scheduled maintenance periods
+                items:
+                  description: MaintenanceWindow defines a scheduled maintenance period
+                  properties:
+                    duration:
+                      description: Duration of the maintenance window
+                      type: string
+                    name:
+                      description: Name identifies this maintenance window
+                      type: string
+                    schedule:
+                      description: Schedule is a cron expression for when window starts
+                      type: string
+                    suppressAlerts:
+                      description: 'SuppressAlerts during this window (default: true)'
+                      type: boolean
+                    timezone:
+                      description: 'Timezone for the schedule (default: UTC)'
+                      type: string
+                  required:
+                  - duration
+                  - name
+                  - schedule
+                  type: object
+                type: array
+              selector:
+                description: Selector specifies which CronJobs to monitor
+                properties:
+                  allNamespaces:
+                    description: |-
+                      AllNamespaces watches CronJobs in all namespaces (except globally ignored ones).
+                      Takes precedence over namespaces and namespaceSelector.
+                    type: boolean
+                  matchExpressions:
+                    description: MatchExpressions selects CronJobs by label expressions
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: MatchLabels selects CronJobs by labels
+                    type: object
+                  matchNames:
+                    description: MatchNames explicitly lists CronJob names to monitor
+                      (only valid when watching a single namespace)
+                    items:
+                      type: string
+                    type: array
+                  namespaceSelector:
+                    description: |-
+                      NamespaceSelector selects namespaces by labels.
+                      CronJobs in matching namespaces will be monitored.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  namespaces:
+                    description: |-
+                      Namespaces explicitly lists namespaces to watch for CronJobs.
+                      If empty and namespaceSelector is not set, watches only the monitor's namespace.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              sla:
+                description: SLA configures SLA tracking and alerting
+                properties:
+                  durationBaselineWindowDays:
+                    description: 'DurationBaselineWindowDays for baseline calculation
+                      (default: 14)'
+                    format: int32
+                    type: integer
+                  durationPercentiles:
+                    description: 'DurationPercentiles to track (default: [50, 95,
+                      99])'
+                    items:
+                      format: int32
+                      type: integer
+                    type: array
+                  durationRegressionThreshold:
+                    description: 'DurationRegressionThreshold alerts if P95 increases
+                      by this percentage (default: 50)'
+                    format: int32
+                    type: integer
+                  enabled:
+                    description: 'Enabled turns on SLA tracking (default: true)'
+                    type: boolean
+                  maxDuration:
+                    description: MaxDuration alerts if job exceeds this duration
+                    type: string
+                  minSuccessRate:
+                    description: 'MinSuccessRate is minimum acceptable success rate
+                      percentage (default: 95)'
+                    type: number
+                  windowDays:
+                    description: 'WindowDays is the rolling window for success rate
+                      calculation (default: 7)'
+                    format: int32
+                    type: integer
+                type: object
+              suspendedHandling:
+                description: SuspendedHandling configures behavior for suspended CronJobs
+                properties:
+                  alertIfSuspendedFor:
+                    description: AlertIfSuspendedFor alerts if suspended longer than
+                      this duration
+                    type: string
+                  pauseMonitoring:
+                    description: 'PauseMonitoring pauses monitoring when CronJob is
+                      suspended (default: true)'
+                    type: boolean
+                type: object
+            type: object
+          status:
+            description: CronJobMonitorStatus defines the observed state of CronJobMonitor
+            properties:
+              conditions:
+                description: Conditions represent the latest observations
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              cronJobs:
+                description: CronJobs contains per-CronJob status
+                items:
+                  description: CronJobStatus contains status for a single CronJob
+                  properties:
+                    activeAlerts:
+                      description: ActiveAlerts lists current alerts for this CronJob
+                      items:
+                        description: ActiveAlert represents an active alert
+                        properties:
+                          lastNotified:
+                            description: LastNotified is when the alert was last sent
+                            format: date-time
+                            type: string
+                          message:
+                            description: Message describes the alert
+                            type: string
+                          severity:
+                            description: Severity of alert
+                            type: string
+                          since:
+                            description: Since is when the alert became active
+                            format: date-time
+                            type: string
+                          type:
+                            description: Type of alert
+                            type: string
+                        required:
+                        - message
+                        - severity
+                        - since
+                        - type
+                        type: object
+                      type: array
+                    lastFailedTime:
+                      description: LastFailedTime is when the last Job failed
+                      format: date-time
+                      type: string
+                    lastRunDuration:
+                      description: LastRunDuration is the duration of the last completed
+                        Job
+                      type: string
+                    lastSuccessfulTime:
+                      description: LastSuccessfulTime is when the last Job succeeded
+                      format: date-time
+                      type: string
+                    metrics:
+                      description: Metrics contains SLA metrics
+                      properties:
+                        avgDurationSeconds:
+                          description: Duration in seconds
+                          type: number
+                        failedRuns:
+                          format: int32
+                          type: integer
+                        p50DurationSeconds:
+                          type: number
+                        p95DurationSeconds:
+                          type: number
+                        p99DurationSeconds:
+                          type: number
+                        successRate:
+                          type: number
+                        successfulRuns:
+                          format: int32
+                          type: integer
+                        totalRuns:
+                          format: int32
+                          type: integer
+                      required:
+                      - failedRuns
+                      - successRate
+                      - successfulRuns
+                      - totalRuns
+                      type: object
+                    name:
+                      description: Name of the CronJob
+                      type: string
+                    namespace:
+                      description: Namespace of the CronJob
+                      type: string
+                    nextScheduledTime:
+                      description: NextScheduledTime is when the next Job will be
+                        created
+                      format: date-time
+                      type: string
+                    status:
+                      description: Status indicates health
+                      enum:
+                      - healthy
+                      - warning
+                      - critical
+                      - suspended
+                      - unknown
+                      type: string
+                    suspended:
+                      description: Suspended indicates if the CronJob is suspended
+                      type: boolean
+                  required:
+                  - name
+                  - namespace
+                  - status
+                  - suspended
+                  type: object
+                type: array
+              lastReconcileTime:
+                description: LastReconcileTime is when the controller last reconciled
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation last processed
+                format: int64
+                type: integer
+              phase:
+                description: Phase indicates the monitor's operational state
+                enum:
+                - Initializing
+                - Active
+                - Degraded
+                - Error
+                type: string
+              summary:
+                description: Summary provides aggregate counts
+                properties:
+                  activeAlerts:
+                    format: int32
+                    type: integer
+                  critical:
+                    format: int32
+                    type: integer
+                  healthy:
+                    format: int32
+                    type: integer
+                  suspended:
+                    format: int32
+                    type: integer
+                  totalCronJobs:
+                    format: int32
+                    type: integer
+                  warning:
+                    format: int32
+                    type: integer
+                required:
+                - activeAlerts
+                - critical
+                - healthy
+                - suspended
+                - totalCronJobs
+                - warning
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

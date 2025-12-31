@@ -1,0 +1,23 @@
+# CronJob with Timeout (activeDeadlineSeconds)
+# Automatically terminates if running too long
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: daily-backup
+  namespace: production
+  labels:
+    tier: critical
+    type: backup
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      # Kill the job if it runs longer than 1 hour
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          containers:
+            - name: backup
+              image: backup-tool:latest
+              command: ["/backup.sh"]
+          restartPolicy: Never

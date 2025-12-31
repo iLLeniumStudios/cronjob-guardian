@@ -18,19 +18,24 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/robfig/cron/v3"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
@@ -75,6 +80,7 @@ type CronJobMonitorReconciler struct {
 // +kubebuilder:rbac:groups=guardian.illenium.net,resources=cronjobmonitors/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop
 func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -205,22 +211,93 @@ func (r *CronJobMonitorReconciler) validateSpec(_ *guardianv1alpha1.CronJobMonit
 }
 
 func (r *CronJobMonitorReconciler) findMatchingCronJobs(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor) ([]batchv1.CronJob, error) {
-	r.Log.V(1).Info("listing CronJobs", "namespace", monitor.Namespace)
-	cronJobList := &batchv1.CronJobList{}
-	if err := r.List(ctx, cronJobList, client.InNamespace(monitor.Namespace)); err != nil {
+	// Determine which namespaces to search
+	namespaces, err := r.getTargetNamespaces(ctx, monitor)
+	if err != nil {
 		return nil, err
 	}
-	r.Log.V(1).Info("found CronJobs in namespace", "count", len(cronJobList.Items))
+
+	r.Log.V(1).Info("searching for CronJobs", "namespaces", namespaces)
 
 	var result []batchv1.CronJob
-	for _, cj := range cronJobList.Items {
-		if MatchesSelector(&cj, monitor.Spec.Selector) {
-			r.Log.V(1).Info("CronJob matches selector", "cronJob", cj.Name)
-			result = append(result, cj)
+	for _, ns := range namespaces {
+		cronJobList := &batchv1.CronJobList{}
+		if err := r.List(ctx, cronJobList, client.InNamespace(ns)); err != nil {
+			r.Log.Error(err, "failed to list CronJobs in namespace", "namespace", ns)
+			continue
+		}
+		r.Log.V(1).Info("found CronJobs in namespace", "namespace", ns, "count", len(cronJobList.Items))
+
+		for _, cj := range cronJobList.Items {
+			if MatchesSelector(&cj, monitor.Spec.Selector) {
+				r.Log.V(1).Info("CronJob matches selector", "namespace", ns, "cronJob", cj.Name)
+				result = append(result, cj)
+			}
 		}
 	}
 
 	return result, nil
+}
+
+// getTargetNamespaces determines which namespaces to search based on the selector
+func (r *CronJobMonitorReconciler) getTargetNamespaces(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor) ([]string, error) {
+	selector := monitor.Spec.Selector
+
+	// No selector or empty selector - use monitor's namespace
+	if selector == nil {
+		return []string{monitor.Namespace}, nil
+	}
+
+	// AllNamespaces takes precedence
+	if selector.AllNamespaces {
+		return r.getAllNamespaces(ctx)
+	}
+
+	// Explicit namespace list
+	if len(selector.Namespaces) > 0 {
+		return selector.Namespaces, nil
+	}
+
+	// Namespace label selector
+	if selector.NamespaceSelector != nil {
+		return r.getNamespacesBySelector(ctx, selector.NamespaceSelector)
+	}
+
+	// Default: monitor's own namespace
+	return []string{monitor.Namespace}, nil
+}
+
+// getAllNamespaces returns all namespace names in the cluster
+func (r *CronJobMonitorReconciler) getAllNamespaces(ctx context.Context) ([]string, error) {
+	nsList := &corev1.NamespaceList{}
+	if err := r.List(ctx, nsList); err != nil {
+		return nil, err
+	}
+
+	var namespaces []string
+	for _, ns := range nsList.Items {
+		namespaces = append(namespaces, ns.Name)
+	}
+	return namespaces, nil
+}
+
+// getNamespacesBySelector returns namespaces matching the label selector
+func (r *CronJobMonitorReconciler) getNamespacesBySelector(ctx context.Context, selector *metav1.LabelSelector) ([]string, error) {
+	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+
+	nsList := &corev1.NamespaceList{}
+	if err := r.List(ctx, nsList, client.MatchingLabelsSelector{Selector: labelSelector}); err != nil {
+		return nil, err
+	}
+
+	var namespaces []string
+	for _, ns := range nsList.Items {
+		namespaces = append(namespaces, ns.Name)
+	}
+	return namespaces, nil
 }
 
 func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob) guardianv1alpha1.CronJobStatus {
@@ -235,6 +312,15 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 	log.V(1).Info("CronJob state", "suspended", status.Suspended)
 
 	cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
+
+	// Get active jobs for this CronJob
+	activeJobs, err := r.getActiveJobs(ctx, cj)
+	if err != nil {
+		log.V(1).Error(err, "failed to get active jobs")
+	} else {
+		status.ActiveJobs = activeJobs
+		log.V(1).Info("found active jobs", "count", len(activeJobs))
+	}
 
 	// Get last successful execution
 	if r.Store != nil {
@@ -438,6 +524,79 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 	return alerts
 }
 
+// getActiveJobs returns currently running jobs for a CronJob
+func (r *CronJobMonitorReconciler) getActiveJobs(ctx context.Context, cj *batchv1.CronJob) ([]guardianv1alpha1.ActiveJob, error) {
+	// List all jobs in the namespace
+	jobList := &batchv1.JobList{}
+	if err := r.List(ctx, jobList, client.InNamespace(cj.Namespace)); err != nil {
+		return nil, err
+	}
+
+	var activeJobs []guardianv1alpha1.ActiveJob
+	now := time.Now()
+
+	for _, job := range jobList.Items {
+		// Check if this job is owned by the CronJob
+		isOwned := false
+		for _, ref := range job.OwnerReferences {
+			if ref.Kind == "CronJob" && ref.Name == cj.Name {
+				isOwned = true
+				break
+			}
+		}
+		if !isOwned {
+			continue
+		}
+
+		// Check if job is still active (not completed or failed)
+		if job.Status.Succeeded > 0 || job.Status.Failed > 0 {
+			continue
+		}
+
+		// Skip jobs that haven't started yet (StartTime is required in the CRD)
+		if job.Status.StartTime == nil {
+			continue
+		}
+
+		// Job is active and running
+		duration := now.Sub(job.Status.StartTime.Time)
+		activeJob := guardianv1alpha1.ActiveJob{
+			Name:            job.Name,
+			StartTime:       *job.Status.StartTime,
+			RunningDuration: &metav1.Duration{Duration: duration},
+		}
+
+		// Calculate ready status
+		parallelism := int32(1)
+		if job.Spec.Parallelism != nil {
+			parallelism = *job.Spec.Parallelism
+		}
+		ready := int32(0)
+		if job.Status.Ready != nil {
+			ready = *job.Status.Ready
+		}
+		activeJob.Ready = fmt.Sprintf("%d/%d", ready, parallelism)
+
+		// Get pod information
+		podList := &corev1.PodList{}
+		if err := r.List(ctx, podList, client.InNamespace(cj.Namespace), client.MatchingLabels{"job-name": job.Name}); err == nil && len(podList.Items) > 0 {
+			// Get the most recent pod
+			pod := &podList.Items[0]
+			for i := range podList.Items {
+				if podList.Items[i].CreationTimestamp.After(pod.CreationTimestamp.Time) {
+					pod = &podList.Items[i]
+				}
+			}
+			activeJob.PodName = pod.Name
+			activeJob.PodPhase = string(pod.Status.Phase)
+		}
+
+		activeJobs = append(activeJobs, activeJob)
+	}
+
+	return activeJobs, nil
+}
+
 func (r *CronJobMonitorReconciler) calculateSummary(statuses []guardianv1alpha1.CronJobStatus) *guardianv1alpha1.MonitorSummary {
 	summary := &guardianv1alpha1.MonitorSummary{
 		TotalCronJobs: int32(len(statuses)),
@@ -454,6 +613,10 @@ func (r *CronJobMonitorReconciler) calculateSummary(statuses []guardianv1alpha1.
 		}
 		if s.Suspended {
 			summary.Suspended++
+		}
+		// Count CronJobs that have at least one active job running
+		if len(s.ActiveJobs) > 0 {
+			summary.Running++
 		}
 	}
 
@@ -595,7 +758,8 @@ func (r *CronJobMonitorReconciler) setCondition(monitor *guardianv1alpha1.CronJo
 	}
 }
 
-// findMonitorsForCronJob returns reconcile requests for monitors that match the CronJob
+// findMonitorsForCronJob returns reconcile requests for monitors that match the CronJob.
+// This searches all monitors cluster-wide since monitors can watch CronJobs across namespaces.
 func (r *CronJobMonitorReconciler) findMonitorsForCronJob(ctx context.Context, obj client.Object) []reconcile.Request {
 	log := r.Log.V(1)
 	cj, ok := obj.(*batchv1.CronJob)
@@ -604,16 +768,24 @@ func (r *CronJobMonitorReconciler) findMonitorsForCronJob(ctx context.Context, o
 	}
 
 	log.Info("finding monitors for CronJob", "cronJob", cj.Name, "namespace", cj.Namespace)
+
+	// List ALL monitors cluster-wide since monitors can watch CronJobs from other namespaces
 	monitors := &guardianv1alpha1.CronJobMonitorList{}
-	if err := r.List(ctx, monitors, client.InNamespace(cj.Namespace)); err != nil {
+	if err := r.List(ctx, monitors); err != nil {
 		log.Error(err, "failed to list monitors")
 		return nil
 	}
 
 	var requests []reconcile.Request
 	for _, monitor := range monitors.Items {
+		// Check if this monitor is watching the CronJob's namespace
+		if !r.monitorWatchesNamespace(ctx, &monitor, cj.Namespace) {
+			continue
+		}
+
+		// Check if the CronJob matches the monitor's selector
 		if MatchesSelector(cj, monitor.Spec.Selector) {
-			log.Info("CronJob matches monitor", "monitor", monitor.Name)
+			log.Info("CronJob matches monitor", "monitor", monitor.Name, "monitorNamespace", monitor.Namespace)
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Namespace: monitor.Namespace,
@@ -626,11 +798,58 @@ func (r *CronJobMonitorReconciler) findMonitorsForCronJob(ctx context.Context, o
 	return requests
 }
 
+// monitorWatchesNamespace checks if a monitor is configured to watch a given namespace
+func (r *CronJobMonitorReconciler) monitorWatchesNamespace(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, namespace string) bool {
+	selector := monitor.Spec.Selector
+
+	// No selector - monitor only watches its own namespace
+	if selector == nil {
+		return monitor.Namespace == namespace
+	}
+
+	// AllNamespaces - watches everything
+	if selector.AllNamespaces {
+		return true
+	}
+
+	// Explicit namespace list
+	if len(selector.Namespaces) > 0 {
+		for _, ns := range selector.Namespaces {
+			if ns == namespace {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Namespace label selector - need to check if namespace has matching labels
+	if selector.NamespaceSelector != nil {
+		labelSelector, err := metav1.LabelSelectorAsSelector(selector.NamespaceSelector)
+		if err != nil {
+			return false
+		}
+
+		ns := &corev1.Namespace{}
+		if err := r.Get(ctx, types.NamespacedName{Name: namespace}, ns); err != nil {
+			return false
+		}
+
+		return labelSelector.Matches(labels.Set(ns.Labels))
+	}
+
+	// Default: monitor only watches its own namespace
+	return monitor.Namespace == namespace
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *CronJobMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Log.Info("setting up CronJobMonitor controller")
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&guardianv1alpha1.CronJobMonitor{}).
+		For(&guardianv1alpha1.CronJobMonitor{},
+			// Only reconcile on spec changes (generation changes), not status-only updates.
+			// This prevents duplicate reconciles when we update status at the end of Reconcile().
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
 		Watches(
 			&batchv1.CronJob{},
 			handler.EnqueueRequestsFromMapFunc(r.findMonitorsForCronJob),

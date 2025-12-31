@@ -1,0 +1,17 @@
+# Generic Webhook AlertChannel
+# Sends alerts to a custom HTTP endpoint
+apiVersion: guardian.illenium.net/v1alpha1
+kind: AlertChannel
+metadata:
+  name: custom-webhook
+spec:
+  type: webhook
+  webhook:
+    urlSecretRef:
+      name: webhook-url
+      namespace: cronjob-guardian
+      key: url
+    method: POST
+    headers:
+      Content-Type: application/json
+      X-Custom-Header: guardian

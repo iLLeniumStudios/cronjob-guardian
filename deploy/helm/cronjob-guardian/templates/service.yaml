@@ -1,0 +1,45 @@
+{{- if .Values.metrics.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cronjob-guardian.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cronjob-guardian.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ regexReplaceAll "^:?" .Values.metrics.bindAddress "" | int }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "cronjob-guardian.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- if .Values.ui.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cronjob-guardian.fullname" . }}-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cronjob-guardian.labels" . | nindent 4 }}
+  {{- with .Values.ui.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.ui.service.type }}
+  ports:
+    - port: {{ .Values.ui.service.port }}
+      targetPort: ui
+      protocol: TCP
+      name: http
+      {{- if and (eq .Values.ui.service.type "NodePort") .Values.ui.service.nodePort }}
+      nodePort: {{ .Values.ui.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "cronjob-guardian.selectorLabels" . | nindent 4 }}
+{{- end }}

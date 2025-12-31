@@ -270,6 +270,11 @@ spec:
               selector:
                 description: Selector specifies which CronJobs to monitor
                 properties:
+                  allNamespaces:
+                    description: |-
+                      AllNamespaces watches CronJobs in all namespaces (except globally ignored ones).
+                      Takes precedence over namespaces and namespaceSelector.
+                    type: boolean
                   matchExpressions:
                     description: MatchExpressions selects CronJobs by label expressions
                     items:
@@ -308,6 +313,62 @@ spec:
                     type: object
                   matchNames:
                     description: MatchNames explicitly lists CronJob names to monitor
+                      (only valid when watching a single namespace)
+                    items:
+                      type: string
+                    type: array
+                  namespaceSelector:
+                    description: |-
+                      NamespaceSelector selects namespaces by labels.
+                      CronJobs in matching namespaces will be monitored.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  namespaces:
+                    description: |-
+                      Namespaces explicitly lists namespaces to watch for CronJobs.
+                      If empty and namespaceSelector is not set, watches only the monitor's namespace.
                     items:
                       type: string
                     type: array
@@ -455,6 +516,40 @@ spec:
                         - type
                         type: object
                       type: array
+                    activeJobs:
+                      description: ActiveJobs lists currently running jobs for this
+                        CronJob
+                      items:
+                        description: ActiveJob represents a currently running job
+                        properties:
+                          name:
+                            description: Name of the Job
+                            type: string
+                          podName:
+                            description: PodName is the name of the pod running the
+                              job
+                            type: string
+                          podPhase:
+                            description: PodPhase is the current phase of the job's
+                              pod (Pending, Running, etc.)
+                            type: string
+                          ready:
+                            description: Ready indicates how many pods are ready vs
+                              total
+                            type: string
+                          runningDuration:
+                            description: RunningDuration is how long the job has been
+                              running
+                            type: string
+                          startTime:
+                            description: StartTime is when the Job started
+                            format: date-time
+                            type: string
+                        required:
+                        - name
+                        - startTime
+                        type: object
+                      type: array
                     lastFailedTime:
                       description: LastFailedTime is when the last Job failed
                       format: date-time
@@ -554,6 +649,9 @@ spec:
                   healthy:
                     format: int32
                     type: integer
+                  running:
+                    format: int32
+                    type: integer
                   suspended:
                     format: int32
                     type: integer
@@ -567,6 +665,7 @@ spec:
                 - activeAlerts
                 - critical
                 - healthy
+                - running
                 - suspended
                 - totalCronJobs
                 - warning

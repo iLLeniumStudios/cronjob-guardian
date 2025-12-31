@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cronjob-guardian.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cronjob-guardian.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    log-level: {{ .Values.config.logLevel | quote }}
+
+    scheduler:
+      dead-man-switch-interval: {{ .Values.config.scheduler.deadManSwitchInterval }}
+      sla-recalculation-interval: {{ .Values.config.scheduler.slaRecalculationInterval }}
+      prune-interval: {{ .Values.config.scheduler.pruneInterval }}
+
+    storage:
+      type: {{ .Values.config.storage.type | quote }}
+      {{- if eq .Values.config.storage.type "sqlite" }}
+      sqlite:
+        path: {{ .Values.config.storage.sqlite.path | quote }}
+      {{- end }}
+      {{- if eq .Values.config.storage.type "postgres" }}
+      postgres:
+        host: {{ .Values.config.storage.postgres.host | quote }}
+        port: {{ .Values.config.storage.postgres.port }}
+        database: {{ .Values.config.storage.postgres.database | quote }}
+        username: {{ .Values.config.storage.postgres.username | quote }}
+        {{- if .Values.config.storage.postgres.existingSecret }}
+        # Password loaded from environment variable
+        {{- else }}
+        password: {{ .Values.config.storage.postgres.password | quote }}
+        {{- end }}
+        ssl-mode: {{ .Values.config.storage.postgres.sslMode | quote }}
+      {{- end }}
+      {{- if eq .Values.config.storage.type "mysql" }}
+      mysql:
+        host: {{ .Values.config.storage.mysql.host | quote }}
+        port: {{ .Values.config.storage.mysql.port }}
+        database: {{ .Values.config.storage.mysql.database | quote }}
+        username: {{ .Values.config.storage.mysql.username | quote }}
+        {{- if .Values.config.storage.mysql.existingSecret }}
+        # Password loaded from environment variable
+        {{- else }}
+        password: {{ .Values.config.storage.mysql.password | quote }}
+        {{- end }}
+      {{- end }}
+      log-storage-enabled: {{ .Values.config.storage.logStorageEnabled }}
+      event-storage-enabled: {{ .Values.config.storage.eventStorageEnabled }}
+      max-log-size-kb: {{ .Values.config.storage.maxLogSizeKB }}
+      log-retention-days: {{ .Values.config.storage.logRetentionDays }}
+
+    history-retention:
+      default-days: {{ .Values.config.historyRetention.defaultDays }}
+      max-days: {{ .Values.config.historyRetention.maxDays }}
+
+    rate-limits:
+      max-alerts-per-minute: {{ .Values.config.rateLimits.maxAlertsPerMinute }}
+
+    ui:
+      enabled: {{ .Values.ui.enabled }}
+      port: {{ .Values.ui.port }}
+
+    metrics:
+      bind-address: {{ .Values.metrics.bindAddress | quote }}
+      secure: {{ .Values.metrics.secure }}
+      {{- if .Values.metrics.certPath }}
+      cert-path: {{ .Values.metrics.certPath | quote }}
+      {{- end }}
+      cert-name: {{ .Values.metrics.certName | quote }}
+      cert-key: {{ .Values.metrics.certKey | quote }}
+
+    probes:
+      bind-address: {{ .Values.probes.bindAddress | quote }}
+
+    leader-election:
+      enabled: {{ .Values.leaderElection.enabled }}
+      {{- if .Values.leaderElection.enabled }}
+      lease-duration: {{ .Values.leaderElection.leaseDuration }}
+      renew-deadline: {{ .Values.leaderElection.renewDeadline }}
+      retry-period: {{ .Values.leaderElection.retryPeriod }}
+      {{- end }}
+
+    webhook:
+      {{- if .Values.webhook.certPath }}
+      cert-path: {{ .Values.webhook.certPath | quote }}
+      {{- end }}
+      cert-name: {{ .Values.webhook.certName | quote }}
+      cert-key: {{ .Values.webhook.certKey | quote }}
+      enable-http2: {{ .Values.webhook.enableHTTP2 }}

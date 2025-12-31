@@ -5,7 +5,6 @@ import {
   Timer,
   Bell,
   Radio,
-  Settings,
   Shield,
   Target,
 } from "lucide-react";
@@ -15,9 +14,14 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-52 flex-col border-r border-border bg-sidebar">
       {/* Logo */}
-      <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
-        <Shield className="h-5 w-5" />
-        <span className="font-semibold tracking-tight">Guardian</span>
+      <div className="flex h-16 items-center gap-2.5 border-b border-border px-4">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <Shield className="h-4 w-4" />
+        </div>
+        <div className="flex flex-col">
+          <span className="font-semibold tracking-tight">Guardian</span>
+          <span className="text-[10px] text-muted-foreground">CronJob Monitoring</span>
+        </div>
       </div>
 
       {/* Navigation */}
@@ -38,13 +42,6 @@ export function Sidebar() {
           Alerts
         </NavLink>
       </nav>
-
-      {/* Bottom section */}
-      <div className="border-t border-border p-2">
-        <NavLink href="/settings" icon={Settings}>
-          Settings
-        </NavLink>
-      </div>
     </aside>
   );
 }

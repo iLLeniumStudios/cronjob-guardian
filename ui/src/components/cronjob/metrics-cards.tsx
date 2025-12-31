@@ -11,10 +11,14 @@ interface MetricsCardsProps {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) {
+    // For sub-minute, show up to 2 decimal places
+    const rounded = Math.round(seconds * 100) / 100;
+    return `${rounded}s`;
+  }
   if (seconds < 3600) {
     const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const secs = Math.round(seconds % 60);
     return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
   }
   const hours = Math.floor(seconds / 3600);
@@ -60,12 +64,12 @@ export function MetricsCards({ metrics, nextRun }: MetricsCardsProps) {
   ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-3 lg:grid-cols-6">
       {cards.map((card) => (
         <Card key={card.label}>
-          <CardContent className="p-4">
+          <CardContent className="p-3 md:p-4">
             <p className="text-xs text-muted-foreground">{card.label}</p>
-            <p className={cn("mt-1 text-xl font-semibold", card.className)}>
+            <p className={cn("mt-1 text-lg md:text-xl font-semibold", card.className)}>
               {card.value}
             </p>
             {card.subtext && (

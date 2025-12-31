@@ -2,6 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, XCircle, Database, Trash2 } from "lucide-react";
+
+// Format nanoseconds duration to human readable string
+function formatDuration(nanoseconds: number | undefined): string {
+  if (!nanoseconds) return "-";
+  const seconds = nanoseconds / 1_000_000_000;
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = seconds / 60;
+  if (minutes < 60) return `${Math.round(minutes)}m`;
+  const hours = minutes / 60;
+  return `${Math.round(hours)}h`;
+}
 import { toast } from "sonner";
 import { Header } from "@/components/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,10 +33,12 @@ import { Label } from "@/components/ui/label";
 import {
   getConfig,
   getHealth,
+  getStats,
   getStorageStats,
   triggerPrune,
   type Config,
   type HealthResponse,
+  type StatsResponse,
   type StorageStatsResponse,
 } from "@/lib/api";
 
@@ -57,6 +70,7 @@ function SettingRow({
 export default function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [stats, setStats] = useState<StatsResponse | null>(null);
   const [storageStats, setStorageStats] = useState<StorageStatsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -67,13 +81,15 @@ export default function SettingsPage() {
   const fetchData = useCallback(async (showRefreshing = false) => {
     if (showRefreshing) setIsRefreshing(true);
     try {
-      const [configData, healthData, storageData] = await Promise.all([
+      const [configData, healthData, statsData, storageData] = await Promise.all([
         getConfig(),
         getHealth(),
+        getStats(),
         getStorageStats(),
       ]);
       setConfig(configData);
       setHealth(healthData);
+      setStats(statsData);
       setStorageStats(storageData);
     } catch (error) {
       console.error("Failed to fetch config:", error);
@@ -113,7 +129,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => fetchData(), 60000);
+    const interval = setInterval(() => fetchData(), 5000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
@@ -132,9 +148,9 @@ export default function SettingsPage() {
   }
 
   const storageLocation =
-    config?.spec?.storage?.sqlite?.path ??
-    config?.spec?.storage?.postgresql?.host ??
-    config?.spec?.storage?.mysql?.host ??
+    config?.storage?.sqlite?.path ??
+    config?.storage?.postgres?.host ??
+    config?.storage?.mysql?.host ??
     "-";
 
   return (
@@ -180,8 +196,8 @@ export default function SettingsPage() {
                 label="Storage"
                 value={
                   <span className="flex items-center gap-2">
-                    <StatusIcon ok={config?.status?.storageStatus === "Ready"} />
-                    <span>{config?.status?.storageStatus ?? "Unknown"}</span>
+                    <StatusIcon ok={health?.storage === "connected"} />
+                    <span className="capitalize">{health?.storage ?? "Unknown"}</span>
                   </span>
                 }
               />
@@ -197,7 +213,7 @@ export default function SettingsPage() {
               <SettingRow
                 label="Storage Type"
                 value={
-                  <span className="capitalize">{config?.spec?.storage?.type ?? "-"}</span>
+                  <span className="capitalize">{config?.storage?.type ?? "-"}</span>
                 }
               />
               <Separator />
@@ -209,21 +225,35 @@ export default function SettingsPage() {
               <Separator />
               <SettingRow
                 label="Dead-man Switch Interval"
-                value={config?.spec?.deadManSwitchInterval ?? "-"}
+                value={formatDuration(config?.scheduler?.deadManSwitchInterval)}
               />
               <Separator />
               <SettingRow
                 label="SLA Recalculation"
-                value={config?.spec?.slaRecalculationInterval ?? "-"}
+                value={formatDuration(config?.scheduler?.slaRecalculationInterval)}
               />
               <Separator />
               <SettingRow
                 label="History Retention"
                 value={
-                  config?.spec?.historyRetention
-                    ? `${config.spec.historyRetention.defaultDays}d (max ${config.spec.historyRetention.maxDays}d)`
+                  config?.historyRetention
+                    ? `${config.historyRetention.defaultDays}d (max ${config.historyRetention.maxDays}d)`
                     : "-"
                 }
+              />
+              <Separator />
+              <SettingRow
+                label="Log Storage"
+                value={
+                  <Badge variant={config?.storage?.logStorageEnabled ? "default" : "secondary"}>
+                    {config?.storage?.logStorageEnabled ? "Enabled" : "Disabled"}
+                  </Badge>
+                }
+              />
+              <Separator />
+              <SettingRow
+                label="Max Alerts/min"
+                value={config?.rateLimits?.maxAlertsPerMinute ?? "-"}
               />
             </CardContent>
           </Card>
@@ -235,18 +265,22 @@ export default function SettingsPage() {
             <CardTitle className="text-base font-medium">Activity (24h)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
               <div className="text-center">
-                <p className="text-3xl font-semibold">{config?.status?.totalMonitors ?? 0}</p>
+                <p className="text-3xl font-semibold">{stats?.totalMonitors ?? 0}</p>
                 <p className="mt-1 text-sm text-muted-foreground">Monitors</p>
               </div>
               <div className="text-center">
-                <p className="text-3xl font-semibold">{config?.status?.totalCronJobsWatched ?? 0}</p>
+                <p className="text-3xl font-semibold">{stats?.totalCronJobs ?? 0}</p>
                 <p className="mt-1 text-sm text-muted-foreground">CronJobs</p>
               </div>
               <div className="text-center">
-                <p className="text-3xl font-semibold">{config?.status?.totalAlertsSent24h ?? 0}</p>
+                <p className="text-3xl font-semibold">{stats?.alertsSent24h ?? 0}</p>
                 <p className="mt-1 text-sm text-muted-foreground">Alerts Sent</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-semibold">{stats?.executionsRecorded24h ?? 0}</p>
+                <p className="mt-1 text-sm text-muted-foreground">Executions</p>
               </div>
             </div>
           </CardContent>
@@ -302,23 +336,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Ignored Namespaces - only show if there are any */}
-        {config?.spec?.ignoredNamespaces && config.spec.ignoredNamespaces.length > 0 && (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-medium">Ignored Namespaces</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {config.spec.ignoredNamespaces.map((ns) => (
-                  <Badge key={ns} variant="outline" className="font-mono text-xs">
-                    {ns}
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       {/* Prune Dialog */}

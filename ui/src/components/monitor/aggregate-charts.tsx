@@ -63,9 +63,9 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
     const critical = cronJobs.filter((cj) => cj.status === "critical").length;
 
     return [
-      { name: "Healthy", value: healthy, color: "hsl(var(--chart-2))" },
-      { name: "Warning", value: warning, color: "hsl(var(--chart-4))" },
-      { name: "Critical", value: critical, color: "hsl(var(--destructive))" },
+      { name: "Healthy", value: healthy, color: "var(--chart-2)" },
+      { name: "Warning", value: warning, color: "var(--chart-4)" },
+      { name: "Critical", value: critical, color: "var(--destructive)" },
     ].filter((d) => d.value > 0);
   }, [cronJobs]);
 
@@ -150,8 +150,8 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
+                      backgroundColor: "var(--card)",
+                      border: "1px solid var(--border)",
                       borderRadius: "4px",
                       fontSize: "12px",
                     }}
@@ -166,10 +166,10 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                         key={`cell-${index}`}
                         fill={
                           entry.successRate >= 95
-                            ? "hsl(var(--chart-2))"
+                            ? "var(--chart-2)"
                             : entry.successRate >= 80
-                              ? "hsl(var(--chart-4))"
-                              : "hsl(var(--destructive))"
+                              ? "var(--chart-4)"
+                              : "var(--destructive)"
                         }
                       />
                     ))}
@@ -204,8 +204,8 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                   </Pie>
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
+                      backgroundColor: "var(--card)",
+                      border: "1px solid var(--border)",
                       borderRadius: "4px",
                       fontSize: "12px",
                     }}
@@ -247,8 +247,8 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatDuration(v)} className="fill-muted-foreground" />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
+                    backgroundColor: "var(--card)",
+                    border: "1px solid var(--border)",
                     borderRadius: "4px",
                     fontSize: "12px",
                   }}
@@ -257,7 +257,7 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                     props.payload.fullName,
                   ]}
                 />
-                <Bar dataKey="avgDuration" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="avgDuration" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -268,7 +268,10 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 60) {
+    const rounded = Math.round(seconds * 100) / 100;
+    return `${rounded}s`;
+  }
   if (seconds < 3600) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.round(seconds % 60);

@@ -42,8 +42,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => fetchData(), 30000);
+    // Auto-refresh every 5 seconds
+    const interval = setInterval(() => fetchData(), 5000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
@@ -57,10 +57,10 @@ export default function DashboardPage() {
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
       />
-      <div className="flex-1 space-y-6 overflow-auto p-6">
+      <div className="flex-1 space-y-4 md:space-y-6 overflow-auto p-4 md:p-6">
         <StatsCards stats={stats} isLoading={isLoading} />
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
+        <div className="grid gap-4 md:gap-6 xl:grid-cols-3">
+          <div className="xl:col-span-2">
             <CronJobsTable cronJobs={cronJobs} isLoading={isLoading} />
           </div>
           <div>
