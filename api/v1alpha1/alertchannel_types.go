@@ -157,15 +157,27 @@ type AlertChannelStatus struct {
 	// +optional
 	LastTestError string `json:"lastTestError,omitempty"`
 
-	// AlertsSentTotal is total alerts sent via this channel
+	// AlertsSentTotal is total alerts successfully sent via this channel
 	AlertsSentTotal int64 `json:"alertsSentTotal"`
 
-	// AlertsSentLast24h is alerts sent in last 24 hours
-	AlertsSentLast24h int32 `json:"alertsSentLast24h"`
-
-	// LastAlertTime is when the last alert was sent
+	// LastAlertTime is when the last alert was successfully sent
 	// +optional
 	LastAlertTime *metav1.Time `json:"lastAlertTime,omitempty"`
+
+	// AlertsFailedTotal is total alerts that failed to send via this channel
+	AlertsFailedTotal int64 `json:"alertsFailedTotal"`
+
+	// LastFailedTime is when the last alert failed to send
+	// +optional
+	LastFailedTime *metav1.Time `json:"lastFailedTime,omitempty"`
+
+	// LastFailedError is the error message from the last failed send
+	// +optional
+	LastFailedError string `json:"lastFailedError,omitempty"`
+
+	// ConsecutiveFailures is the number of consecutive failed sends
+	// Resets to 0 on successful send
+	ConsecutiveFailures int32 `json:"consecutiveFailures"`
 
 	// Conditions represent latest observations
 	// +optional

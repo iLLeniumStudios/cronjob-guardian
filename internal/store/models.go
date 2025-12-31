@@ -120,6 +120,5 @@ type AlertHistoryQuery struct {
 // ChannelAlertStats contains alert statistics for a channel
 type ChannelAlertStats struct {
 	ChannelName     string
-	AlertsSent24h   int64
 	AlertsSentTotal int64
 }

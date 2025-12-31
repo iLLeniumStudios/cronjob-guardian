@@ -176,6 +176,10 @@ func (in *AlertChannelStatus) DeepCopyInto(out *AlertChannelStatus) {
 		in, out := &in.LastAlertTime, &out.LastAlertTime
 		*out = (*in).DeepCopy()
 	}
+	if in.LastFailedTime != nil {
+		in, out := &in.LastFailedTime, &out.LastFailedTime
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))

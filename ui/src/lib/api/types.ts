@@ -211,8 +211,12 @@ export interface Channel {
   ready: boolean;
   config: Record<string, string>;
   stats: {
-    alertsSent24h: number;
     alertsSentTotal: number;
+    alertsFailedTotal: number;
+    lastAlertTime: string | null;
+    lastFailedTime: string | null;
+    lastFailedError: string | null;
+    consecutiveFailures: number;
   };
   lastTest: {
     time: string;
@@ -278,7 +282,6 @@ export interface ChannelDetail {
     lastTestTime: string | null;
     lastTestResult: string | null;
     alertsSentTotal: number;
-    alertsSentLast24h: number;
     lastAlertTime: string | null;
   };
 }
@@ -340,7 +343,6 @@ export interface StatsResponse {
   totalCronJobs: number;
   summary: CronJobSummary;
   activeAlerts: number;
-  alertsSent24h: number;
   executionsRecorded24h: number;
 }
 

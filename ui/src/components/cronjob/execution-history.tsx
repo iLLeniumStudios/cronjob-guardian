@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle2, XCircle, FileText, Copy, Check, Database } from "lucide-react";
+import { useState, useMemo } from "react";
+import { CheckCircle2, XCircle, FileText, Copy, Check, Database, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { RelativeTime } from "@/components/relative-time";
+import { SortableTableHeader } from "@/components/sortable-table-header";
 import {
   getLogs,
   getExecutionDetail,
@@ -36,6 +37,22 @@ import {
   type CronJobExecution,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 20;
+type SortColumn = "jobName" | "startTime" | "duration" | "exitCode" | "status";
+type SortDirection = "asc" | "desc";
+
+function parseDuration(duration: string): number {
+  // Parse duration strings like "1m30s", "45s", "2h15m"
+  let total = 0;
+  const hours = duration.match(/(\d+)h/);
+  const minutes = duration.match(/(\d+)m/);
+  const seconds = duration.match(/(\d+)s/);
+  if (hours) total += parseInt(hours[1]) * 3600;
+  if (minutes) total += parseInt(minutes[1]) * 60;
+  if (seconds) total += parseInt(seconds[1]);
+  return total;
+}
 
 interface ExecutionHistoryProps {
   namespace: string;
@@ -50,6 +67,9 @@ export function ExecutionHistory({
   executions,
 }: ExecutionHistoryProps) {
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [page, setPage] = useState(0);
+  const [sortColumn, setSortColumn] = useState<SortColumn>("startTime");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [logsModal, setLogsModal] = useState<{
     open: boolean;
     jobName: string;
@@ -65,10 +85,67 @@ export function ExecutionHistory({
   });
   const [copied, setCopied] = useState(false);
 
-  const filteredExecutions =
-    statusFilter === "all"
+  // Filter, sort, and paginate
+  const { paginatedExecutions, totalFiltered, totalPages } = useMemo(() => {
+    // Filter by status
+    const filtered = statusFilter === "all"
       ? executions?.items ?? []
       : (executions?.items ?? []).filter((e) => e.status === statusFilter);
+
+    // Sort
+    const multiplier = sortDirection === "asc" ? 1 : -1;
+    const sorted = [...filtered].sort((a, b) => {
+      let comparison = 0;
+      switch (sortColumn) {
+        case "jobName":
+          comparison = a.jobName.localeCompare(b.jobName);
+          break;
+        case "startTime":
+          comparison = new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+          break;
+        case "duration":
+          comparison = parseDuration(a.duration) - parseDuration(b.duration);
+          break;
+        case "exitCode":
+          comparison = a.exitCode - b.exitCode;
+          break;
+        case "status":
+          comparison = a.status.localeCompare(b.status);
+          break;
+      }
+      return comparison * multiplier;
+    });
+
+    // Paginate
+    const total = sorted.length;
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const effectivePage = Math.min(page, Math.max(0, pages - 1));
+    const start = effectivePage * PAGE_SIZE;
+    const paginated = sorted.slice(start, start + PAGE_SIZE);
+
+    return {
+      paginatedExecutions: paginated,
+      totalFiltered: total,
+      totalPages: pages,
+    };
+  }, [executions?.items, statusFilter, sortColumn, sortDirection, page]);
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("desc");
+    }
+    setPage(0);
+  };
+
+  const handleFilterChange = (value: string) => {
+    setStatusFilter(value);
+    setPage(0);
+  };
+
+  const effectivePage = Math.min(page, Math.max(0, totalPages - 1));
 
   const handleViewLogs = async (jobName: string) => {
     setLogsModal({ open: true, jobName, logs: "", loading: true, isStored: false });
@@ -125,7 +202,7 @@ export function ExecutionHistory({
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base font-medium">Execution History</CardTitle>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={handleFilterChange}>
               <SelectTrigger className="w-32">
                 <SelectValue />
               </SelectTrigger>
@@ -138,28 +215,52 @@ export function ExecutionHistory({
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded border">
+          <div className="rounded border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10"></TableHead>
-                  <TableHead>Job Name</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Exit Code</TableHead>
+                  <SortableTableHeader
+                    column="jobName"
+                    label="Job Name"
+                    currentSort={sortColumn}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHeader
+                    column="startTime"
+                    label="Started"
+                    currentSort={sortColumn}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHeader
+                    column="duration"
+                    label="Duration"
+                    currentSort={sortColumn}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHeader
+                    column="exitCode"
+                    label="Exit Code"
+                    currentSort={sortColumn}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                  />
                   <TableHead>Reason</TableHead>
                   <TableHead className="w-24"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredExecutions.length === 0 ? (
+                {paginatedExecutions.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="h-24 text-center">
                       No executions found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredExecutions.map((exec) => (
+                  paginatedExecutions.map((exec) => (
                     <ExecutionRow
                       key={exec.jobName}
                       execution={exec}
@@ -170,13 +271,44 @@ export function ExecutionHistory({
               </TableBody>
             </Table>
           </div>
-          {executions && executions.pagination.hasMore && (
-            <div className="mt-4 text-center">
-              <p className="text-sm text-muted-foreground">
-                Showing {filteredExecutions.length} of {executions.pagination.total} executions
-              </p>
+          {/* Pagination */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-4 mt-4">
+            <div className="text-sm text-muted-foreground order-2 sm:order-1">
+              {totalFiltered > 0 ? (
+                <>
+                  Showing {effectivePage * PAGE_SIZE + 1}-
+                  {Math.min((effectivePage + 1) * PAGE_SIZE, totalFiltered)} of {totalFiltered}
+                </>
+              ) : (
+                "No items"
+              )}
             </div>
-          )}
+            <div className="flex items-center gap-2 order-1 sm:order-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={effectivePage === 0}
+                className="cursor-pointer disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">Previous</span>
+              </Button>
+              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                {effectivePage + 1} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={effectivePage >= totalPages - 1}
+                className="cursor-pointer disabled:cursor-not-allowed"
+              >
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

@@ -147,11 +147,6 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	alertsSent24h := int32(0)
-	if h.alertDispatcher != nil {
-		alertsSent24h = h.alertDispatcher.GetAlertCount24h()
-	}
-
 	// Count executions from store in last 24h
 	executionsRecorded24h := int64(0)
 	if h.store != nil {
@@ -166,7 +161,6 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		TotalCronJobs:         totalCronJobs,
 		Summary:               summary,
 		ActiveAlerts:          activeAlerts,
-		AlertsSent24h:         alertsSent24h,
 		ExecutionsRecorded24h: executionsRecorded24h,
 	}
 
@@ -950,8 +944,22 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 	for _, ch := range channels.Items {
 		stats := ChannelStats{}
 		if s, ok := channelStats[ch.Name]; ok {
-			stats.AlertsSent24h = int32(s.AlertsSent24h)
 			stats.AlertsSentTotal = s.AlertsSentTotal
+		}
+
+		// Populate failure stats from CRD status
+		stats.AlertsFailedTotal = ch.Status.AlertsFailedTotal
+		stats.ConsecutiveFailures = ch.Status.ConsecutiveFailures
+		if ch.Status.LastAlertTime != nil {
+			t := ch.Status.LastAlertTime.Time
+			stats.LastAlertTime = &t
+		}
+		if ch.Status.LastFailedTime != nil {
+			t := ch.Status.LastFailedTime.Time
+			stats.LastFailedTime = &t
+		}
+		if ch.Status.LastFailedError != "" {
+			stats.LastFailedError = ch.Status.LastFailedError
 		}
 
 		item := ChannelListItem{

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
   Target,
@@ -11,11 +11,14 @@ import {
   TrendingDown,
   Minus,
   Filter,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -37,6 +40,8 @@ import { ExportButton } from "@/components/export/export-button";
 import { exportSLAReportToCSV } from "@/lib/export/csv";
 import { generateSLAPDFReport } from "@/lib/export/pdf";
 import { listMonitors, listCronJobs, getMonitor, getCronJob } from "@/lib/api";
+
+const PAGE_SIZE = 50;
 
 type SLAStatus = "meeting" | "breaching" | "at-risk" | "no-sla";
 type SLASortColumn = "name" | "monitor" | "targetSLA" | "currentRate" | "status" | "trend";
@@ -87,6 +92,7 @@ export default function SLAPage() {
     noSLA: 0,
   });
   const [filter, setFilter] = useState<SLAStatus | "all">("all");
+  const [page, setPage] = useState(0);
   const [sortColumn, setSortColumn] = useState<SLASortColumn>("status");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
@@ -253,12 +259,14 @@ export default function SLAPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Filter and sort data
-  const filteredData = (() => {
+  // Filter, sort, and paginate data
+  const { paginatedData, totalFiltered, totalPages } = useMemo(() => {
+    // Filter by status
     const filtered = filter === "all" ? slaData : slaData.filter((s) => s.status === filter);
-    const multiplier = sortDirection === "asc" ? 1 : -1;
 
-    return [...filtered].sort((a, b) => {
+    // Sort
+    const multiplier = sortDirection === "asc" ? 1 : -1;
+    const sorted = [...filtered].sort((a, b) => {
       let comparison = 0;
       switch (sortColumn) {
         case "name":
@@ -282,7 +290,22 @@ export default function SLAPage() {
       }
       return comparison * multiplier;
     });
-  })();
+
+    // Paginate
+    const total = sorted.length;
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const effectivePage = Math.min(page, Math.max(0, pages - 1));
+    const start = effectivePage * PAGE_SIZE;
+    const paginated = sorted.slice(start, start + PAGE_SIZE);
+
+    return {
+      paginatedData: paginated,
+      totalFiltered: total,
+      totalPages: pages,
+    };
+  }, [slaData, filter, sortColumn, sortDirection, page]);
+
+  const effectivePage = Math.min(page, Math.max(0, totalPages - 1));
 
   const handleSort = (column: SLASortColumn) => {
     if (sortColumn === column) {
@@ -291,6 +314,12 @@ export default function SLAPage() {
       setSortColumn(column);
       setSortDirection("asc");
     }
+    setPage(0);
+  };
+
+  const handleFilterChange = (value: SLAStatus | "all") => {
+    setFilter(value);
+    setPage(0);
   };
 
   const handleExportCSV = () => {
@@ -397,7 +426,7 @@ export default function SLAPage() {
                 <Filter className="h-4 w-4 text-muted-foreground" />
                 <Select
                   value={filter}
-                  onValueChange={(v) => setFilter(v as SLAStatus | "all")}
+                  onValueChange={(v) => handleFilterChange(v as SLAStatus | "all")}
                 >
                   <SelectTrigger className="w-[140px]">
                     <SelectValue placeholder="Filter" />
@@ -414,7 +443,7 @@ export default function SLAPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {filteredData.length === 0 ? (
+            {totalFiltered === 0 ? (
               <EmptyState
                 icon={Target}
                 title="No SLA data available"
@@ -424,6 +453,7 @@ export default function SLAPage() {
                 bordered={false}
               />
             ) : (
+              <div className="space-y-4">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -476,7 +506,7 @@ export default function SLAPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredData.map((item) => (
+                  {paginatedData.map((item) => (
                     <TableRow key={`${item.namespace}/${item.name}`}>
                       <TableCell>
                         <Link
@@ -538,6 +568,45 @@ export default function SLAPage() {
                   ))}
                 </TableBody>
               </Table>
+              {/* Pagination */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-4">
+                <div className="text-sm text-muted-foreground order-2 sm:order-1">
+                  {totalFiltered > 0 ? (
+                    <>
+                      Showing {effectivePage * PAGE_SIZE + 1}-
+                      {Math.min((effectivePage + 1) * PAGE_SIZE, totalFiltered)} of {totalFiltered}
+                    </>
+                  ) : (
+                    "No items"
+                  )}
+                </div>
+                <div className="flex items-center gap-2 order-1 sm:order-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={effectivePage === 0}
+                    className="cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    <span className="hidden sm:inline">Previous</span>
+                  </Button>
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">
+                    {effectivePage + 1} / {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                    disabled={effectivePage >= totalPages - 1}
+                    className="cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <span className="hidden sm:inline">Next</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              </div>
             )}
           </CardContent>
         </Card>

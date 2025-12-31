@@ -207,12 +207,14 @@ spec:
           status:
             description: AlertChannelStatus defines the observed state of AlertChannel
             properties:
-              alertsSentLast24h:
-                description: AlertsSentLast24h is alerts sent in last 24 hours
-                format: int32
+              alertsFailedTotal:
+                description: AlertsFailedTotal is total alerts that failed to send
+                  via this channel
+                format: int64
                 type: integer
               alertsSentTotal:
-                description: AlertsSentTotal is total alerts sent via this channel
+                description: AlertsSentTotal is total alerts successfully sent via
+                  this channel
                 format: int64
                 type: integer
               conditions:
@@ -272,8 +274,23 @@ spec:
                   - type
                   type: object
                 type: array
+              consecutiveFailures:
+                description: |-
+                  ConsecutiveFailures is the number of consecutive failed sends
+                  Resets to 0 on successful send
+                format: int32
+                type: integer
               lastAlertTime:
-                description: LastAlertTime is when the last alert was sent
+                description: LastAlertTime is when the last alert was successfully
+                  sent
+                format: date-time
+                type: string
+              lastFailedError:
+                description: LastFailedError is the error message from the last failed
+                  send
+                type: string
+              lastFailedTime:
+                description: LastFailedTime is when the last alert failed to send
                 format: date-time
                 type: string
               lastTestError:
@@ -293,8 +310,9 @@ spec:
                 description: Ready indicates the channel is operational
                 type: boolean
             required:
-            - alertsSentLast24h
+            - alertsFailedTotal
             - alertsSentTotal
+            - consecutiveFailures
             - ready
             type: object
         type: object

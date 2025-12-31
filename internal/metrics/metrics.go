@@ -40,11 +40,20 @@ var (
 		[]string{"namespace", "cronjob", "percentile"},
 	)
 
-	// AlertsTotal tracks the total number of alerts sent
+	// AlertsTotal tracks the total number of alerts successfully sent
 	AlertsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "cronjob_guardian_alerts_total",
-			Help: "Total number of alerts sent",
+			Help: "Total number of alerts successfully sent",
+		},
+		[]string{"namespace", "cronjob", "type", "severity", "channel"},
+	)
+
+	// AlertsFailedTotal tracks the total number of alerts that failed to send
+	AlertsFailedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cronjob_guardian_alerts_failed_total",
+			Help: "Total number of alerts that failed to send",
 		},
 		[]string{"namespace", "cronjob", "type", "severity", "channel"},
 	)
@@ -74,6 +83,7 @@ func init() {
 		CronJobSuccessRate,
 		CronJobDurationSeconds,
 		AlertsTotal,
+		AlertsFailedTotal,
 		ExecutionsTotal,
 		ActiveAlerts,
 	)
@@ -84,9 +94,14 @@ func RecordExecution(namespace, cronjob, status string) {
 	ExecutionsTotal.WithLabelValues(namespace, cronjob, status).Inc()
 }
 
-// RecordAlert records an alert sent metric
+// RecordAlert records a successful alert sent metric
 func RecordAlert(namespace, cronjob, alertType, severity, channel string) {
 	AlertsTotal.WithLabelValues(namespace, cronjob, alertType, severity, channel).Inc()
+}
+
+// RecordAlertFailed records a failed alert send metric
+func RecordAlertFailed(namespace, cronjob, alertType, severity, channel string) {
+	AlertsFailedTotal.WithLabelValues(namespace, cronjob, alertType, severity, channel).Inc()
 }
 
 // UpdateSuccessRate updates the success rate gauge for a CronJob

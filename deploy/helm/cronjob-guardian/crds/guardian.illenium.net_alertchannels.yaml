@@ -207,10 +207,6 @@ spec:
           status:
             description: AlertChannelStatus defines the observed state of AlertChannel
             properties:
-              alertsSentLast24h:
-                description: AlertsSentLast24h is alerts sent in last 24 hours
-                format: int32
-                type: integer
               alertsSentTotal:
                 description: AlertsSentTotal is total alerts sent via this channel
                 format: int64

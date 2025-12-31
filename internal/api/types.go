@@ -41,7 +41,6 @@ type StatsResponse struct {
 	TotalCronJobs         int32        `json:"totalCronJobs"`
 	Summary               SummaryStats `json:"summary"`
 	ActiveAlerts          int32        `json:"activeAlerts"`
-	AlertsSent24h         int32        `json:"alertsSent24h"`
 	ExecutionsRecorded24h int64        `json:"executionsRecorded24h"`
 }
 
@@ -234,8 +233,12 @@ type ChannelListItem struct {
 
 // ChannelStats contains channel statistics
 type ChannelStats struct {
-	AlertsSent24h   int32 `json:"alertsSent24h"`
-	AlertsSentTotal int64 `json:"alertsSentTotal"`
+	AlertsSentTotal     int64      `json:"alertsSentTotal"`
+	AlertsFailedTotal   int64      `json:"alertsFailedTotal"`
+	LastAlertTime       *time.Time `json:"lastAlertTime,omitempty"`
+	LastFailedTime      *time.Time `json:"lastFailedTime,omitempty"`
+	LastFailedError     string     `json:"lastFailedError,omitempty"`
+	ConsecutiveFailures int32      `json:"consecutiveFailures"`
 }
 
 // TestResult contains test results

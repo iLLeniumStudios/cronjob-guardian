@@ -343,25 +343,20 @@ func (s *GormStore) ResolveAlert(ctx context.Context, alertType, cronJobNs, cron
 func (s *GormStore) GetChannelAlertStats(ctx context.Context) (map[string]ChannelAlertStats, error) {
 	// Fetch all alerts with channels and process in Go
 	// (channels_notified is comma-separated, which requires app-level processing)
-	type alertRow struct {
-		ChannelsNotified string
-		OccurredAt       time.Time
-	}
-	var rows []alertRow
+	var rows []string
 
 	err := s.db.WithContext(ctx).Model(&AlertHistory{}).
-		Select("channels_notified, occurred_at").
+		Select("channels_notified").
 		Where("channels_notified IS NOT NULL AND channels_notified != ''").
-		Find(&rows).Error
+		Pluck("channels_notified", &rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("query alert_history: %w", err)
 	}
 
 	stats := make(map[string]ChannelAlertStats)
-	cutoff24h := time.Now().Add(-24 * time.Hour)
 
 	for _, row := range rows {
-		channels := strings.Split(row.ChannelsNotified, ",")
+		channels := strings.Split(row, ",")
 		for _, ch := range channels {
 			ch = strings.TrimSpace(ch)
 			if ch == "" {
@@ -370,9 +365,6 @@ func (s *GormStore) GetChannelAlertStats(ctx context.Context) (map[string]Channe
 			st := stats[ch]
 			st.ChannelName = ch
 			st.AlertsSentTotal++
-			if row.OccurredAt.After(cutoff24h) {
-				st.AlertsSent24h++
-			}
 			stats[ch] = st
 		}
 	}

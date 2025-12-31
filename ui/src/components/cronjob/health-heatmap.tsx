@@ -166,13 +166,13 @@ export function HealthHeatmap({
           <div className="inline-block min-w-full">
             {/* Month labels */}
             <div className="mb-1 flex">
-              <div className="w-8" /> {/* Spacer for day labels */}
+              <div className="w-9" /> {/* Spacer for day labels */}
               <div className="relative flex-1">
                 {monthLabels.map((month, i) => (
                   <span
                     key={i}
                     className="absolute text-xs text-muted-foreground"
-                    style={{ left: `${month.colStart * 14}px` }}
+                    style={{ left: `${month.colStart * 20}px` }}
                   >
                     {month.label}
                   </span>
@@ -183,11 +183,11 @@ export function HealthHeatmap({
             {/* Heatmap grid */}
             <div className="mt-4 flex">
               {/* Day labels */}
-              <div className="flex w-8 flex-col gap-0.5">
+              <div className="flex w-9 flex-col gap-1">
                 {dayLabels.map((label, i) => (
                   <div
                     key={i}
-                    className="flex h-3 items-center text-[10px] text-muted-foreground"
+                    className="flex h-4 items-center text-[10px] text-muted-foreground"
                   >
                     {i % 2 === 1 ? label : ""}
                   </div>
@@ -196,14 +196,14 @@ export function HealthHeatmap({
 
               {/* Weeks grid */}
               <TooltipProvider delayDuration={0}>
-                <div className="flex gap-0.5">
+                <div className="flex gap-1">
                   {weeks.map((week, weekIndex) => (
-                    <div key={weekIndex} className="flex flex-col gap-0.5">
+                    <div key={weekIndex} className="flex flex-col gap-1">
                       {week.map((day, dayIndex) => (
                         <Tooltip key={`${weekIndex}-${dayIndex}`}>
                           <TooltipTrigger asChild>
                             <button
-                              className={`h-3 w-3 rounded-sm transition-colors ${
+                              className={`h-4 w-4 rounded-sm transition-colors ${
                                 day.date
                                   ? `${getColorClass(day.successRate)} hover:ring-2 hover:ring-foreground/20`
                                   : "bg-transparent"
@@ -244,12 +244,12 @@ export function HealthHeatmap({
             {/* Legend */}
             <div className="mt-4 flex items-center justify-end gap-2 text-xs text-muted-foreground">
               <span>Less</span>
-              <div className="flex gap-0.5">
-                <div className="h-3 w-3 rounded-sm bg-muted/50" />
-                <div className="h-3 w-3 rounded-sm bg-red-500" />
-                <div className="h-3 w-3 rounded-sm bg-amber-400" />
-                <div className="h-3 w-3 rounded-sm bg-emerald-300 dark:bg-emerald-600" />
-                <div className="h-3 w-3 rounded-sm bg-emerald-500" />
+              <div className="flex gap-1">
+                <div className="h-4 w-4 rounded-sm bg-muted/50" />
+                <div className="h-4 w-4 rounded-sm bg-red-500" />
+                <div className="h-4 w-4 rounded-sm bg-amber-400" />
+                <div className="h-4 w-4 rounded-sm bg-emerald-300 dark:bg-emerald-600" />
+                <div className="h-4 w-4 rounded-sm bg-emerald-500" />
               </div>
               <span>More</span>
             </div>

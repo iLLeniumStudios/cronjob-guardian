@@ -109,7 +109,6 @@ Returns summary statistics.
     "critical": 2
   },
   "activeAlerts": 5,
-  "alertsSent24h": 12,
   "executionsRecorded24h": 150
 }
 ```

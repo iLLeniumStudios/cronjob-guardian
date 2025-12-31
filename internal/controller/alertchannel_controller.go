@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"text/template"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -114,6 +115,25 @@ func (r *AlertChannelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, nil
 		}
 		log.V(1).Info("channel registered successfully")
+
+		// 4b. Sync channel stats from dispatcher
+		if stats := r.AlertDispatcher.GetChannelStats(channel.Name); stats != nil {
+			channel.Status.AlertsSentTotal = stats.AlertsSentTotal
+			channel.Status.AlertsFailedTotal = stats.AlertsFailedTotal
+			channel.Status.ConsecutiveFailures = stats.ConsecutiveFailures
+
+			if !stats.LastAlertTime.IsZero() {
+				t := metav1.NewTime(stats.LastAlertTime)
+				channel.Status.LastAlertTime = &t
+			}
+			if !stats.LastFailedTime.IsZero() {
+				t := metav1.NewTime(stats.LastFailedTime)
+				channel.Status.LastFailedTime = &t
+			}
+			if stats.LastFailedError != "" {
+				channel.Status.LastFailedError = stats.LastFailedError
+			}
+		}
 	}
 
 	// 5. Update status
@@ -123,9 +143,10 @@ func (r *AlertChannelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		log.Error(err, "failed to update status")
 		return ctrl.Result{}, err
 	}
-	log.Info("reconciled successfully", "type", channel.Spec.Type, "ready", channel.Status.Ready)
+	log.V(1).Info("reconciled successfully", "type", channel.Spec.Type, "ready", channel.Status.Ready)
 
-	return ctrl.Result{}, nil
+	// Requeue periodically to sync stats from dispatcher
+	return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 }
 
 func (r *AlertChannelReconciler) validateConfig(ctx context.Context, channel *guardianv1alpha1.AlertChannel) error {

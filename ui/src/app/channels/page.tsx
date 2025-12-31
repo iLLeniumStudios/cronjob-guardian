@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   MessageSquare,
   Bell,
@@ -10,6 +10,7 @@ import {
   XCircle,
   Send,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
@@ -30,9 +31,42 @@ const channelIcons: Record<string, typeof MessageSquare> = {
   email: Mail,
 };
 
+const channelTypeLabels: Record<string, string> = {
+  slack: "Slack",
+  pagerduty: "PagerDuty",
+  webhook: "Webhook",
+  email: "Email",
+};
+
+const channelTypeOrder = ["slack", "pagerduty", "webhook", "email"];
+
 export default function ChannelsPage() {
   const { data: channels, isLoading, isRefreshing, refetch } = useFetchData(listChannels);
   const [testingChannel, setTestingChannel] = useState<string | null>(null);
+
+  // Group and sort channels by type
+  const groupedChannels = useMemo(() => {
+    if (!channels?.items) return {};
+
+    const groups: Record<string, Channel[]> = {};
+
+    // Sort channels by name within each type
+    const sortedItems = [...channels.items].sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const channel of sortedItems) {
+      if (!groups[channel.type]) {
+        groups[channel.type] = [];
+      }
+      groups[channel.type].push(channel);
+    }
+
+    return groups;
+  }, [channels?.items]);
+
+  // Get ordered types that have channels
+  const orderedTypes = useMemo(() => {
+    return channelTypeOrder.filter((type) => groupedChannels[type]?.length > 0);
+  }, [groupedChannels]);
 
   const handleTest = async (name: string) => {
     setTestingChannel(name);
@@ -81,12 +115,17 @@ export default function ChannelsPage() {
             valueClassName="text-red-600 dark:text-red-400"
           />
           <SimpleStatCard
-            label="Alerts (24h)"
-            value={channels?.items.reduce((sum, c) => sum + c.stats.alertsSent24h, 0) ?? 0}
+            label="Total Failures"
+            value={channels?.items.reduce((sum, c) => sum + c.stats.alertsFailedTotal, 0) ?? 0}
+            valueClassName={
+              (channels?.items.reduce((sum, c) => sum + c.stats.alertsFailedTotal, 0) ?? 0) > 0
+                ? "text-red-600 dark:text-red-400"
+                : undefined
+            }
           />
         </div>
 
-        {/* Channel Cards */}
+        {/* Channel Cards grouped by type */}
         {channels?.items.length === 0 ? (
           <Card>
             <CardContent className="p-0">
@@ -99,15 +138,38 @@ export default function ChannelsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {channels?.items.map((channel) => (
-              <ChannelCard
-                key={channel.name}
-                channel={channel}
-                onTest={handleTest}
-                isTesting={testingChannel === channel.name}
-              />
-            ))}
+          <div className="space-y-8">
+            {orderedTypes.map((type) => {
+              const Icon = channelIcons[type] || Webhook;
+              const typeChannels = groupedChannels[type] || [];
+
+              return (
+                <div key={type}>
+                  {/* Section header */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="rounded bg-primary/10 p-1.5">
+                      <Icon className="h-4 w-4 text-primary" />
+                    </div>
+                    <h2 className="text-lg font-semibold">{channelTypeLabels[type]}</h2>
+                    <Badge variant="secondary" className="ml-1">
+                      {typeChannels.length}
+                    </Badge>
+                  </div>
+
+                  {/* Cards grid */}
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {typeChannels.map((channel) => (
+                      <ChannelCard
+                        key={channel.name}
+                        channel={channel}
+                        onTest={handleTest}
+                        isTesting={testingChannel === channel.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -124,21 +186,11 @@ function ChannelCard({
   onTest: (name: string) => void;
   isTesting: boolean;
 }) {
-  const Icon = channelIcons[channel.type] || Webhook;
-
   return (
-    <Card>
+    <Card className="flex flex-col">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <div className="rounded bg-primary/10 p-2">
-              <Icon className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-base font-medium">{channel.name}</CardTitle>
-              <p className="text-xs text-muted-foreground capitalize">{channel.type}</p>
-            </div>
-          </div>
+          <CardTitle className="text-base font-medium">{channel.name}</CardTitle>
           {channel.ready ? (
             <Badge variant="outline" className="text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="mr-1 h-3 w-3" />
@@ -152,34 +204,53 @@ function ChannelCard({
           )}
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Config summary */}
-        {channel.config && Object.keys(channel.config).length > 0 && (
-          <div className="rounded bg-muted/50 px-3 py-2 text-sm">
-            {Object.entries(channel.config).map(([key, value]) => (
-              <p key={key} className="truncate">
-                <span className="text-muted-foreground">{key}:</span> {value}
-              </p>
-            ))}
-          </div>
-        )}
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-muted-foreground">Alerts (24h)</p>
-            <p className="font-medium">{channel.stats.alertsSent24h}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Total Alerts</p>
+      <CardContent className="flex flex-1 flex-col space-y-4">
+        {/* Stats - always show, consistent layout */}
+        <div className="grid grid-cols-3 gap-2 text-sm">
+          <div className="text-center">
+            <p className="text-muted-foreground text-xs">Sent</p>
             <p className="font-medium">{channel.stats.alertsSentTotal}</p>
           </div>
+          <div className="text-center">
+            <p className="text-muted-foreground text-xs">Failed</p>
+            <p className={`font-medium ${channel.stats.alertsFailedTotal > 0 ? "text-red-600 dark:text-red-400" : ""}`}>
+              {channel.stats.alertsFailedTotal}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-muted-foreground text-xs">Consecutive Failures</p>
+            <p className={`font-medium ${channel.stats.consecutiveFailures > 0 ? "text-red-600 dark:text-red-400" : ""}`}>
+              {channel.stats.consecutiveFailures}
+            </p>
+          </div>
         </div>
+
+        {/* Failure Warning */}
+        {channel.stats.consecutiveFailures > 0 && (
+          <div className="flex items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/20 p-3 text-sm">
+            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium text-red-700 dark:text-red-400">
+                {channel.stats.consecutiveFailures} consecutive failure{channel.stats.consecutiveFailures !== 1 ? "s" : ""}
+              </p>
+              {channel.stats.lastFailedError && (
+                <p className="text-red-600 dark:text-red-400/80 text-xs mt-1 line-clamp-2">
+                  {channel.stats.lastFailedError}
+                </p>
+              )}
+              {channel.stats.lastFailedTime && (
+                <p className="text-red-500 dark:text-red-400/70 text-xs mt-1">
+                  Last failed: <RelativeTime date={channel.stats.lastFailedTime} showTooltip={false} />
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Last test */}
         {channel.lastTest && (
           <div className="text-sm">
-            <p className="text-muted-foreground">Last Test</p>
+            <p className="text-muted-foreground text-xs">Last Test</p>
             <p className="flex items-center gap-2">
               {channel.lastTest.result === "success" ? (
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
@@ -194,23 +265,24 @@ function ChannelCard({
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex gap-2 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => onTest(channel.name)}
-            disabled={isTesting || !channel.ready}
-          >
-            {isTesting ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Send className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Test
-          </Button>
-        </div>
+        {/* Spacer to push button to bottom */}
+        <div className="flex-1" />
+
+        {/* Actions - always at bottom */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => onTest(channel.name)}
+          disabled={isTesting || !channel.ready}
+        >
+          {isTesting ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Send className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          Send Test Alert
+        </Button>
       </CardContent>
     </Card>
   );

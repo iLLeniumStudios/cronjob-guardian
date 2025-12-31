@@ -76,6 +76,16 @@ type Channel interface {
 	Test(ctx context.Context) error
 }
 
+// ChannelStats tracks success/failure statistics for a channel
+type ChannelStats struct {
+	AlertsSentTotal     int64
+	AlertsFailedTotal   int64
+	LastAlertTime       time.Time
+	LastFailedTime      time.Time
+	LastFailedError     string
+	ConsecutiveFailures int32
+}
+
 // Dispatcher handles alert routing and delivery
 type Dispatcher interface {
 	// Dispatch sends an alert through configured channels
@@ -107,15 +117,20 @@ type Dispatcher interface {
 
 	// SetStore sets the store for persisting alerts
 	SetStore(s store.Store)
+
+	// GetChannelStats returns statistics for a specific channel
+	GetChannelStats(channelName string) *ChannelStats
 }
 
 type dispatcher struct {
-	channels      map[string]Channel   // name -> channel
-	sentAlerts    map[string]time.Time // alertKey -> lastSent
-	activeAlerts  map[string]Alert     // alertKey -> alert
+	channels      map[string]Channel       // name -> channel
+	channelStats  map[string]*ChannelStats // name -> stats
+	sentAlerts    map[string]time.Time     // alertKey -> lastSent
+	activeAlerts  map[string]Alert         // alertKey -> alert
 	globalLimiter *rate.Limiter
 	channelMu     sync.RWMutex
 	alertMu       sync.RWMutex
+	statsMu       sync.RWMutex
 	alertCount24h int32
 	client        client.Client // K8s client for secret lookups
 	store         store.Store   // Store for persisting alerts
@@ -125,6 +140,7 @@ type dispatcher struct {
 func NewDispatcher(c client.Client) Dispatcher {
 	return &dispatcher{
 		channels:      make(map[string]Channel),
+		channelStats:  make(map[string]*ChannelStats),
 		sentAlerts:    make(map[string]time.Time),
 		activeAlerts:  make(map[string]Alert),
 		globalLimiter: rate.NewLimiter(rate.Limit(50.0/60.0), 10), // 50/min, burst 10
@@ -198,6 +214,18 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 				"provider", ch.Type(),
 				"alertKey", alert.Key)
 			errs = append(errs, err)
+
+			// Record failure stats
+			d.recordChannelFailure(ch.Name(), err)
+
+			// Record Prometheus metrics for failed alert delivery
+			metrics.RecordAlertFailed(
+				alert.CronJob.Namespace,
+				alert.CronJob.Name,
+				alert.Type,
+				alert.Severity,
+				ch.Name(),
+			)
 		} else {
 			logger.Info("alert sent successfully",
 				"channel", ch.Name(),
@@ -205,6 +233,10 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 				"alertKey", alert.Key,
 				"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name))
 			channelNames = append(channelNames, ch.Name())
+
+			// Record success stats
+			d.recordChannelSuccess(ch.Name())
+
 			// Record Prometheus metrics for successful alert delivery
 			metrics.RecordAlert(
 				alert.CronJob.Namespace,
@@ -383,6 +415,58 @@ func (d *dispatcher) createChannel(ac *v1alpha1.AlertChannel) (Channel, error) {
 	default:
 		return nil, fmt.Errorf("unknown channel type: %s", ac.Spec.Type)
 	}
+}
+
+// recordChannelSuccess records a successful alert send for a channel
+func (d *dispatcher) recordChannelSuccess(channelName string) {
+	d.statsMu.Lock()
+	defer d.statsMu.Unlock()
+
+	stats, ok := d.channelStats[channelName]
+	if !ok {
+		stats = &ChannelStats{}
+		d.channelStats[channelName] = stats
+	}
+
+	stats.AlertsSentTotal++
+	stats.LastAlertTime = time.Now()
+	stats.ConsecutiveFailures = 0 // Reset on success
+}
+
+// recordChannelFailure records a failed alert send for a channel
+func (d *dispatcher) recordChannelFailure(channelName string, err error) {
+	d.statsMu.Lock()
+	defer d.statsMu.Unlock()
+
+	stats, ok := d.channelStats[channelName]
+	if !ok {
+		stats = &ChannelStats{}
+		d.channelStats[channelName] = stats
+	}
+
+	stats.AlertsFailedTotal++
+	stats.LastFailedTime = time.Now()
+	stats.LastFailedError = err.Error()
+	stats.ConsecutiveFailures++
+}
+
+// GetChannelStats returns statistics for a specific channel
+func (d *dispatcher) GetChannelStats(channelName string) *ChannelStats {
+	d.statsMu.RLock()
+	defer d.statsMu.RUnlock()
+
+	if stats, ok := d.channelStats[channelName]; ok {
+		// Return a copy to avoid race conditions
+		return &ChannelStats{
+			AlertsSentTotal:     stats.AlertsSentTotal,
+			AlertsFailedTotal:   stats.AlertsFailedTotal,
+			LastAlertTime:       stats.LastAlertTime,
+			LastFailedTime:      stats.LastFailedTime,
+			LastFailedError:     stats.LastFailedError,
+			ConsecutiveFailures: stats.ConsecutiveFailures,
+		}
+	}
+	return nil
 }
 
 // Helper functions

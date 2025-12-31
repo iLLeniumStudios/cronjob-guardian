@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -10,6 +10,8 @@ import {
   CheckCircle,
   XCircle,
   Clock,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
@@ -17,10 +19,28 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { StatusIndicator, StatusBadge } from "@/components/status-indicator";
 import { RelativeTime } from "@/components/relative-time";
+import { SortableTableHeader } from "@/components/sortable-table-header";
 import { AggregateCharts } from "@/components/monitor/aggregate-charts";
-import { getMonitor, type MonitorDetail } from "@/lib/api";
+import { getMonitor, type MonitorDetail, type MonitorCronJob } from "@/lib/api";
+
+const PAGE_SIZE = 15;
+type SortColumn = "name" | "namespace" | "status" | "successRate" | "lastSuccess" | "nextRun";
+type SortDirection = "asc" | "desc";
+
+const statusOrder: Record<string, number> = {
+  critical: 0,
+  warning: 1,
+  healthy: 2,
+};
 
 export function MonitorDetailClient() {
   const router = useRouter();
@@ -300,72 +320,7 @@ export function MonitorDetailClient() {
         </Card>
 
         {/* CronJobs table */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Monitored CronJobs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {monitor.status.cronJobs.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No CronJobs match the selector
-              </p>
-            ) : (
-              <div className="rounded-md border">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="px-4 py-2 text-left text-sm font-medium">Name</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium">Namespace</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium">Status</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium">Success Rate</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium">Last Successful Run</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium">Next Run</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monitor.status.cronJobs.map((cj) => (
-                      <tr key={`${cj.namespace}/${cj.name}`} className="border-b last:border-0">
-                        <td className="px-4 py-2">
-                          <Link
-                            href={`/cronjob/${cj.namespace}/${cj.name}`}
-                            className="font-medium hover:underline"
-                          >
-                            {cj.name}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-2">
-                          <Badge variant="outline">{cj.namespace}</Badge>
-                        </td>
-                        <td className="px-4 py-2">
-                          <StatusIndicator status={cj.status as "healthy" | "warning" | "critical"} />
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className={(cj.metrics?.successRate ?? 0) < 90 ? "text-amber-600 dark:text-amber-400" : ""}>
-                            {(cj.metrics?.successRate ?? 0).toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-sm text-muted-foreground">
-                          {cj.lastSuccessfulTime ? (
-                            <RelativeTime date={cj.lastSuccessfulTime} />
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-muted-foreground">
-                          {cj.nextScheduledTime ? (
-                            <RelativeTime date={cj.nextScheduledTime} />
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <MonitoredCronJobsTable cronJobs={monitor.status.cronJobs} />
 
         {/* Last reconcile */}
         <div className="text-sm text-muted-foreground text-center">
@@ -373,5 +328,217 @@ export function MonitorDetailClient() {
         </div>
       </div>
     </div>
+  );
+}
+
+function MonitoredCronJobsTable({ cronJobs }: { cronJobs: MonitorCronJob[] }) {
+  const [page, setPage] = useState(0);
+  const [sortColumn, setSortColumn] = useState<SortColumn>("status");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
+  const { paginatedJobs, totalFiltered, totalPages } = useMemo(() => {
+    // Sort
+    const multiplier = sortDirection === "asc" ? 1 : -1;
+    const sorted = [...cronJobs].sort((a, b) => {
+      let comparison = 0;
+      switch (sortColumn) {
+        case "name":
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case "namespace":
+          comparison = a.namespace.localeCompare(b.namespace);
+          break;
+        case "status":
+          comparison = (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
+          break;
+        case "successRate":
+          comparison = (a.metrics?.successRate ?? 0) - (b.metrics?.successRate ?? 0);
+          break;
+        case "lastSuccess":
+          const aTime = a.lastSuccessfulTime ? new Date(a.lastSuccessfulTime).getTime() : 0;
+          const bTime = b.lastSuccessfulTime ? new Date(b.lastSuccessfulTime).getTime() : 0;
+          comparison = aTime - bTime;
+          break;
+        case "nextRun":
+          const aNext = a.nextScheduledTime ? new Date(a.nextScheduledTime).getTime() : 0;
+          const bNext = b.nextScheduledTime ? new Date(b.nextScheduledTime).getTime() : 0;
+          comparison = aNext - bNext;
+          break;
+      }
+      return comparison * multiplier;
+    });
+
+    // Paginate
+    const total = sorted.length;
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const effectivePage = Math.min(page, Math.max(0, pages - 1));
+    const start = effectivePage * PAGE_SIZE;
+    const paginated = sorted.slice(start, start + PAGE_SIZE);
+
+    return {
+      paginatedJobs: paginated,
+      totalFiltered: total,
+      totalPages: pages,
+    };
+  }, [cronJobs, sortColumn, sortDirection, page]);
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+    setPage(0);
+  };
+
+  const effectivePage = Math.min(page, Math.max(0, totalPages - 1));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Monitored CronJobs</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {cronJobs.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            No CronJobs match the selector
+          </p>
+        ) : (
+          <>
+            <div className="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableTableHeader
+                      column="name"
+                      label="Name"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHeader
+                      column="namespace"
+                      label="Namespace"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                      hideOnMobile
+                    />
+                    <SortableTableHeader
+                      column="status"
+                      label="Status"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHeader
+                      column="successRate"
+                      label="Success Rate"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHeader
+                      column="lastSuccess"
+                      label="Last Successful Run"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                      hideOnMobile
+                    />
+                    <SortableTableHeader
+                      column="nextRun"
+                      label="Next Run"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                      hideOnMobile
+                    />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedJobs.map((cj) => (
+                    <TableRow key={`${cj.namespace}/${cj.name}`}>
+                      <TableCell>
+                        <Link
+                          href={`/cronjob/${cj.namespace}/${cj.name}`}
+                          className="font-medium hover:underline"
+                        >
+                          {cj.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant="outline">{cj.namespace}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <StatusIndicator status={cj.status as "healthy" | "warning" | "critical"} />
+                      </TableCell>
+                      <TableCell>
+                        <span className={(cj.metrics?.successRate ?? 0) < 90 ? "text-amber-600 dark:text-amber-400" : ""}>
+                          {(cj.metrics?.successRate ?? 0).toFixed(1)}%
+                        </span>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
+                        {cj.lastSuccessfulTime ? (
+                          <RelativeTime date={cj.lastSuccessfulTime} />
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
+                        {cj.nextScheduledTime ? (
+                          <RelativeTime date={cj.nextScheduledTime} />
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {/* Pagination */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-4 mt-4">
+              <div className="text-sm text-muted-foreground order-2 sm:order-1">
+                {totalFiltered > 0 ? (
+                  <>
+                    Showing {effectivePage * PAGE_SIZE + 1}-
+                    {Math.min((effectivePage + 1) * PAGE_SIZE, totalFiltered)} of {totalFiltered}
+                  </>
+                ) : (
+                  "No items"
+                )}
+              </div>
+              <div className="flex items-center gap-2 order-1 sm:order-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={effectivePage === 0}
+                  className="cursor-pointer disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">Previous</span>
+                </Button>
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  {effectivePage + 1} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={effectivePage >= totalPages - 1}
+                  className="cursor-pointer disabled:cursor-not-allowed"
+                >
+                  <span className="hidden sm:inline">Next</span>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
