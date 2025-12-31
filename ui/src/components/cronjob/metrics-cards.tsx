@@ -6,7 +6,7 @@ import type { CronJobMetrics } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface MetricsCardsProps {
-  metrics: CronJobMetrics;
+  metrics: CronJobMetrics | null | undefined;
   nextRun: string | null;
 }
 
@@ -33,29 +33,42 @@ function getSuccessRateColor(rate: number): string {
 }
 
 export function MetricsCards({ metrics, nextRun }: MetricsCardsProps) {
+  // Use default values if metrics is null/undefined
+  const m = metrics ?? {
+    successRate7d: 0,
+    successRate30d: 0,
+    totalRuns7d: 0,
+    successfulRuns7d: 0,
+    failedRuns7d: 0,
+    avgDurationSeconds: 0,
+    p50DurationSeconds: 0,
+    p95DurationSeconds: 0,
+    p99DurationSeconds: 0,
+  };
+
   const cards = [
     {
       label: "Success Rate (7d)",
-      value: `${metrics.successRate7d.toFixed(1)}%`,
-      subtext: `${metrics.successfulRuns7d}/${metrics.totalRuns7d} runs`,
-      className: getSuccessRateColor(metrics.successRate7d),
+      value: `${m.successRate7d.toFixed(1)}%`,
+      subtext: `${m.successfulRuns7d}/${m.totalRuns7d} runs`,
+      className: getSuccessRateColor(m.successRate7d),
     },
     {
       label: "Success Rate (30d)",
-      value: `${metrics.successRate30d.toFixed(1)}%`,
-      className: getSuccessRateColor(metrics.successRate30d),
+      value: `${m.successRate30d.toFixed(1)}%`,
+      className: getSuccessRateColor(m.successRate30d),
     },
     {
       label: "Avg Duration",
-      value: formatDuration(metrics.avgDurationSeconds),
+      value: formatDuration(m.avgDurationSeconds),
     },
     {
       label: "P95 Duration",
-      value: formatDuration(metrics.p95DurationSeconds),
+      value: formatDuration(m.p95DurationSeconds),
     },
     {
       label: "P99 Duration",
-      value: formatDuration(metrics.p99DurationSeconds),
+      value: formatDuration(m.p99DurationSeconds),
     },
     {
       label: "Next Run",
