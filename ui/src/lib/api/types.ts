@@ -87,6 +87,13 @@ export interface LogsResponse {
   truncated: boolean;
 }
 
+// AlertContext contains context data for an alert (suggested fixes, exit codes, etc.)
+export interface AlertContext {
+  exitCode?: number;
+  reason?: string;
+  suggestedFix?: string;
+}
+
 export interface Alert {
   id: string;
   type: string;
@@ -103,6 +110,7 @@ export interface Alert {
   };
   since: string;
   lastNotified: string;
+  context?: AlertContext;
 }
 
 export interface AlertsResponse {
@@ -119,6 +127,10 @@ export interface AlertHistoryItem extends Alert {
   occurredAt: string;
   resolvedAt: string | null;
   channelsNotified: string[];
+  // Context fields for failure alerts (stored at alert time)
+  exitCode?: number;
+  reason?: string;
+  suggestedFix?: string;
 }
 
 export interface AlertHistoryResponse {
@@ -336,6 +348,8 @@ export interface HealthResponse {
   leader: boolean;
   version: string;
   uptime: string;
+  analyzerEnabled: boolean;
+  schedulersRunning: string[];
 }
 
 export interface StatsResponse {
@@ -392,4 +406,40 @@ export interface ExecutionDetail extends CronJobExecution {
   retryOf?: string;
   storedLogs?: string;
   storedEvents?: string;
+}
+
+// Pattern Testing Types (for pattern tester component)
+export interface PatternMatch {
+  exitCode?: number;
+  exitCodeRange?: { min: number; max: number };
+  reason?: string;
+  reasonPattern?: string;
+  logPattern?: string;
+  eventPattern?: string;
+}
+
+export interface SuggestedFixPattern {
+  name: string;
+  match: PatternMatch;
+  suggestion: string;
+  priority?: number;
+}
+
+export interface PatternTestRequest {
+  pattern: SuggestedFixPattern;
+  testData: {
+    exitCode: number;
+    reason: string;
+    logs: string;
+    events: string[];
+    namespace: string;
+    name: string;
+    jobName: string;
+  };
+}
+
+export interface PatternTestResponse {
+  matched: boolean;
+  renderedSuggestion?: string;
+  error?: string;
 }

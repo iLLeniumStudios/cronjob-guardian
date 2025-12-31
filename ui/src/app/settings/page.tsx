@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { CheckCircle2, XCircle, Database, Trash2 } from "lucide-react";
+import { CheckCircle2, XCircle, Database, Trash2, Lightbulb, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { PatternTester } from "@/components/pattern-tester";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -79,6 +80,7 @@ export default function SettingsPage() {
   const [pruneDialogOpen, setPruneDialogOpen] = useState(false);
   const [pruneLoading, setPruneLoading] = useState(false);
   const [pruneDays, setPruneDays] = useState("30");
+  const [patternTesterOpen, setPatternTesterOpen] = useState(false);
 
   const fetchSettingsData = useCallback(async (): Promise<SettingsData> => {
     const [config, health, stats, storageStats] = await Promise.all([
@@ -190,6 +192,33 @@ export default function SettingsPage() {
                     <StatusIcon ok={health?.storage === "connected"} />
                     <span className="capitalize">{health?.storage ?? "Unknown"}</span>
                   </span>
+                }
+              />
+              <Separator />
+              <SettingRow
+                label="SLA Analyzer"
+                value={
+                  <span className="flex items-center gap-2">
+                    <StatusIcon ok={health?.analyzerEnabled ?? false} />
+                    <span>{health?.analyzerEnabled ? "Enabled" : "Disabled"}</span>
+                  </span>
+                }
+              />
+              <Separator />
+              <SettingRow
+                label="Background Schedulers"
+                value={
+                  health?.schedulersRunning?.length ? (
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {health.schedulersRunning.map((s) => (
+                        <Badge key={s} variant="secondary" className="text-xs">
+                          {s}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">None</span>
+                  )
                 }
               />
             </CardContent>
@@ -321,6 +350,36 @@ export default function SettingsPage() {
               </div>
             </div>
           </CardContent>
+        </Card>
+
+        {/* Pattern Tester */}
+        <Card>
+          <CardHeader className="pb-3">
+            <button
+              onClick={() => setPatternTesterOpen(!patternTesterOpen)}
+              className="flex items-center justify-between w-full text-left"
+            >
+              <div>
+                <CardTitle className="text-base font-medium flex items-center gap-2">
+                  <Lightbulb className="h-4 w-4" />
+                  Suggested Fix Pattern Tester
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Test and validate custom suggested fix patterns before adding them to monitors
+                </CardDescription>
+              </div>
+              {patternTesterOpen ? (
+                <ChevronUp className="h-5 w-5 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+              )}
+            </button>
+          </CardHeader>
+          {patternTesterOpen && (
+            <CardContent>
+              <PatternTester />
+            </CardContent>
+          )}
         </Card>
 
       </div>

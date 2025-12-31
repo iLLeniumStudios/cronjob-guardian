@@ -191,9 +191,21 @@ type AlertingConfig struct {
 	// +optional
 	SuppressDuplicatesFor *metav1.Duration `json:"suppressDuplicatesFor,omitempty"`
 
+	// AlertDelay delays alert dispatch to allow transient issues to resolve.
+	// If the issue resolves (e.g., next job succeeds) before the delay expires,
+	// the alert is cancelled and never sent. Useful for flaky jobs.
+	// Example: "5m" waits 5 minutes before sending failure alerts.
+	// +optional
+	AlertDelay *metav1.Duration `json:"alertDelay,omitempty"`
+
 	// SeverityOverrides customizes severity for alert types
 	// +optional
 	SeverityOverrides *SeverityOverrides `json:"severityOverrides,omitempty"`
+
+	// SuggestedFixPatterns defines custom fix patterns for this monitor
+	// These are merged with built-in patterns, with custom patterns taking priority
+	// +optional
+	SuggestedFixPatterns []SuggestedFixPattern `json:"suggestedFixPatterns,omitempty"`
 }
 
 // ChannelRef references an AlertChannel CR
@@ -238,7 +250,7 @@ type AlertContext struct {
 }
 
 // SeverityOverrides customizes alert severities
-// Only critical and warning are valid - info is not appropriate for alerts
+// Only critical and warning are valid - alerts are actionable notifications
 type SeverityOverrides struct {
 	// +kubebuilder:validation:Enum=critical;warning
 	// +optional
@@ -255,6 +267,57 @@ type SeverityOverrides struct {
 	// +kubebuilder:validation:Enum=critical;warning
 	// +optional
 	DurationRegression string `json:"durationRegression,omitempty"`
+}
+
+// SuggestedFixPattern defines a pattern for suggesting fixes based on failure context
+type SuggestedFixPattern struct {
+	// Name identifies this pattern (for overriding built-ins like "oom-killed")
+	Name string `json:"name"`
+
+	// Match criteria - at least one must be specified
+	Match PatternMatch `json:"match"`
+
+	// Suggestion is the fix text (supports Go templates)
+	// Available variables: {{.Namespace}}, {{.Name}}, {{.ExitCode}}, {{.Reason}}, {{.JobName}}
+	Suggestion string `json:"suggestion"`
+
+	// Priority determines order (higher = checked first, default: 0)
+	// Built-in patterns use priorities 1-100, use >100 to override
+	// +optional
+	Priority *int32 `json:"priority,omitempty"`
+}
+
+// PatternMatch defines what to match against for suggested fixes
+type PatternMatch struct {
+	// ExitCode matches specific exit codes (e.g., 137 for OOM)
+	// +optional
+	ExitCode *int32 `json:"exitCode,omitempty"`
+
+	// ExitCodeRange matches a range [min, max] inclusive
+	// +optional
+	ExitCodeRange *ExitCodeRange `json:"exitCodeRange,omitempty"`
+
+	// Reason matches container termination reason (exact match, case-insensitive)
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// ReasonPattern matches reason using regex
+	// +optional
+	ReasonPattern string `json:"reasonPattern,omitempty"`
+
+	// LogPattern matches log content using regex
+	// +optional
+	LogPattern string `json:"logPattern,omitempty"`
+
+	// EventPattern matches event messages using regex
+	// +optional
+	EventPattern string `json:"eventPattern,omitempty"`
+}
+
+// ExitCodeRange defines a range of exit codes [Min, Max] inclusive
+type ExitCodeRange struct {
+	Min int32 `json:"min"`
+	Max int32 `json:"max"`
 }
 
 // DataRetentionConfig configures data lifecycle management for this monitor
@@ -418,6 +481,18 @@ type ActiveAlert struct {
 	// LastNotified is when the alert was last sent
 	// +optional
 	LastNotified *metav1.Time `json:"lastNotified,omitempty"`
+
+	// ExitCode from the failed container (for JobFailed alerts)
+	// +optional
+	ExitCode int32 `json:"exitCode,omitempty"`
+
+	// Reason for the failure (e.g., OOMKilled, Error)
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// SuggestedFix provides actionable guidance for resolving the alert
+	// +optional
+	SuggestedFix string `json:"suggestedFix,omitempty"`
 }
 
 // ActiveJob represents a currently running job

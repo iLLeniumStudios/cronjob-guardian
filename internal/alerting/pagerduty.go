@@ -125,8 +125,15 @@ func (p *pagerdutyChannel) Send(ctx context.Context, alert Alert) error {
 		},
 	}
 
+	// Send with shared HTTP client (has timeouts)
 	jsonPayload, _ := json.Marshal(payload)
-	resp, err := http.Post(pagerDutyEventsURL, "application/json", bytes.NewReader(jsonPayload))
+	req, err := http.NewRequestWithContext(ctx, "POST", pagerDutyEventsURL, bytes.NewReader(jsonPayload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := AlertHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send pagerduty event: %w", err)
 	}

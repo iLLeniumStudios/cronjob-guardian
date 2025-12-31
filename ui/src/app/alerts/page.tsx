@@ -12,6 +12,7 @@ import { RelativeTime } from "@/components/relative-time";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { PageSkeleton } from "@/components/page-skeleton";
+import { SuggestedFix } from "@/components/suggested-fix";
 import { useFetchData } from "@/hooks/use-fetch-data";
 import {
   listAlerts,
@@ -153,33 +154,59 @@ function ActiveAlertCard({ alert }: { alert: Alert }) {
   const styles = SEVERITY_STYLES[severity] || SEVERITY_STYLES.info;
 
   return (
-    <Link
-      href={`/cronjob/${alert.cronjob.namespace}/${alert.cronjob.name}`}
-      className={cn("block rounded border p-4 transition-colors hover:bg-muted/50", styles.bg)}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <span className={cn("mt-1.5 h-2.5 w-2.5 flex-shrink-0 rounded-full", styles.dot)} />
-          <div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className={cn("text-xs", styles.badge)}>
-                {alert.severity}
-              </Badge>
-              <span className="text-xs text-muted-foreground">{alert.type}</span>
+    <div className={cn("rounded border p-4", styles.bg)}>
+      <Link
+        href={`/cronjob/${alert.cronjob.namespace}/${alert.cronjob.name}`}
+        className="block transition-colors hover:bg-muted/30 -m-4 p-4 rounded"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <span className={cn("mt-1.5 h-2.5 w-2.5 flex-shrink-0 rounded-full", styles.dot)} />
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className={cn("text-xs", styles.badge)}>
+                  {alert.severity}
+                </Badge>
+                <span className="text-xs text-muted-foreground">{alert.type}</span>
+                {/* Show exit code if present */}
+                {alert.context?.exitCode !== undefined && alert.context.exitCode !== 0 && (
+                  <Badge variant="outline" className="text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                    Exit {alert.context.exitCode}
+                  </Badge>
+                )}
+                {/* Show reason if present */}
+                {alert.context?.reason && (
+                  <Badge variant="outline" className="text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400">
+                    {alert.context.reason}
+                  </Badge>
+                )}
+              </div>
+              <p className="mt-1 font-medium">{alert.title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{alert.message}</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {alert.cronjob.namespace}/{alert.cronjob.name}
+              </p>
             </div>
-            <p className="mt-1 font-medium">{alert.title}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{alert.message}</p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {alert.cronjob.namespace}/{alert.cronjob.name}
-            </p>
+          </div>
+          <div className="text-right text-xs text-muted-foreground shrink-0">
+            <p>Since</p>
+            <RelativeTime date={alert.since} showTooltip={false} />
           </div>
         </div>
-        <div className="text-right text-xs text-muted-foreground">
-          <p>Since</p>
-          <RelativeTime date={alert.since} showTooltip={false} />
+      </Link>
+      {/* Suggested fix displayed below the link area */}
+      {alert.context?.suggestedFix && (
+        <div className="mt-3 pt-3 border-t">
+          <SuggestedFix
+            fix={alert.context.suggestedFix}
+            exitCode={alert.context.exitCode}
+            reason={alert.context.reason}
+            namespace={alert.cronjob.namespace}
+            name={alert.cronjob.name}
+          />
         </div>
-      </div>
-    </Link>
+      )}
+    </div>
   );
 }
 
@@ -193,7 +220,7 @@ function HistoryAlertCard({ alert }: { alert: AlertHistoryItem }) {
         <div className="flex items-start gap-3">
           <span className={cn("mt-1.5 h-2.5 w-2.5 flex-shrink-0 rounded-full", styles.dot)} />
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="outline" className={cn("text-xs", styles.badge)}>
                 {alert.severity}
               </Badge>
@@ -201,6 +228,18 @@ function HistoryAlertCard({ alert }: { alert: AlertHistoryItem }) {
               {alert.resolvedAt && (
                 <Badge variant="outline" className="text-xs text-emerald-600">
                   Resolved
+                </Badge>
+              )}
+              {/* Show exit code if present */}
+              {alert.exitCode !== undefined && alert.exitCode !== 0 && (
+                <Badge variant="outline" className="text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                  Exit {alert.exitCode}
+                </Badge>
+              )}
+              {/* Show reason if present */}
+              {alert.reason && (
+                <Badge variant="outline" className="text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400">
+                  {alert.reason}
                 </Badge>
               )}
             </div>
@@ -218,9 +257,22 @@ function HistoryAlertCard({ alert }: { alert: AlertHistoryItem }) {
                 ))}
               </div>
             )}
+            {/* Show suggested fix if present (compact mode for history) */}
+            {alert.suggestedFix && (
+              <div className="mt-3">
+                <SuggestedFix
+                  fix={alert.suggestedFix}
+                  exitCode={alert.exitCode}
+                  reason={alert.reason}
+                  namespace={alert.cronjob.namespace}
+                  name={alert.cronjob.name}
+                  compact
+                />
+              </div>
+            )}
           </div>
         </div>
-        <div className="text-right text-xs text-muted-foreground">
+        <div className="text-right text-xs text-muted-foreground shrink-0">
           <p>Occurred</p>
           <RelativeTime date={alert.occurredAt} showTooltip={false} />
           {alert.resolvedAt && (

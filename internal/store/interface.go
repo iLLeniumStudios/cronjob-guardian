@@ -38,6 +38,9 @@ type Store interface {
 	// GetExecutions returns executions for a CronJob since a given time
 	GetExecutions(ctx context.Context, cronJob types.NamespacedName, since time.Time) ([]Execution, error)
 
+	// GetExecutionsPaginated returns executions with database-level pagination
+	GetExecutionsPaginated(ctx context.Context, cronJob types.NamespacedName, since time.Time, limit, offset int) ([]Execution, int64, error)
+
 	// GetLastExecution returns the most recent execution
 	GetLastExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error)
 
@@ -87,6 +90,15 @@ type Store interface {
 
 	// GetChannelAlertStats returns alert statistics for all channels
 	GetChannelAlertStats(ctx context.Context) (map[string]ChannelAlertStats, error)
+
+	// SaveChannelStats persists channel statistics (upsert)
+	SaveChannelStats(ctx context.Context, stats ChannelStatsRecord) error
+
+	// GetChannelStats retrieves channel statistics by name
+	GetChannelStats(ctx context.Context, channelName string) (*ChannelStatsRecord, error)
+
+	// GetAllChannelStats retrieves all channel statistics
+	GetAllChannelStats(ctx context.Context) (map[string]*ChannelStatsRecord, error)
 
 	// Health checks if the store is healthy
 	Health(ctx context.Context) error

@@ -62,6 +62,8 @@ type Server struct {
 	port                int
 	server              *http.Server
 	leaderElectionCheck func() bool
+	analyzerEnabled     bool
+	schedulersRunning   []string
 }
 
 // ServerOptions contains options for creating the server
@@ -73,6 +75,8 @@ type ServerOptions struct {
 	AlertDispatcher     alerting.Dispatcher
 	Port                int
 	LeaderElectionCheck func() bool
+	AnalyzerEnabled     bool
+	SchedulersRunning   []string
 }
 
 // NewServer creates a new API server
@@ -90,6 +94,8 @@ func NewServer(opts ServerOptions) *Server {
 		startTime:           time.Now(),
 		port:                opts.Port,
 		leaderElectionCheck: opts.LeaderElectionCheck,
+		analyzerEnabled:     opts.AnalyzerEnabled,
+		schedulersRunning:   opts.SchedulersRunning,
 	}
 }
 
@@ -192,6 +198,8 @@ func (s *Server) setupRoutes() chi.Router {
 
 	// Create handlers
 	h := NewHandlers(s.client, s.clientset, s.store, s.config, s.alertDispatcher, s.startTime, s.leaderElectionCheck)
+	h.SetAnalyzerEnabled(s.analyzerEnabled)
+	h.SetSchedulersRunning(s.schedulersRunning)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -217,6 +225,9 @@ func (s *Server) setupRoutes() chi.Router {
 		// Alerts
 		r.Get("/alerts", h.ListAlerts)
 		r.Get("/alerts/history", h.GetAlertHistory)
+
+		// Patterns
+		r.Post("/patterns/test", h.TestPattern)
 
 		// Channels
 		r.Get("/channels", h.ListChannels)

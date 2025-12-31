@@ -45,6 +45,7 @@ import (
 
 	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/alerting"
+	"github.com/iLLeniumStudios/cronjob-guardian/internal/analyzer"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/api"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/config"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/controller"
@@ -259,6 +260,10 @@ func main() {
 	defer func() { _ = dataStore.Close() }()
 	setupLog.Info("initialized store", "type", cfg.Storage.Type)
 
+	// Initialize SLA analyzer (required for all SLA features)
+	slaAnalyzer := analyzer.NewSLAAnalyzer(dataStore)
+	setupLog.Info("initialized SLA analyzer")
+
 	// Initialize and add history pruner to manager
 	historyPruner := scheduler.NewHistoryPruner(dataStore, cfg.HistoryRetention.DefaultDays)
 	historyPruner.SetInterval(cfg.Scheduler.PruneInterval)
@@ -284,7 +289,8 @@ func main() {
 	// Create alert dispatcher and wire up the store
 	alertDispatcher := alerting.NewDispatcher(mgr.GetClient())
 	alertDispatcher.SetStore(dataStore)
-	setupLog.Info("initialized alert dispatcher")
+	alertDispatcher.SetStartupGracePeriod(cfg.Scheduler.StartupGracePeriod)
+	setupLog.Info("initialized alert dispatcher", "startupGracePeriod", cfg.Scheduler.StartupGracePeriod)
 
 	if err := (&controller.CronJobMonitorReconciler{
 		Client:          mgr.GetClient(),
@@ -292,6 +298,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Store:           dataStore,
 		Config:          cfg,
+		Analyzer:        slaAnalyzer,
 		AlertDispatcher: alertDispatcher,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CronJobMonitor")
@@ -320,6 +327,27 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "JobHandler")
 		os.Exit(1)
 	}
+
+	// Create and register DeadManScheduler for periodic dead-man's switch checks
+	deadManScheduler := scheduler.NewDeadManScheduler(mgr.GetClient(), slaAnalyzer, alertDispatcher)
+	deadManScheduler.SetStartupDelay(cfg.Scheduler.StartupGracePeriod)
+	deadManScheduler.SetInterval(cfg.Scheduler.DeadManSwitchInterval)
+	if err := mgr.Add(deadManScheduler); err != nil {
+		setupLog.Error(err, "unable to add dead-man scheduler")
+		os.Exit(1)
+	}
+	setupLog.Info("initialized dead-man scheduler",
+		"interval", cfg.Scheduler.DeadManSwitchInterval,
+		"startupDelay", cfg.Scheduler.StartupGracePeriod)
+
+	// Create and register SLARecalcScheduler for periodic SLA recalculation
+	slaRecalcScheduler := scheduler.NewSLARecalcScheduler(mgr.GetClient(), dataStore, slaAnalyzer, alertDispatcher)
+	if err := mgr.Add(slaRecalcScheduler); err != nil {
+		setupLog.Error(err, "unable to add SLA recalc scheduler")
+		os.Exit(1)
+	}
+	setupLog.Info("initialized SLA recalc scheduler", "interval", "5m")
+
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {
@@ -373,6 +401,8 @@ func main() {
 			AlertDispatcher:     alertDispatcher,
 			Port:                cfg.UI.Port,
 			LeaderElectionCheck: leaderElectionCheck,
+			AnalyzerEnabled:     true, // Analyzer is always enabled (required dependency)
+			SchedulersRunning:   []string{"dead-man-switch", "sla-recalc", "history-pruner"},
 		})
 
 		// Add API server to manager

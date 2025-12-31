@@ -133,6 +133,12 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// Record execution ONCE (keyed by CronJob, not monitor)
 	// Use first monitor for config (logs/events storage settings)
 	exec := h.buildExecution(ctx, job, cronJobName, cronJobUID, monitors[0])
+
+	// Generate suggested fix for failures (stored once, used by alerts and UI)
+	if !exec.Succeeded {
+		exec.SuggestedFix = h.generateSuggestedFix(exec, monitors[0])
+	}
+
 	log.V(1).Info("built execution record",
 		"succeeded", exec.Succeeded,
 		"duration", exec.Duration(),
@@ -140,7 +146,8 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		"reason", exec.Reason,
 		"cronJobUID", exec.CronJobUID,
 		"hasLogs", exec.Logs != nil && *exec.Logs != "",
-		"hasEvents", exec.Events != nil && *exec.Events != "")
+		"hasEvents", exec.Events != nil && *exec.Events != "",
+		"hasSuggestedFix", exec.SuggestedFix != "")
 
 	if h.Store != nil {
 		log.V(1).Info("recording execution to store")
@@ -175,7 +182,7 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Info("job failed", "cronJob", cronJobName, "job", job.Name, "exitCode", exec.ExitCode, "reason", exec.Reason)
 		for _, monitor := range monitors {
 			monitorLog := log.WithValues("monitor", monitor.Name)
-			h.handleFailure(ctx, monitorLog, monitor, job, cronJobName)
+			h.handleFailure(ctx, monitorLog, monitor, job, cronJobName, exec)
 		}
 	}
 
@@ -459,17 +466,52 @@ func (h *JobHandler) collectAndTruncateLogs(ctx context.Context, pod *corev1.Pod
 }
 
 func (h *JobHandler) handleSuccess(ctx context.Context, log logr.Logger, _ *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
-	// Clear any active failure alerts for this CronJob
-	if h.AlertDispatcher != nil {
-		alertKey := fmt.Sprintf("%s/%s/JobFailed", job.Namespace, cronJobName)
-		log.V(1).Info("clearing failure alert", "alertKey", alertKey)
-		_ = h.AlertDispatcher.ClearAlert(ctx, alertKey)
+	if h.AlertDispatcher == nil {
+		return
+	}
+
+	// Cancel any pending (delayed) failure alerts for this CronJob.
+	// This is important when AlertDelay is configured - if a job succeeds
+	// after a previous failure, we cancel the pending alert.
+	cancelledCount := h.AlertDispatcher.CancelPendingAlertsForCronJob(job.Namespace, cronJobName)
+	if cancelledCount > 0 {
+		log.Info("cancelled pending failure alerts due to successful job",
+			"cancelledCount", cancelledCount,
+			"cronJob", cronJobName)
+	}
+
+	// Clear alert types that resolve immediately on success
+	// Note: SLABreached and DurationRegression are NOT cleared here because they're
+	// calculated over a time window - a single success doesn't recover the SLA.
+	// The SLA recalc scheduler will clear them when metrics recover.
+	alertTypes := []string{
+		"JobFailed",
+		"DeadManTriggered",
+		"SuspendedTooLong",
+	}
+
+	for _, alertType := range alertTypes {
+		alertKey := fmt.Sprintf("%s/%s/%s", job.Namespace, cronJobName, alertType)
+		if err := h.AlertDispatcher.ClearAlert(ctx, alertKey); err == nil {
+			log.V(1).Info("cleared alert on success", "alertKey", alertKey)
+		}
+	}
+
+	// Also resolve in database history
+	if h.Store != nil {
+		cronJobNN := types.NamespacedName{Namespace: job.Namespace, Name: cronJobName}
+		for _, alertType := range alertTypes {
+			_ = h.Store.ResolveAlert(ctx, alertType, cronJobNN.Namespace, cronJobNN.Name)
+		}
 	}
 }
 
-func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
-	// Collect context
-	alertCtx := alerting.AlertContext{}
+func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string, exec store.Execution) {
+	// Build alert context from the stored execution
+	alertCtx := alerting.AlertContext{
+		ExitCode: exec.ExitCode,
+		Reason:   exec.Reason,
+	}
 
 	// Safe access to alerting config
 	var includeCtx *guardianv1alpha1.AlertContext
@@ -477,35 +519,34 @@ func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor
 		includeCtx = monitor.Spec.Alerting.IncludeContext
 	}
 
+	// Use stored logs if available, otherwise collect fresh
 	if includeCtx != nil && isEnabled(includeCtx.Logs) {
-		log.V(1).Info("collecting logs for alert")
-		alertCtx.Logs = h.collectLogs(ctx, job, includeCtx)
-		log.V(1).Info("collected logs", "logLength", len(alertCtx.Logs))
-	}
-
-	if includeCtx != nil && isEnabled(includeCtx.Events) {
-		log.V(1).Info("collecting events for alert")
-		alertCtx.Events = h.collectEvents(ctx, job)
-		log.V(1).Info("collected events", "eventCount", len(alertCtx.Events))
-	}
-
-	// Get exit code and reason
-	if pod := h.getJobPod(ctx, job); pod != nil {
-		for _, cs := range pod.Status.ContainerStatuses {
-			if cs.State.Terminated != nil {
-				alertCtx.ExitCode = cs.State.Terminated.ExitCode
-				alertCtx.Reason = cs.State.Terminated.Reason
-				log.V(1).Info("got termination info from pod",
-					"exitCode", alertCtx.ExitCode,
-					"reason", alertCtx.Reason)
-				break
-			}
+		if exec.Logs != nil && *exec.Logs != "" {
+			alertCtx.Logs = *exec.Logs
+			log.V(1).Info("using stored logs", "logLength", len(alertCtx.Logs))
+		} else {
+			log.V(1).Info("collecting logs for alert")
+			alertCtx.Logs = h.collectLogs(ctx, job, includeCtx)
+			log.V(1).Info("collected logs", "logLength", len(alertCtx.Logs))
 		}
 	}
 
+	// Use stored events if available, otherwise collect fresh
+	if includeCtx != nil && isEnabled(includeCtx.Events) {
+		if exec.Events != nil && *exec.Events != "" {
+			alertCtx.Events = strings.Split(*exec.Events, "\n")
+			log.V(1).Info("using stored events", "eventCount", len(alertCtx.Events))
+		} else {
+			log.V(1).Info("collecting events for alert")
+			alertCtx.Events = h.collectEvents(ctx, job)
+			log.V(1).Info("collected events", "eventCount", len(alertCtx.Events))
+		}
+	}
+
+	// Use the pre-generated suggested fix from the execution record
 	if includeCtx != nil && isEnabled(includeCtx.SuggestedFixes) {
-		alertCtx.SuggestedFix = h.getSuggestedFix(job, alertCtx)
-		log.V(1).Info("generated suggested fix", "fix", alertCtx.SuggestedFix)
+		alertCtx.SuggestedFix = exec.SuggestedFix
+		log.V(1).Info("using stored suggested fix", "fix", alertCtx.SuggestedFix)
 	}
 
 	// Determine severity (with nil safety)
@@ -635,35 +676,37 @@ func (h *JobHandler) buildFailureMessage(job *batchv1.Job, ctx alerting.AlertCon
 	return msg
 }
 
-var suggestedFixes = map[string]string{
-	"OOMKilled":                  "Container ran out of memory. Increase resources.limits.memory.",
-	"ImagePullBackOff":           "Failed to pull image. Check image name/tag and registry credentials.",
-	"CrashLoopBackOff":           "Container keeps crashing. Check application logs for startup errors.",
-	"CreateContainerConfigError": "Config error. Check Secret/ConfigMap references exist.",
-	"DeadlineExceeded":           "Job exceeded activeDeadlineSeconds. Job may be too slow or deadline too aggressive.",
-	"BackoffLimitExceeded":       "Job failed too many times. Check underlying failure cause.",
-	"Evicted":                    "Pod was evicted. Check node resources and pod priority.",
-	"FailedScheduling":           "Could not schedule pod. Check node resources and affinity rules.",
-}
+// suggestedFixEngine is the global pattern matching engine for suggested fixes
+var suggestedFixEngine = alerting.NewSuggestedFixEngine()
 
-func (h *JobHandler) getSuggestedFix(_ *batchv1.Job, ctx alerting.AlertContext) string {
-	// Check reason from container status
-	if ctx.Reason != "" {
-		if fix, ok := suggestedFixes[ctx.Reason]; ok {
-			return fix
-		}
+// generateSuggestedFix creates a suggested fix for a failed execution
+func (h *JobHandler) generateSuggestedFix(exec store.Execution, monitor *guardianv1alpha1.CronJobMonitor) string {
+	var events []string
+	if exec.Events != nil {
+		events = strings.Split(*exec.Events, "\n")
+	}
+	var logs string
+	if exec.Logs != nil {
+		logs = *exec.Logs
 	}
 
-	// Check events for common issues
-	for _, evt := range ctx.Events {
-		for pattern, fix := range suggestedFixes {
-			if strings.Contains(evt, pattern) {
-				return fix
-			}
-		}
+	matchCtx := alerting.MatchContext{
+		Namespace: exec.CronJobNamespace,
+		Name:      exec.CronJobName,
+		JobName:   exec.JobName,
+		ExitCode:  exec.ExitCode,
+		Reason:    exec.Reason,
+		Logs:      logs,
+		Events:    events,
 	}
 
-	return "Check job logs and events for details."
+	// Get custom patterns from monitor spec
+	var customPatterns []guardianv1alpha1.SuggestedFixPattern
+	if monitor.Spec.Alerting != nil {
+		customPatterns = monitor.Spec.Alerting.SuggestedFixPatterns
+	}
+
+	return suggestedFixEngine.GetBestSuggestion(matchCtx, customPatterns)
 }
 
 func (h *JobHandler) isOwnedByCronJob(obj client.Object) bool {

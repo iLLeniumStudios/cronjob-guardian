@@ -28,6 +28,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -64,7 +65,7 @@ func NewGormStore(dialect string, dsn string) (*GormStore, error) {
 
 // Init initializes the store (creates tables via auto-migration)
 func (s *GormStore) Init() error {
-	return s.db.AutoMigrate(&Execution{}, &AlertHistory{})
+	return s.db.AutoMigrate(&Execution{}, &AlertHistory{}, &ChannelStatsRecord{})
 }
 
 // Close closes the store and releases resources
@@ -90,6 +91,29 @@ func (s *GormStore) GetExecutions(ctx context.Context, cronJob types.NamespacedN
 		Order("start_time DESC").
 		Find(&execs).Error
 	return execs, err
+}
+
+// GetExecutionsPaginated returns executions with database-level pagination
+func (s *GormStore) GetExecutionsPaginated(ctx context.Context, cronJob types.NamespacedName, since time.Time, limit, offset int) ([]Execution, int64, error) {
+	var execs []Execution
+	var total int64
+
+	query := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?",
+			cronJob.Namespace, cronJob.Name, since)
+
+	// Get total count first
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Get paginated results
+	err := query.Order("start_time DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&execs).Error
+
+	return execs, total, err
 }
 
 // GetLastExecution returns the most recent execution
@@ -185,25 +209,41 @@ func (s *GormStore) GetMetrics(ctx context.Context, cronJob types.NamespacedName
 	return metrics, nil
 }
 
-// GetDurationPercentile calculates a duration percentile
+// GetDurationPercentile calculates a duration percentile using database-level
+// LIMIT/OFFSET for O(1) memory usage instead of fetching all durations
 func (s *GormStore) GetDurationPercentile(ctx context.Context, cronJob types.NamespacedName, p int, windowDays int) (time.Duration, error) {
 	since := time.Now().AddDate(0, 0, -windowDays)
 
-	var durations []float64
+	// First get count
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL",
+			cronJob.Namespace, cronJob.Name, since).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+
+	if count == 0 {
+		return 0, nil
+	}
+
+	// Calculate offset for percentile position
+	offset := int(float64(count-1) * float64(p) / 100)
+
+	// Get single value at percentile position using LIMIT/OFFSET
+	var duration float64
 	err := s.db.WithContext(ctx).Model(&Execution{}).
 		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL",
 			cronJob.Namespace, cronJob.Name, since).
 		Order("duration_secs").
-		Pluck("duration_secs", &durations).Error
+		Offset(offset).
+		Limit(1).
+		Pluck("duration_secs", &duration).Error
 	if err != nil {
 		return 0, err
 	}
 
-	if len(durations) == 0 {
-		return 0, nil
-	}
-
-	return time.Duration(percentile(durations, p) * float64(time.Second)), nil
+	return time.Duration(duration * float64(time.Second)), nil
 }
 
 // GetSuccessRate calculates success rate
@@ -379,6 +419,44 @@ func (s *GormStore) Health(ctx context.Context) error {
 		return err
 	}
 	return sqlDB.PingContext(ctx)
+}
+
+// SaveChannelStats persists channel statistics using upsert
+func (s *GormStore) SaveChannelStats(ctx context.Context, stats ChannelStatsRecord) error {
+	return s.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "channel_name"}},
+			UpdateAll: true,
+		}).Create(&stats).Error
+}
+
+// GetChannelStats retrieves channel statistics by name
+func (s *GormStore) GetChannelStats(ctx context.Context, channelName string) (*ChannelStatsRecord, error) {
+	var stats ChannelStatsRecord
+	err := s.db.WithContext(ctx).
+		Where("channel_name = ?", channelName).
+		First(&stats).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
+}
+
+// GetAllChannelStats retrieves all channel statistics
+func (s *GormStore) GetAllChannelStats(ctx context.Context) (map[string]*ChannelStatsRecord, error) {
+	var records []ChannelStatsRecord
+	if err := s.db.WithContext(ctx).Find(&records).Error; err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]*ChannelStatsRecord, len(records))
+	for i := range records {
+		result[records[i].ChannelName] = &records[i]
+	}
+	return result, nil
 }
 
 // percentile calculates the p-th percentile from sorted data

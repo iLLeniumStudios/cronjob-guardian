@@ -38,6 +38,7 @@ import { SuccessRateChart } from "@/components/cronjob/success-rate-chart";
 import { HealthHeatmap } from "@/components/cronjob/health-heatmap";
 import { ExecutionHistory } from "@/components/cronjob/execution-history";
 import { ExportButton } from "@/components/export/export-button";
+import { SuggestedFix } from "@/components/suggested-fix";
 import { exportExecutionsToCSV } from "@/lib/export/csv";
 import { generateCronJobPDFReport } from "@/lib/export/pdf";
 import {
@@ -485,39 +486,53 @@ export function CronJobDetailClient() {
                 {cronJob.activeAlerts.map((alert) => (
                   <div
                     key={alert.id}
-                    className="flex items-start gap-3 rounded-lg border p-3"
+                    className="rounded-lg border p-3"
                   >
-                    <Badge
-                      variant={
-                        alert.severity === "critical"
-                          ? "destructive"
-                          : alert.severity === "warning"
-                          ? "default"
-                          : "secondary"
-                      }
-                      className={
-                        alert.severity === "warning"
-                          ? "bg-orange-500 hover:bg-orange-600"
-                          : undefined
-                      }
-                    >
-                      {alert.severity}
-                    </Badge>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{alert.title}</p>
-                      <p className="text-sm text-muted-foreground mt-0.5 break-words">
-                        {alert.message}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Since {new Date(alert.since).toLocaleString()}
-                      </p>
+                    <div className="flex items-start gap-3">
+                      <Badge
+                        variant={
+                          alert.severity === "critical"
+                            ? "destructive"
+                            : alert.severity === "warning"
+                            ? "default"
+                            : "secondary"
+                        }
+                        className={
+                          alert.severity === "warning"
+                            ? "bg-orange-500 hover:bg-orange-600"
+                            : undefined
+                        }
+                      >
+                        {alert.severity}
+                      </Badge>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{alert.title}</p>
+                        <p className="text-sm text-muted-foreground mt-0.5 break-words">
+                          {alert.message}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Since {new Date(alert.since).toLocaleString()}
+                        </p>
+                      </div>
+                      <Link
+                        href="/alerts"
+                        className="text-sm text-blue-500 hover:underline shrink-0"
+                      >
+                        View
+                      </Link>
                     </div>
-                    <Link
-                      href="/alerts"
-                      className="text-sm text-blue-500 hover:underline shrink-0"
-                    >
-                      View
-                    </Link>
+                    {/* Suggested Fix */}
+                    {alert.context?.suggestedFix && (
+                      <div className="mt-3">
+                        <SuggestedFix
+                          fix={alert.context.suggestedFix}
+                          exitCode={alert.context.exitCode}
+                          reason={alert.context.reason}
+                          namespace={cronJob.namespace}
+                          name={cronJob.name}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

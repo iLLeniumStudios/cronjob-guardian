@@ -1,0 +1,617 @@
+# =============================================================================
+# Test CronJobs - Various failure modes to test suggested fixes
+# =============================================================================
+---
+# -----------------------------------------------------------------------------
+# HEALTHY JOBS - Always succeed
+# -----------------------------------------------------------------------------
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: healthy-fast
+  namespace: default
+  labels:
+    tier: core
+    criticality: high
+spec:
+  schedule: "* * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Quick success' && exit 0"]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: healthy-slow
+  namespace: default
+  labels:
+    tier: core
+    criticality: medium
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Starting...'; sleep 10; echo 'Done'"]
+---
+# -----------------------------------------------------------------------------
+# EXIT CODE FAILURES - Test suggested fix patterns
+# -----------------------------------------------------------------------------
+# Exit 1: Generic application error
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exit-code-1
+  namespace: default
+  labels:
+    tier: test
+    failure-type: exit-code
+spec:
+  schedule: "*/3 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Application error occurred'; exit 1"]
+---
+# Exit 2: Misuse of shell command
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exit-code-2
+  namespace: default
+  labels:
+    tier: test
+    failure-type: exit-code
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Invalid arguments'; exit 2"]
+---
+# Exit 126: Command not executable
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exit-code-126
+  namespace: default
+  labels:
+    tier: test
+    failure-type: exit-code
+spec:
+  schedule: "*/10 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Permission denied'; exit 126"]
+---
+# Exit 127: Command not found
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exit-code-127
+  namespace: default
+  labels:
+    tier: test
+    failure-type: exit-code
+spec:
+  schedule: "*/10 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "nonexistent_command"]
+---
+# Exit 137: SIGKILL (OOM simulation)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exit-code-137-oom
+  namespace: default
+  labels:
+    tier: test
+    failure-type: oom
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Simulating OOM...'; kill -9 $$"]
+---
+# Exit 143: SIGTERM
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exit-code-143-sigterm
+  namespace: default
+  labels:
+    tier: test
+    failure-type: signal
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Simulating SIGTERM...'; kill -15 $$"]
+---
+# -----------------------------------------------------------------------------
+# TIMEOUT FAILURES - DeadlineExceeded
+# -----------------------------------------------------------------------------
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: deadline-exceeded
+  namespace: default
+  labels:
+    tier: test
+    failure-type: timeout
+spec:
+  schedule: "*/10 * * * *"
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 5
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Starting long task...'; sleep 300"]
+---
+# -----------------------------------------------------------------------------
+# BACKOFF LIMIT FAILURES
+# -----------------------------------------------------------------------------
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backoff-exceeded
+  namespace: default
+  labels:
+    tier: test
+    failure-type: backoff
+spec:
+  schedule: "*/10 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Attempt failed'; exit 1"]
+---
+# -----------------------------------------------------------------------------
+# FLAKY JOBS - Random failures
+# -----------------------------------------------------------------------------
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: flaky-50-percent
+  namespace: default
+  labels:
+    tier: test
+    failure-type: flaky
+spec:
+  schedule: "*/2 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "if [ $((RANDOM % 2)) -eq 0 ]; then echo 'Success'; else echo 'Random failure'; exit 1; fi"]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: flaky-20-percent
+  namespace: default
+  labels:
+    tier: production
+    criticality: high
+spec:
+  schedule: "*/3 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "if [ $((RANDOM % 5)) -eq 0 ]; then echo 'Occasional failure'; exit 1; else echo 'Success'; fi"]
+---
+# -----------------------------------------------------------------------------
+# LOG PATTERN FAILURES - Test log-based suggested fixes
+# -----------------------------------------------------------------------------
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-connection-error
+  namespace: default
+  labels:
+    tier: database
+    failure-type: connection
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Connecting to database...'; echo 'Error: connection refused to postgres:5432'; exit 1"]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: redis-connection-error
+  namespace: default
+  labels:
+    tier: cache
+    failure-type: connection
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Connecting to Redis...'; echo 'Error: connection refused to redis:6379'; exit 1"]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: auth-failure
+  namespace: default
+  labels:
+    tier: api
+    failure-type: auth
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Authenticating...'; echo 'Error: 401 Unauthorized - Invalid API key'; exit 1"]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: disk-full-error
+  namespace: default
+  labels:
+    tier: storage
+    failure-type: disk
+spec:
+  schedule: "*/10 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Writing data...'; echo 'Error: No space left on device'; exit 1"]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-allocation-error
+  namespace: default
+  labels:
+    tier: compute
+    failure-type: memory
+spec:
+  schedule: "*/10 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Allocating memory...'; echo 'Error: Cannot allocate memory'; exit 1"]
+---
+# -----------------------------------------------------------------------------
+# REALISTIC WORKLOADS
+# -----------------------------------------------------------------------------
+# Database backup
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: default
+  labels:
+    tier: database
+    workload: backup
+spec:
+  schedule: "0 */4 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: backup
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Starting PostgreSQL backup...'; sleep 5; echo 'Backup completed: backup-$(date +%Y%m%d).sql'"]
+---
+# ETL Pipeline
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etl-pipeline
+  namespace: default
+  labels:
+    tier: analytics
+    workload: etl
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: etl
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Extract...'; sleep 2; echo 'Transform...'; sleep 2; echo 'Load...'; sleep 2; echo 'ETL complete'"]
+---
+# Report generation
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: daily-report
+  namespace: default
+  labels:
+    tier: analytics
+    workload: reporting
+spec:
+  schedule: "0 6 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: report
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Generating daily report...'; sleep 3; echo 'Report sent to stakeholders'"]
+---
+# Cache warming
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cache-warmer
+  namespace: default
+  labels:
+    tier: cache
+    workload: maintenance
+spec:
+  schedule: "*/30 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: warmer
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Warming cache...'; sleep 2; echo 'Cache populated'"]
+---
+# Data cleanup
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: data-retention-cleanup
+  namespace: default
+  labels:
+    tier: database
+    workload: maintenance
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: cleanup
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Cleaning records older than 90 days...'; sleep 3; echo 'Deleted 1523 records'"]
+---
+# Health probe
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: service-health-check
+  namespace: default
+  labels:
+    tier: monitoring
+    workload: health
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: health
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Checking services...'; sleep 1; echo 'All 12 services healthy'"]
+---
+# Certificate renewal check
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cert-expiry-check
+  namespace: default
+  labels:
+    tier: security
+    workload: compliance
+spec:
+  schedule: "0 9 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: certcheck
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Checking certificate expiry...'; sleep 1; echo 'All certs valid for >30 days'"]
+---
+# Metrics aggregation
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: metrics-aggregator
+  namespace: default
+  labels:
+    tier: monitoring
+    workload: metrics
+spec:
+  schedule: "*/15 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: aggregator
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Aggregating metrics...'; sleep 2; echo 'Metrics rolled up'"]
+---
+# Index optimization
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-index-optimize
+  namespace: default
+  labels:
+    tier: database
+    workload: maintenance
+spec:
+  schedule: "0 3 * * 0"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: optimize
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Optimizing indexes...'; sleep 5; echo 'Index optimization complete'"]
+---
+# API token rotation
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: token-rotation
+  namespace: default
+  labels:
+    tier: security
+    workload: compliance
+spec:
+  schedule: "0 0 1 * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: rotate
+              image: busybox:1.36
+              command: ["sh", "-c", "echo 'Rotating API tokens...'; sleep 2; echo 'Tokens rotated successfully'"]
+---
+# Suspended job for testing
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: suspended-maintenance
+  namespace: default
+  labels:
+    tier: maintenance
+spec:
+  schedule: "* * * * *"
+  suspend: true
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: job
+              image: busybox:1.36
+              command: ["echo", "This job is suspended"]

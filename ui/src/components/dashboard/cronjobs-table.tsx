@@ -85,7 +85,7 @@ function getDisplayData(
     filtered.push(job);
   }
 
-  // Sort
+  // Sort with stable secondary sort by name
   const multiplier = sortDirection === "asc" ? 1 : -1;
   filtered.sort((a, b) => {
     let comparison = 0;
@@ -108,6 +108,10 @@ function getDisplayData(
       case "nextRun":
         comparison = parseDate(a.nextRun) - parseDate(b.nextRun);
         break;
+    }
+    // Stable sort: use name as tiebreaker when primary sort values are equal
+    if (comparison === 0 && sortColumn !== "name") {
+      comparison = a.name.localeCompare(b.name);
     }
     return comparison * multiplier;
   });
@@ -257,16 +261,17 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
           ) : (
             <div className="flex-1 rounded border overflow-hidden">
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-8"></TableHead>
+                      <TableHead className="w-10"></TableHead>
                       <SortableTableHeader
                         column="name"
                         label="Name"
                         currentSort={sortColumn}
                         direction={sortDirection}
                         onSort={handleSort}
+                        className="w-[30%] min-w-[180px]"
                       />
                       <SortableTableHeader
                         column="namespace"
@@ -275,6 +280,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                         direction={sortDirection}
                         onSort={handleSort}
                         hideOnMobile
+                        className="w-[120px]"
                       />
                       <SortableTableHeader
                         column="schedule"
@@ -283,6 +289,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                         direction={sortDirection}
                         onSort={handleSort}
                         hideOnTablet
+                        className="w-[110px]"
                       />
                       <SortableTableHeader
                         column="successRate"
@@ -291,6 +298,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                         direction={sortDirection}
                         onSort={handleSort}
                         align="right"
+                        className="w-[100px]"
                       />
                       <SortableTableHeader
                         column="lastSuccess"
@@ -298,7 +306,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                         currentSort={sortColumn}
                         direction={sortDirection}
                         onSort={handleSort}
-                        className="hidden lg:table-cell"
+                        className="hidden lg:table-cell w-[140px]"
                       />
                       <SortableTableHeader
                         column="nextRun"
@@ -307,6 +315,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                         direction={sortDirection}
                         onSort={handleSort}
                         hideOnMobile
+                        className="w-[120px]"
                       />
                     </TableRow>
                   </TableHeader>
@@ -369,21 +378,22 @@ function CronJobRow({ job }: { job: CronJob }) {
 
   return (
     <TableRow className="cursor-pointer hover:bg-muted/50 h-12">
-      <TableCell>
+      <TableCell className="w-10">
         <StatusIndicator status={displayStatus} />
       </TableCell>
-      <TableCell>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+      <TableCell className="max-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 min-w-0">
           <Link
             href={`/cronjob/${job.namespace}/${job.name}`}
-            className="font-medium hover:underline"
+            className="font-medium hover:underline truncate"
+            title={job.name}
           >
             {job.name}
           </Link>
           {/* Show namespace inline on mobile since column is hidden */}
-          <span className="text-xs text-muted-foreground sm:hidden">{job.namespace}</span>
+          <span className="text-xs text-muted-foreground sm:hidden truncate">{job.namespace}</span>
           {hasActiveJobs && (
-            <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20 gap-1 w-fit">
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20 gap-1 w-fit shrink-0">
               <Play className="h-3 w-3 fill-current" />
               {job.activeJobs!.length} running
             </Badge>
@@ -391,11 +401,11 @@ function CronJobRow({ job }: { job: CronJob }) {
         </div>
       </TableCell>
       <TableCell className="hidden sm:table-cell">
-        <Badge variant="outline" className="font-normal">
+        <Badge variant="outline" className="font-normal max-w-full truncate">
           {job.namespace}
         </Badge>
       </TableCell>
-      <TableCell className="hidden md:table-cell font-mono text-sm">{job.schedule}</TableCell>
+      <TableCell className="hidden md:table-cell font-mono text-sm truncate">{job.schedule}</TableCell>
       <TableCell className="text-right">
         <span className={cn("font-medium", getSuccessRateColor(job.successRate))}>
           {job.successRate.toFixed(1)}%

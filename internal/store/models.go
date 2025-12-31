@@ -24,14 +24,14 @@ import (
 // Execution represents a CronJob execution record (GORM model)
 type Execution struct {
 	ID               int64      `gorm:"primaryKey;autoIncrement"`
-	CronJobNamespace string     `gorm:"column:cronjob_ns;size:253;not null;index:idx_cronjob_time,priority:1;index:idx_cronjob_uid,priority:1"`
-	CronJobName      string     `gorm:"column:cronjob_name;size:253;not null;index:idx_cronjob_time,priority:2;index:idx_cronjob_uid,priority:2"`
+	CronJobNamespace string     `gorm:"column:cronjob_ns;size:253;not null;index:idx_cronjob_time,priority:1;index:idx_cronjob_uid,priority:1;index:idx_cronjob_duration,priority:1"`
+	CronJobName      string     `gorm:"column:cronjob_name;size:253;not null;index:idx_cronjob_time,priority:2;index:idx_cronjob_uid,priority:2;index:idx_cronjob_duration,priority:2"`
 	CronJobUID       string     `gorm:"column:cronjob_uid;size:36;index:idx_cronjob_uid,priority:3"`
 	JobName          string     `gorm:"column:job_name;size:253;not null;index"`
 	ScheduledTime    *time.Time `gorm:"column:scheduled_time"`
-	StartTime        time.Time  `gorm:"column:start_time;not null;index:idx_cronjob_time,priority:3,sort:desc;index:idx_start_time"`
+	StartTime        time.Time  `gorm:"column:start_time;not null;index:idx_cronjob_time,priority:3,sort:desc;index:idx_start_time;index:idx_cronjob_duration,priority:3"`
 	CompletionTime   time.Time  `gorm:"column:completion_time"`
-	DurationSecs     *float64   `gorm:"column:duration_secs"`
+	DurationSecs     *float64   `gorm:"column:duration_secs;index:idx_cronjob_duration,priority:4"`
 	Succeeded        bool       `gorm:"column:succeeded;not null"`
 	ExitCode         int32      `gorm:"column:exit_code"`
 	Reason           string     `gorm:"column:reason;size:255"`
@@ -39,6 +39,7 @@ type Execution struct {
 	RetryOf          string     `gorm:"column:retry_of;size:253"`
 	Logs             *string    `gorm:"column:logs;type:text"`
 	Events           *string    `gorm:"column:events;type:text"`
+	SuggestedFix     string     `gorm:"column:suggested_fix;type:text"` // Generated fix suggestion for failures
 	CreatedAt        time.Time  `gorm:"column:created_at;autoCreateTime"`
 }
 
@@ -74,7 +75,11 @@ type AlertHistory struct {
 	MonitorName      string     `gorm:"column:monitor_name;size:253"`
 	ChannelsNotified string     `gorm:"column:channels_notified;type:text"` // Comma-separated
 	OccurredAt       time.Time  `gorm:"column:occurred_at;not null;index:idx_alert_occurred,sort:desc"`
-	ResolvedAt       *time.Time `gorm:"column:resolved_at"`
+	ResolvedAt       *time.Time `gorm:"column:resolved_at;index:idx_alert_unresolved"`
+	// Context fields for failure alerts
+	ExitCode     int32  `gorm:"column:exit_code"`
+	Reason       string `gorm:"column:reason;size:255"`
+	SuggestedFix string `gorm:"column:suggested_fix;type:text"`
 }
 
 // TableName specifies the table name for AlertHistory
@@ -117,8 +122,26 @@ type AlertHistoryQuery struct {
 	Severity string
 }
 
-// ChannelAlertStats contains alert statistics for a channel
+// ChannelAlertStats contains alert statistics for a channel (query result)
 type ChannelAlertStats struct {
 	ChannelName     string
 	AlertsSentTotal int64
+}
+
+// ChannelStatsRecord persists channel alert statistics (GORM model)
+type ChannelStatsRecord struct {
+	ID                  int64      `gorm:"primaryKey;autoIncrement"`
+	ChannelName         string     `gorm:"column:channel_name;size:253;not null;uniqueIndex"`
+	AlertsSentTotal     int64      `gorm:"column:alerts_sent_total;default:0"`
+	AlertsFailedTotal   int64      `gorm:"column:alerts_failed_total;default:0"`
+	LastAlertTime       *time.Time `gorm:"column:last_alert_time"`
+	LastFailedTime      *time.Time `gorm:"column:last_failed_time"`
+	LastFailedError     string     `gorm:"column:last_failed_error;type:text"`
+	ConsecutiveFailures int32      `gorm:"column:consecutive_failures;default:0"`
+	UpdatedAt           time.Time  `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+// TableName specifies the table name for ChannelStatsRecord
+func (ChannelStatsRecord) TableName() string {
+	return "channel_stats"
 }

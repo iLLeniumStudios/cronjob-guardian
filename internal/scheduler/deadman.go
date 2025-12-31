@@ -38,6 +38,7 @@ type DeadManScheduler struct {
 	analyzer         analyzer.SLAAnalyzer
 	dispatcher       alerting.Dispatcher
 	interval         time.Duration
+	startupDelay     time.Duration // delay before first check to let controllers reconcile
 	stopCh           chan struct{}
 	running          bool
 	mu               sync.Mutex
@@ -52,6 +53,7 @@ func NewDeadManScheduler(c client.Client, a analyzer.SLAAnalyzer, d alerting.Dis
 		analyzer:       a,
 		dispatcher:     d,
 		interval:       1 * time.Minute,
+		startupDelay:   0, // Set via SetStartupDelay from config
 		stopCh:         make(chan struct{}),
 		suspendedSince: make(map[string]time.Time),
 	}
@@ -68,7 +70,21 @@ func (s *DeadManScheduler) Start(ctx context.Context) error {
 	s.mu.Unlock()
 
 	logger := log.FromContext(ctx)
-	logger.Info("starting dead-man's switch scheduler", "interval", s.interval)
+	logger.Info("starting dead-man's switch scheduler", "interval", s.interval, "startupDelay", s.startupDelay)
+
+	// Wait for startup delay to let controllers reconcile CRD statuses
+	// This prevents a flood of alerts on operator restart
+	if s.startupDelay > 0 {
+		logger.Info("waiting for startup delay before first dead-man check", "delay", s.startupDelay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.stopCh:
+			return nil
+		case <-time.After(s.startupDelay):
+			logger.Info("startup delay complete, beginning dead-man checks")
+		}
+	}
 
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
@@ -100,6 +116,13 @@ func (s *DeadManScheduler) SetInterval(d time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.interval = d
+}
+
+// SetStartupDelay sets the delay before the first check (must be called before Start)
+func (s *DeadManScheduler) SetStartupDelay(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.startupDelay = d
 }
 
 func (s *DeadManScheduler) check(ctx context.Context) {
@@ -152,10 +175,16 @@ func (s *DeadManScheduler) check(ctx context.Context) {
 					continue
 				}
 
+				// Safely get severity override
+				var deadManSeverity string
+				if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
+					deadManSeverity = monitor.Spec.Alerting.SeverityOverrides.DeadManTriggered
+				}
+
 				// Send alert
 				alert := alerting.Alert{
 					Type:     "DeadManTriggered",
-					Severity: getSeverity(monitor.Spec.Alerting.SeverityOverrides.DeadManTriggered, "critical"),
+					Severity: getSeverity(deadManSeverity, "critical"),
 					Title:    fmt.Sprintf("Dead-man's switch triggered: %s/%s", cjStatus.Namespace, cjStatus.Name),
 					Message:  result.Message,
 					CronJob: types.NamespacedName{

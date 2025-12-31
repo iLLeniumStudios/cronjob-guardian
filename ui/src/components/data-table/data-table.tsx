@@ -145,16 +145,23 @@ export function DataTable<T>({
       });
     }
 
-    // Apply sort
+    // Apply sort with stable secondary sort using row key
     if (sortColumn) {
       const column = getColumn(sortColumn);
       if (column) {
         result.sort((a, b) => {
+          let comparison: number;
           if (column.sortFn) {
-            const comparison = column.sortFn(a, b);
-            return sortDirection === "asc" ? comparison : -comparison;
+            comparison = column.sortFn(a, b);
+            if (sortDirection === "desc") comparison = -comparison;
+          } else {
+            comparison = defaultSort(a, b, column, sortDirection);
           }
-          return defaultSort(a, b, column, sortDirection);
+          // Stable sort: use row key as tiebreaker when primary sort values are equal
+          if (comparison === 0) {
+            comparison = getRowKey(a).localeCompare(getRowKey(b));
+          }
+          return comparison;
         });
       }
     }
@@ -175,7 +182,7 @@ export function DataTable<T>({
       totalFiltered,
       totalPages,
     };
-  }, [data, filter, filterValue, search, searchValue, sortColumn, sortDirection, getColumn, page, pageSize]);
+  }, [data, filter, filterValue, search, searchValue, sortColumn, sortDirection, getColumn, getRowKey, page, pageSize]);
 
   // Handlers
   const handleSort = useCallback(

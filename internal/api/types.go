@@ -28,11 +28,13 @@ type NamespacedRef struct {
 
 // HealthResponse is the response for GET /api/v1/health
 type HealthResponse struct {
-	Status  string `json:"status"`
-	Storage string `json:"storage"`
-	Leader  bool   `json:"leader"`
-	Version string `json:"version"`
-	Uptime  string `json:"uptime"`
+	Status            string   `json:"status"`
+	Storage           string   `json:"storage"`
+	Leader            bool     `json:"leader"`
+	Version           string   `json:"version"`
+	Uptime            string   `json:"uptime"`
+	AnalyzerEnabled   bool     `json:"analyzerEnabled"`
+	SchedulersRunning []string `json:"schedulersRunning"`
 }
 
 // StatsResponse is the response for GET /api/v1/stats
@@ -185,15 +187,23 @@ type AlertListResponse struct {
 
 // AlertItem is a single alert
 type AlertItem struct {
-	ID           string         `json:"id"`
-	Type         string         `json:"type"`
-	Severity     string         `json:"severity"`
-	Title        string         `json:"title"`
-	Message      string         `json:"message"`
-	CronJob      *NamespacedRef `json:"cronjob,omitempty"`
-	Monitor      *NamespacedRef `json:"monitor,omitempty"`
-	Since        time.Time      `json:"since"`
-	LastNotified *time.Time     `json:"lastNotified,omitempty"`
+	ID           string                `json:"id"`
+	Type         string                `json:"type"`
+	Severity     string                `json:"severity"`
+	Title        string                `json:"title"`
+	Message      string                `json:"message"`
+	CronJob      *NamespacedRef        `json:"cronjob,omitempty"`
+	Monitor      *NamespacedRef        `json:"monitor,omitempty"`
+	Since        time.Time             `json:"since"`
+	LastNotified *time.Time            `json:"lastNotified,omitempty"`
+	Context      *AlertContextResponse `json:"context,omitempty"`
+}
+
+// AlertContextResponse contains context data for an alert (suggested fixes, exit codes, etc.)
+type AlertContextResponse struct {
+	ExitCode     int32  `json:"exitCode,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	SuggestedFix string `json:"suggestedFix,omitempty"`
 }
 
 // AlertHistoryResponse is the response for GET /api/v1/alerts/history
@@ -213,6 +223,10 @@ type AlertHistoryItem struct {
 	OccurredAt       time.Time      `json:"occurredAt"`
 	ResolvedAt       *time.Time     `json:"resolvedAt,omitempty"`
 	ChannelsNotified []string       `json:"channelsNotified"`
+	// Context fields for failure alerts
+	ExitCode     int32  `json:"exitCode,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	SuggestedFix string `json:"suggestedFix,omitempty"`
 }
 
 // ChannelListResponse is the response for GET /api/v1/channels
@@ -323,4 +337,52 @@ type ExecutionDetailResponse struct {
 	RetryOf          string     `json:"retryOf,omitempty"`
 	StoredLogs       string     `json:"storedLogs,omitempty"`
 	StoredEvents     string     `json:"storedEvents,omitempty"`
+}
+
+// PatternTestRequest is the request for POST /api/v1/patterns/test
+type PatternTestRequest struct {
+	Pattern  PatternInput    `json:"pattern"`
+	TestData PatternTestData `json:"testData"`
+}
+
+// PatternInput represents a pattern to test
+type PatternInput struct {
+	Name       string            `json:"name"`
+	Match      PatternMatchInput `json:"match"`
+	Suggestion string            `json:"suggestion"`
+	Priority   *int32            `json:"priority,omitempty"`
+}
+
+// PatternMatchInput represents match criteria for a pattern
+type PatternMatchInput struct {
+	ExitCode      *int32              `json:"exitCode,omitempty"`
+	ExitCodeRange *ExitCodeRangeInput `json:"exitCodeRange,omitempty"`
+	Reason        string              `json:"reason,omitempty"`
+	ReasonPattern string              `json:"reasonPattern,omitempty"`
+	LogPattern    string              `json:"logPattern,omitempty"`
+	EventPattern  string              `json:"eventPattern,omitempty"`
+}
+
+// ExitCodeRangeInput represents an exit code range
+type ExitCodeRangeInput struct {
+	Min int32 `json:"min"`
+	Max int32 `json:"max"`
+}
+
+// PatternTestData contains sample data to test against
+type PatternTestData struct {
+	ExitCode  int32    `json:"exitCode"`
+	Reason    string   `json:"reason"`
+	Logs      string   `json:"logs"`
+	Events    []string `json:"events"`
+	Namespace string   `json:"namespace"`
+	Name      string   `json:"name"`
+	JobName   string   `json:"jobName"`
+}
+
+// PatternTestResponse is the response for pattern testing
+type PatternTestResponse struct {
+	Matched            bool   `json:"matched"`
+	RenderedSuggestion string `json:"renderedSuggestion,omitempty"`
+	Error              string `json:"error,omitempty"`
 }

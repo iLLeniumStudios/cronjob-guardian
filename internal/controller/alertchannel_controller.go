@@ -74,7 +74,7 @@ func (r *AlertChannelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		log.Error(err, "validation failed")
 		channel.Status.Ready = false
 		channel.Status.LastTestError = err.Error()
-		r.setCondition(channel, "Ready", metav1.ConditionFalse, "ValidationFailed", err.Error())
+		r.setReadyCondition(channel, metav1.ConditionFalse, "ValidationFailed", err.Error())
 		if err := r.Status().Update(ctx, channel); err != nil {
 			log.Error(err, "failed to update status after validation error")
 			return ctrl.Result{}, err
@@ -107,7 +107,7 @@ func (r *AlertChannelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err := r.AlertDispatcher.RegisterChannel(channel); err != nil {
 			log.Error(err, "failed to register channel")
 			channel.Status.Ready = false
-			r.setCondition(channel, "Ready", metav1.ConditionFalse, "RegistrationFailed", err.Error())
+			r.setReadyCondition(channel, metav1.ConditionFalse, "RegistrationFailed", err.Error())
 			if err := r.Status().Update(ctx, channel); err != nil {
 				log.Error(err, "failed to update status after registration error")
 				return ctrl.Result{}, err
@@ -136,9 +136,22 @@ func (r *AlertChannelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// 5. Update status
-	channel.Status.Ready = true
-	r.setCondition(channel, "Ready", metav1.ConditionTrue, "Validated", "Channel is ready")
+	// 5. Update status based on health
+	// Mark channel as not ready if there are too many consecutive failures
+	const maxConsecutiveFailures int32 = 3
+	if channel.Status.ConsecutiveFailures >= maxConsecutiveFailures {
+		channel.Status.Ready = false
+		reason := fmt.Sprintf("Channel has %d consecutive failures (threshold: %d). Last error: %s",
+			channel.Status.ConsecutiveFailures, maxConsecutiveFailures, channel.Status.LastFailedError)
+		r.setReadyCondition(channel, metav1.ConditionFalse, "ConsecutiveFailures", reason)
+		log.Info("channel marked not ready due to consecutive failures",
+			"consecutiveFailures", channel.Status.ConsecutiveFailures,
+			"lastError", channel.Status.LastFailedError)
+	} else {
+		channel.Status.Ready = true
+		r.setReadyCondition(channel, metav1.ConditionTrue, "Validated", "Channel is ready")
+	}
+
 	if err := r.Status().Update(ctx, channel); err != nil {
 		log.Error(err, "failed to update status")
 		return ctrl.Result{}, err
@@ -312,7 +325,8 @@ func (r *AlertChannelReconciler) testChannel(ctx context.Context, channel *guard
 	return r.AlertDispatcher.SendToChannel(ctx, channel.Name, testAlert)
 }
 
-func (r *AlertChannelReconciler) setCondition(channel *guardianv1alpha1.AlertChannel, condType string, status metav1.ConditionStatus, reason, message string) {
+func (r *AlertChannelReconciler) setReadyCondition(channel *guardianv1alpha1.AlertChannel, status metav1.ConditionStatus, reason, message string) {
+	const condType = "Ready"
 	now := metav1.Now()
 	condition := metav1.Condition{
 		Type:               condType,

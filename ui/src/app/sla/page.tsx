@@ -264,7 +264,7 @@ export default function SLAPage() {
     // Filter by status
     const filtered = filter === "all" ? slaData : slaData.filter((s) => s.status === filter);
 
-    // Sort
+    // Sort with stable secondary sort by name
     const multiplier = sortDirection === "asc" ? 1 : -1;
     const sorted = [...filtered].sort((a, b) => {
       let comparison = 0;
@@ -287,6 +287,10 @@ export default function SLAPage() {
         case "trend":
           comparison = trendOrder[a.trend] - trendOrder[b.trend];
           break;
+      }
+      // Stable sort: use name as tiebreaker when primary sort values are equal
+      if (comparison === 0 && sortColumn !== "name") {
+        comparison = a.name.localeCompare(b.name);
       }
       return comparison * multiplier;
     });

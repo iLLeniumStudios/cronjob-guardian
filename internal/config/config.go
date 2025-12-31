@@ -71,6 +71,11 @@ type SchedulerConfig struct {
 
 	// PruneInterval is how often to prune old execution history
 	PruneInterval time.Duration `mapstructure:"prune-interval" json:"pruneInterval"`
+
+	// StartupGracePeriod is the delay after startup before alerts are sent
+	// This allows controllers to reconcile before triggering alerts, preventing
+	// alert floods on operator restart
+	StartupGracePeriod time.Duration `mapstructure:"startup-grace-period" json:"startupGracePeriod"`
 }
 
 // StorageConfig configures the storage backend
@@ -234,6 +239,7 @@ func DefaultConfig() *Config {
 			DeadManSwitchInterval:    1 * time.Minute,
 			SLARecalculationInterval: 5 * time.Minute,
 			PruneInterval:            1 * time.Hour,
+			StartupGracePeriod:       30 * time.Second,
 		},
 		Storage: StorageConfig{
 			Type: "sqlite",
@@ -296,6 +302,7 @@ func BindFlags(flags *pflag.FlagSet) {
 	flags.Duration("scheduler.dead-man-switch-interval", 1*time.Minute, "How often to check dead-man's switches")
 	flags.Duration("scheduler.sla-recalculation-interval", 5*time.Minute, "How often to recalculate SLA metrics")
 	flags.Duration("scheduler.prune-interval", 1*time.Hour, "How often to prune old execution history")
+	flags.Duration("scheduler.startup-grace-period", 30*time.Second, "Grace period after startup before sending alerts")
 
 	// Storage
 	flags.String("storage.type", "sqlite", "Storage backend type (sqlite, postgres, mysql)")
@@ -360,6 +367,7 @@ func Load(flags *pflag.FlagSet) (*Config, error) {
 	v.SetDefault("scheduler.dead-man-switch-interval", defaults.Scheduler.DeadManSwitchInterval)
 	v.SetDefault("scheduler.sla-recalculation-interval", defaults.Scheduler.SLARecalculationInterval)
 	v.SetDefault("scheduler.prune-interval", defaults.Scheduler.PruneInterval)
+	v.SetDefault("scheduler.startup-grace-period", defaults.Scheduler.StartupGracePeriod)
 	v.SetDefault("storage.type", defaults.Storage.Type)
 	v.SetDefault("storage.sqlite.path", defaults.Storage.SQLite.Path)
 	v.SetDefault("storage.postgres.port", defaults.Storage.PostgreSQL.Port)

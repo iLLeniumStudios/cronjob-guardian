@@ -125,8 +125,8 @@ func (w *webhookChannel) Send(ctx context.Context, alert Alert) error {
 		req.Header.Set(k, v)
 	}
 
-	// Send
-	resp, err := http.DefaultClient.Do(req)
+	// Send with shared HTTP client (has timeouts)
+	resp, err := AlertHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
 	}

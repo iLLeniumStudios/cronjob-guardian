@@ -19,6 +19,7 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -28,6 +29,9 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
+
+// scheduleCache caches parsed cron schedules to avoid repeated parsing
+var scheduleCache sync.Map // map[string]cron.Schedule
 
 // SLAAnalyzer analyzes CronJob SLA compliance
 type SLAAnalyzer interface {
@@ -62,11 +66,13 @@ type Violation struct {
 
 // DeadManResult contains dead-man's switch check results
 type DeadManResult struct {
-	Triggered        bool
-	LastSuccess      *time.Time
-	ExpectedInterval time.Duration
-	TimeSinceSuccess time.Duration
-	Message          string
+	Triggered            bool
+	LastSuccess          *time.Time
+	ExpectedInterval     time.Duration
+	TimeSinceSuccess     time.Duration
+	Message              string
+	MissedScheduleCount  int32 // Number of missed schedules based on expected interval
+	ShouldIncrementCount bool  // Whether to increment the count in status
 }
 
 // RegressionResult contains regression check results
@@ -161,21 +167,44 @@ func (a *analyzer) CheckDeadManSwitch(ctx context.Context, cronJob *batchv1.Cron
 		return &DeadManResult{Triggered: false}, nil
 	}
 
-	// Get last successful execution
-	lastSuccess, err := a.store.GetLastSuccessfulExecution(ctx, types.NamespacedName{
+	cronJobNN := types.NamespacedName{
 		Namespace: cronJob.Namespace,
 		Name:      cronJob.Name,
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last successful execution: %w", err)
 	}
+
+	// Get last execution (success OR failure) - dead-man checks if ANY job ran
+	// This separates concerns: JobFailed alerts on failures, DeadManTriggered alerts on missed schedules
+	lastExec, err := a.store.GetLastExecution(ctx, cronJobNN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last execution: %w", err)
+	}
+
+	// Also get last successful for the result (useful for UI display)
+	lastSuccess, _ := a.store.GetLastSuccessfulExecution(ctx, cronJobNN)
 
 	result := &DeadManResult{}
 
-	if lastSuccess != nil {
+	// Track last success for informational purposes
+	if lastSuccess != nil && !lastSuccess.CompletionTime.IsZero() {
 		result.LastSuccess = &lastSuccess.CompletionTime
 		result.TimeSinceSuccess = time.Since(lastSuccess.CompletionTime)
+	}
+
+	// But use last execution (any) for the dead-man check
+	// Use StartTime as fallback if CompletionTime is zero (job may still be running or data issue)
+	var timeSinceLastRun time.Duration
+	if lastExec != nil {
+		refTime := lastExec.CompletionTime
+		if refTime.IsZero() {
+			// CompletionTime not set - use StartTime instead
+			refTime = lastExec.StartTime
+		}
+		if !refTime.IsZero() {
+			timeSinceLastRun = time.Since(refTime)
+		} else {
+			// Both times are zero - treat as no valid execution
+			lastExec = nil
+		}
 	}
 
 	// Determine expected interval
@@ -202,18 +231,41 @@ func (a *analyzer) CheckDeadManSwitch(ctx context.Context, cronJob *batchv1.Cron
 
 	result.ExpectedInterval = expectedInterval
 
-	// Check if triggered
-	if lastSuccess == nil {
-		// Never succeeded - check if CronJob is old enough
+	// Calculate missed schedule count and check threshold
+	// We use lastExec (any execution) not lastSuccess, so dead-man only fires for truly missed schedules
+	var missedCount int32
+	threshold := int32(1) // Default threshold
+
+	// Get threshold from config if using auto-from-schedule
+	if config.AutoFromSchedule != nil && config.AutoFromSchedule.MissedScheduleThreshold != nil {
+		threshold = *config.AutoFromSchedule.MissedScheduleThreshold
+	}
+
+	if lastExec == nil {
+		// Never ran at all - calculate from creation time
 		if cronJob.CreationTimestamp.Add(expectedInterval).Before(time.Now()) {
-			result.Triggered = true
-			result.Message = fmt.Sprintf("No successful runs since creation (expected within %s)", expectedInterval)
+			elapsed := time.Since(cronJob.CreationTimestamp.Time)
+			missedCount = int32(elapsed / expectedInterval)
+			result.ShouldIncrementCount = true
 		}
-	} else if result.TimeSinceSuccess > expectedInterval {
+	} else if timeSinceLastRun > expectedInterval {
+		// Calculate how many intervals have been missed since last run
+		missedCount = int32(timeSinceLastRun / expectedInterval)
+		result.ShouldIncrementCount = true
+	}
+
+	result.MissedScheduleCount = missedCount
+
+	// Only trigger if missed count >= threshold
+	if missedCount >= threshold {
 		result.Triggered = true
-		result.Message = fmt.Sprintf("No successful run in %s (expected within %s)",
-			result.TimeSinceSuccess.Round(time.Minute),
-			expectedInterval)
+		if lastExec == nil {
+			result.Message = fmt.Sprintf("No jobs have run since creation. Missed %d scheduled run(s) (threshold: %d, expected interval: %s)",
+				missedCount, threshold, expectedInterval)
+		} else {
+			result.Message = fmt.Sprintf("No jobs have run for %s. Missed %d scheduled run(s) (threshold: %d)",
+				timeSinceLastRun.Round(time.Minute), missedCount, threshold)
+		}
 	}
 
 	return result, nil
@@ -266,14 +318,27 @@ func (a *analyzer) CheckDurationRegression(ctx context.Context, cronJob types.Na
 	return result, nil
 }
 
-// parseScheduleInterval parses a cron schedule and returns the expected interval
+// parseScheduleInterval parses a cron schedule and returns the expected interval.
+// Uses a cache to avoid repeated parsing of the same schedule string.
 func parseScheduleInterval(schedule string) (time.Duration, error) {
-	// Use robfig/cron parser
+	// Check cache first
+	if cached, ok := scheduleCache.Load(schedule); ok {
+		sched := cached.(cron.Schedule)
+		now := time.Now()
+		next := sched.Next(now)
+		nextNext := sched.Next(next)
+		return nextNext.Sub(next), nil
+	}
+
+	// Parse schedule
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	sched, err := parser.Parse(schedule)
 	if err != nil {
 		return 0, err
 	}
+
+	// Cache for future use
+	scheduleCache.Store(schedule, sched)
 
 	// Calculate interval between two consecutive runs
 	now := time.Now()

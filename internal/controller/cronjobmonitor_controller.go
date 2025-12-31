@@ -349,55 +349,34 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 		windowDays = int(*monitor.Spec.SLA.WindowDays)
 	}
 
-	// Always try to get metrics from analyzer/store if available
-	if r.Analyzer != nil {
-		log.V(1).Info("fetching metrics", "windowDays", windowDays)
-		metrics, err := r.Analyzer.GetMetrics(ctx, cronJobNN, windowDays)
-		if err == nil && metrics != nil {
-			status.Metrics = metrics
-			log.V(1).Info("metrics retrieved",
-				"successRate", metrics.SuccessRate,
-				"totalRuns", metrics.TotalRuns)
+	// Get metrics from analyzer (always available - required dependency)
+	log.V(1).Info("fetching metrics", "windowDays", windowDays)
+	metrics, err := r.Analyzer.GetMetrics(ctx, cronJobNN, windowDays)
+	if err == nil && metrics != nil {
+		status.Metrics = metrics
+		log.V(1).Info("metrics retrieved",
+			"successRate", metrics.SuccessRate,
+			"totalRuns", metrics.TotalRuns)
 
-			// Update Prometheus metrics
-			prommetrics.UpdateSuccessRate(cj.Namespace, cj.Name, monitor.Name, metrics.SuccessRate)
-			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p50", metrics.P50DurationSeconds)
-			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p95", metrics.P95DurationSeconds)
-			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p99", metrics.P99DurationSeconds)
-		} else if err != nil {
-			log.V(1).Error(err, "failed to get metrics")
-		}
-	} else if r.Store != nil {
-		// Fallback: get metrics directly from store if no analyzer
-		log.V(1).Info("fetching metrics from store", "windowDays", windowDays)
-		metrics, err := r.Store.GetMetrics(ctx, cronJobNN, windowDays)
-		if err == nil && metrics != nil {
-			status.Metrics = &guardianv1alpha1.CronJobMetrics{
-				SuccessRate:        metrics.SuccessRate,
-				TotalRuns:          metrics.TotalRuns,
-				SuccessfulRuns:     metrics.SuccessfulRuns,
-				FailedRuns:         metrics.FailedRuns,
-				AvgDurationSeconds: metrics.AvgDurationSeconds,
-				P50DurationSeconds: metrics.P50DurationSeconds,
-				P95DurationSeconds: metrics.P95DurationSeconds,
-				P99DurationSeconds: metrics.P99DurationSeconds,
-			}
-			log.V(1).Info("metrics retrieved from store",
-				"successRate", metrics.SuccessRate,
-				"totalRuns", metrics.TotalRuns)
-
-			// Update Prometheus metrics
-			prommetrics.UpdateSuccessRate(cj.Namespace, cj.Name, monitor.Name, metrics.SuccessRate)
-			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p50", metrics.P50DurationSeconds)
-			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p95", metrics.P95DurationSeconds)
-			prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p99", metrics.P99DurationSeconds)
-		} else if err != nil {
-			log.V(1).Error(err, "failed to get metrics from store")
-		}
+		// Update Prometheus metrics
+		prommetrics.UpdateSuccessRate(cj.Namespace, cj.Name, monitor.Name, metrics.SuccessRate)
+		prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p50", metrics.P50DurationSeconds)
+		prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p95", metrics.P95DurationSeconds)
+		prommetrics.UpdateDuration(cj.Namespace, cj.Name, "p99", metrics.P99DurationSeconds)
+	} else if err != nil {
+		log.V(1).Error(err, "failed to get metrics")
 	}
 
 	// Check for active alerts
-	status.ActiveAlerts = r.checkAlerts(ctx, monitor, cj, &status)
+	// Find previous alerts for this CronJob to preserve timestamps
+	var previousAlerts []guardianv1alpha1.ActiveAlert
+	for _, prevStatus := range monitor.Status.CronJobs {
+		if prevStatus.Namespace == cj.Namespace && prevStatus.Name == cj.Name {
+			previousAlerts = prevStatus.ActiveAlerts
+			break
+		}
+	}
+	status.ActiveAlerts = r.checkAlerts(ctx, monitor, cj, &status, previousAlerts)
 	log.V(1).Info("checked alerts", "activeAlertCount", len(status.ActiveAlerts))
 
 	// Update active alerts Prometheus metric by severity
@@ -417,9 +396,19 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 }
 
 //nolint:gocyclo // complexity is acceptable for a function that checks multiple alert conditions
-func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob, _ *guardianv1alpha1.CronJobStatus) []guardianv1alpha1.ActiveAlert {
+func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob, _ *guardianv1alpha1.CronJobStatus, previousAlerts []guardianv1alpha1.ActiveAlert) []guardianv1alpha1.ActiveAlert {
 	var alerts []guardianv1alpha1.ActiveAlert
 	cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
+
+	// Helper to find existing alert by type and preserve its timestamp
+	findPreviousAlert := func(alertType string) *guardianv1alpha1.ActiveAlert {
+		for i := range previousAlerts {
+			if previousAlerts[i].Type == alertType {
+				return &previousAlerts[i]
+			}
+		}
+		return nil
+	}
 
 	// Check for recent job failure
 	if r.Store != nil {
@@ -437,25 +426,35 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 			if lastExec.Reason != "" {
 				message = "Last job execution failed: " + lastExec.Reason
 			}
-			// Use completion time if available, otherwise start time, otherwise now
+
+			// Preserve timestamp from existing alert if the same job is still failing
+			// Otherwise use completion/start time from the execution
 			alertTime := metav1.Now()
-			if !lastExec.CompletionTime.IsZero() {
+			if prev := findPreviousAlert("JobFailed"); prev != nil {
+				// Keep the original alert time if alert already exists
+				alertTime = prev.Since
+				r.Log.V(1).Info("preserving existing JobFailed alert timestamp", "cronJob", cj.Name, "since", alertTime.Time)
+			} else if !lastExec.CompletionTime.IsZero() {
 				alertTime = metav1.Time{Time: lastExec.CompletionTime}
 			} else if !lastExec.StartTime.IsZero() {
 				alertTime = metav1.Time{Time: lastExec.StartTime}
 			}
-			r.Log.V(1).Info("last job execution failed", "cronJob", cj.Name, "severity", severity, "reason", lastExec.Reason)
+
+			r.Log.V(1).Info("last job execution failed", "cronJob", cj.Name, "severity", severity, "reason", lastExec.Reason, "exitCode", lastExec.ExitCode)
 			alerts = append(alerts, guardianv1alpha1.ActiveAlert{
-				Type:     "JobFailed",
-				Severity: severity,
-				Message:  message,
-				Since:    alertTime,
+				Type:         "JobFailed",
+				Severity:     severity,
+				Message:      message,
+				Since:        alertTime,
+				ExitCode:     lastExec.ExitCode,
+				Reason:       lastExec.Reason,
+				SuggestedFix: lastExec.SuggestedFix, // Use stored value from execution record
 			})
 		}
 	}
 
 	// Check dead-man's switch
-	if monitor.Spec.DeadManSwitch != nil && isEnabled(monitor.Spec.DeadManSwitch.Enabled) && r.Analyzer != nil {
+	if monitor.Spec.DeadManSwitch != nil && isEnabled(monitor.Spec.DeadManSwitch.Enabled) {
 		r.Log.V(1).Info("checking dead-man's switch", "cronJob", cj.Name)
 		result, err := r.Analyzer.CheckDeadManSwitch(ctx, cj, monitor.Spec.DeadManSwitch)
 		if err != nil {
@@ -465,18 +464,24 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 			if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
 				severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.DeadManTriggered, "critical")
 			}
+			// Preserve timestamp from existing alert
+			alertTime := metav1.Now()
+			if prev := findPreviousAlert("DeadManTriggered"); prev != nil {
+				alertTime = prev.Since
+				r.Log.V(1).Info("preserving existing DeadManTriggered alert timestamp", "cronJob", cj.Name, "since", alertTime.Time)
+			}
 			r.Log.V(1).Info("dead-man's switch triggered", "cronJob", cj.Name, "severity", severity, "message", result.Message)
 			alerts = append(alerts, guardianv1alpha1.ActiveAlert{
 				Type:     "DeadManTriggered",
 				Severity: severity,
 				Message:  result.Message,
-				Since:    metav1.Now(),
+				Since:    alertTime,
 			})
 		}
 	}
 
 	// Check SLA
-	if monitor.Spec.SLA != nil && isEnabled(monitor.Spec.SLA.Enabled) && r.Analyzer != nil {
+	if monitor.Spec.SLA != nil && isEnabled(monitor.Spec.SLA.Enabled) {
 		cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
 		r.Log.V(1).Info("checking SLA", "cronJob", cj.Name)
 		result, err := r.Analyzer.CheckSLA(ctx, cronJobNN, monitor.Spec.SLA)
@@ -488,19 +493,25 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 				if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
 					severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.SLABreached, statusWarning)
 				}
+				// Preserve timestamp from existing alert of same type
+				alertTime := metav1.Now()
+				if prev := findPreviousAlert(v.Type); prev != nil {
+					alertTime = prev.Since
+					r.Log.V(1).Info("preserving existing SLA alert timestamp", "cronJob", cj.Name, "type", v.Type, "since", alertTime.Time)
+				}
 				r.Log.V(1).Info("SLA violation detected", "cronJob", cj.Name, "type", v.Type, "severity", severity, "message", v.Message)
 				alerts = append(alerts, guardianv1alpha1.ActiveAlert{
 					Type:     v.Type,
 					Severity: severity,
 					Message:  v.Message,
-					Since:    metav1.Now(),
+					Since:    alertTime,
 				})
 			}
 		}
 	}
 
 	// Check duration regression
-	if monitor.Spec.SLA != nil && r.Analyzer != nil {
+	if monitor.Spec.SLA != nil {
 		cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
 		r.Log.V(1).Info("checking duration regression", "cronJob", cj.Name)
 		result, err := r.Analyzer.CheckDurationRegression(ctx, cronJobNN, monitor.Spec.SLA)
@@ -511,12 +522,18 @@ func (r *CronJobMonitorReconciler) checkAlerts(ctx context.Context, monitor *gua
 			if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
 				severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.DurationRegression, "warning")
 			}
+			// Preserve timestamp from existing alert
+			alertTime := metav1.Now()
+			if prev := findPreviousAlert("DurationRegression"); prev != nil {
+				alertTime = prev.Since
+				r.Log.V(1).Info("preserving existing DurationRegression alert timestamp", "cronJob", cj.Name, "since", alertTime.Time)
+			}
 			r.Log.V(1).Info("duration regression detected", "cronJob", cj.Name, "severity", severity, "message", result.Message)
 			alerts = append(alerts, guardianv1alpha1.ActiveAlert{
 				Type:     "DurationRegression",
 				Severity: severity,
 				Message:  result.Message,
-				Since:    metav1.Now(),
+				Since:    alertTime,
 			})
 		}
 	}

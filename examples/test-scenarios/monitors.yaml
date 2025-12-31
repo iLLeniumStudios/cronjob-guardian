@@ -1,0 +1,262 @@
+# Test Monitors for various scenarios
+---
+# 1. Critical Jobs Monitor - strict monitoring for important production jobs
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: critical-jobs
+  namespace: default
+spec:
+  selector:
+    matchNames:
+      - healthy-fast
+      - healthy-slow
+      - postgres-backup
+  sla:
+    minSuccessRate: 99.0
+    windowDays: 7
+    maxDuration: 5m
+  deadManSwitch:
+    enabled: true
+    autoFromSchedule:
+      enabled: true
+      buffer: 10m
+      missedScheduleThreshold: 1
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-critical
+    severityOverrides:
+      jobFailed: critical
+      deadManTriggered: critical
+      slaBreached: critical
+    includeContext:
+      logs: true
+      events: true
+      suggestedFixes: true
+---
+# 2. Flaky Jobs Monitor - more lenient for known flaky jobs
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: flaky-jobs
+  namespace: default
+spec:
+  selector:
+    matchNames:
+      - flaky-50-percent
+      - flaky-20-percent
+  sla:
+    minSuccessRate: 60.0
+    windowDays: 7
+  deadManSwitch:
+    enabled: true
+    autoFromSchedule:
+      enabled: true
+      buffer: 15m
+      missedScheduleThreshold: 3
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-warnings
+    severityOverrides:
+      jobFailed: warning
+      deadManTriggered: warning
+      slaBreached: warning
+    alertDelay: 5m
+    suppressDuplicatesFor: 30m
+    includeContext:
+      logs: true
+      events: true
+      suggestedFixes: true
+---
+# 3. Low Priority Jobs - warning level alerts (lenient monitoring)
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: low-priority-jobs
+  namespace: default
+spec:
+  selector:
+    matchNames:
+      - cache-warmer
+      - service-health-check
+  sla:
+    minSuccessRate: 80.0
+    windowDays: 7
+  deadManSwitch:
+    enabled: true
+    autoFromSchedule:
+      enabled: true
+      buffer: 1h
+      missedScheduleThreshold: 5
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-info
+    severityOverrides:
+      jobFailed: warning
+      deadManTriggered: warning
+      slaBreached: warning
+    suppressDuplicatesFor: 2h
+    includeContext:
+      logs: false
+      events: false
+      suggestedFixes: true
+---
+# 4. Test Scenarios Monitor - monitors known failure test jobs
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: test-scenarios
+  namespace: default
+spec:
+  selector:
+    matchNames:
+      - exit-code-1
+      - exit-code-137-oom
+      - deadline-exceeded
+      - backoff-exceeded
+  sla:
+    minSuccessRate: 0.0
+    windowDays: 7
+  deadManSwitch:
+    enabled: false
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-test
+    severityOverrides:
+      jobFailed: warning
+      slaBreached: warning
+    alertDelay: 1m
+    suppressDuplicatesFor: 1h
+    includeContext:
+      logs: true
+      events: true
+      suggestedFixes: true
+---
+# 5. Suspended Jobs Monitor - tracks suspended jobs
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: suspended-jobs
+  namespace: default
+spec:
+  selector:
+    matchNames:
+      - suspended-maintenance
+  suspendedHandling:
+    pauseMonitoring: true
+    alertIfSuspendedFor: 24h
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-warnings
+---
+# 6. Database/Connection Error Jobs Monitor
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: connection-errors
+  namespace: default
+spec:
+  selector:
+    matchNames:
+      - db-connection-error
+      - redis-connection-error
+  sla:
+    minSuccessRate: 90.0
+    windowDays: 7
+  deadManSwitch:
+    enabled: true
+    autoFromSchedule:
+      enabled: true
+      buffer: 10m
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-warnings
+    severityOverrides:
+      jobFailed: warning
+    includeContext:
+      logs: true
+      events: true
+      suggestedFixes: true
+---
+# 7. All Default Namespace Jobs - catch-all monitor
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: default-namespace-all
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: maintenance
+  sla:
+    minSuccessRate: 95.0
+    windowDays: 7
+  deadManSwitch:
+    enabled: true
+    autoFromSchedule:
+      enabled: true
+      buffer: 30m
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-warnings
+---
+# 8. Analytics Jobs Monitor
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: analytics-jobs
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      tier: analytics
+  sla:
+    minSuccessRate: 95.0
+    windowDays: 30
+  maintenanceWindows:
+    - name: weekend-maintenance
+      schedule: "0 0 * * 0"
+      duration: 4h
+      timezone: America/New_York
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-analytics
+    includeContext:
+      logs: true
+      events: true
+      suggestedFixes: true
+---
+# 9. Performance Jobs Monitor
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: performance-jobs
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      tier: performance
+  sla:
+    minSuccessRate: 99.0
+    windowDays: 7
+    maxDuration: 1m
+  deadManSwitch:
+    enabled: true
+    autoFromSchedule:
+      enabled: true
+      buffer: 5m
+  alerting:
+    enabled: true
+    channelRefs:
+      - name: slack-perf
+    severityOverrides:
+      jobFailed: critical
+      deadManTriggered: critical

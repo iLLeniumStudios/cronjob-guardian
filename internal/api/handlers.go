@@ -56,6 +56,8 @@ type Handlers struct {
 	alertDispatcher     alerting.Dispatcher
 	startTime           time.Time
 	leaderElectionCheck func() bool
+	analyzerEnabled     bool
+	schedulersRunning   []string
 }
 
 // NewHandlers creates a new Handlers instance
@@ -69,6 +71,16 @@ func NewHandlers(c client.Client, cs *kubernetes.Clientset, s store.Store, cfg *
 		startTime:           startTime,
 		leaderElectionCheck: leaderCheck,
 	}
+}
+
+// SetAnalyzerEnabled sets whether the SLA analyzer is enabled
+func (h *Handlers) SetAnalyzerEnabled(enabled bool) {
+	h.analyzerEnabled = enabled
+}
+
+// SetSchedulersRunning sets the list of running scheduler names
+func (h *Handlers) SetSchedulersRunning(schedulers []string) {
+	h.schedulersRunning = schedulers
 }
 
 // writeJSON writes a JSON response
@@ -110,11 +122,13 @@ func (h *Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := HealthResponse{
-		Status:  "healthy",
-		Storage: storageStatus,
-		Leader:  isLeader,
-		Version: Version,
-		Uptime:  uptime.Round(time.Second).String(),
+		Status:            "healthy",
+		Storage:           storageStatus,
+		Leader:            isLeader,
+		Version:           Version,
+		Uptime:            uptime.Round(time.Second).String(),
+		AnalyzerEnabled:   h.analyzerEnabled,
+		SchedulersRunning: h.schedulersRunning,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -438,12 +452,21 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 					// Convert active alerts
 					resp.ActiveAlerts = make([]AlertItem, 0, len(cjStatus.ActiveAlerts))
 					for _, a := range cjStatus.ActiveAlerts {
-						resp.ActiveAlerts = append(resp.ActiveAlerts, AlertItem{
+						item := AlertItem{
 							Type:     a.Type,
 							Severity: a.Severity,
 							Message:  a.Message,
 							Since:    a.Since.Time,
-						})
+						}
+						// Include context if available (for JobFailed alerts)
+						if a.ExitCode != 0 || a.Reason != "" || a.SuggestedFix != "" {
+							item.Context = &AlertContextResponse{
+								ExitCode:     a.ExitCode,
+								Reason:       a.Reason,
+								SuggestedFix: a.SuggestedFix,
+							}
+						}
+						resp.ActiveAlerts = append(resp.ActiveAlerts, item)
 					}
 
 					break
@@ -530,38 +553,51 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cronJobNN := types.NamespacedName{Namespace: namespace, Name: name}
-	executions, err := h.store.GetExecutions(ctx, cronJobNN, since)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-		return
-	}
-
-	// Apply status filter
 	statusFilter := r.URL.Query().Get("status")
-	filtered := make([]store.Execution, 0, len(executions))
-	for _, e := range executions {
-		if statusFilter != "" {
+
+	var paged []store.Execution
+	var total int64
+
+	// Use database-level pagination when no status filter is applied
+	if statusFilter == "" {
+		var err error
+		paged, total, err = h.store.GetExecutionsPaginated(ctx, cronJobNN, since, limit, offset)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
+	} else {
+		// Fallback to in-memory filtering when status filter is applied
+		executions, err := h.store.GetExecutions(ctx, cronJobNN, since)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
+
+		// Apply status filter
+		filtered := make([]store.Execution, 0, len(executions))
+		for _, e := range executions {
 			if statusFilter == statusSuccess && !e.Succeeded {
 				continue
 			}
 			if statusFilter == statusFailed && e.Succeeded {
 				continue
 			}
+			filtered = append(filtered, e)
 		}
-		filtered = append(filtered, e)
-	}
 
-	// Apply pagination
-	total := int64(len(filtered))
-	start := offset
-	end := offset + limit
-	if start > len(filtered) {
-		start = len(filtered)
+		// Apply pagination
+		total = int64(len(filtered))
+		start := offset
+		end := offset + limit
+		if start > len(filtered) {
+			start = len(filtered)
+		}
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+		paged = filtered[start:end]
 	}
-	if end > len(filtered) {
-		end = len(filtered)
-	}
-	paged := filtered[start:end]
 
 	items := make([]ExecutionItem, 0, len(paged))
 	for _, e := range paged {
@@ -591,7 +627,7 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 			Total:   total,
 			Limit:   limit,
 			Offset:  offset,
-			HasMore: end < len(filtered),
+			HasMore: int64(offset+limit) < total,
 		},
 	})
 }
@@ -783,11 +819,10 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]AlertItem, 0)
-	bySeverity := map[string]int{
-		"critical": 0,
-		"warning":  0,
-	}
+	// Deduplicate alerts by CronJob+Type, keeping the most severe
+	// This handles cases where multiple monitors watch the same CronJob
+	alertMap := make(map[string]AlertItem)
+	severityOrder := map[string]int{"critical": 2, "warning": 1, "info": 0}
 
 	for _, m := range monitors.Items {
 		for _, cjStatus := range m.Status.CronJobs {
@@ -800,15 +835,14 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 			}
 
 			for _, a := range cjStatus.ActiveAlerts {
-				if severityFilter != "" && a.Severity != severityFilter {
-					continue
-				}
 				if typeFilter != "" && a.Type != typeFilter {
 					continue
 				}
 
+				alertID := fmt.Sprintf("%s-%s-%s", cjStatus.Namespace, cjStatus.Name, a.Type)
+
 				item := AlertItem{
-					ID:       fmt.Sprintf("%s-%s-%s", cjStatus.Namespace, cjStatus.Name, a.Type),
+					ID:       alertID,
 					Type:     a.Type,
 					Severity: a.Severity,
 					Title:    fmt.Sprintf("%s: %s/%s", a.Type, cjStatus.Namespace, cjStatus.Name),
@@ -821,11 +855,43 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 					t := a.LastNotified.Time
 					item.LastNotified = &t
 				}
+				// Include context if available (for JobFailed alerts)
+				if a.ExitCode != 0 || a.Reason != "" || a.SuggestedFix != "" {
+					item.Context = &AlertContextResponse{
+						ExitCode:     a.ExitCode,
+						Reason:       a.Reason,
+						SuggestedFix: a.SuggestedFix,
+					}
+				}
 
-				items = append(items, item)
-				bySeverity[a.Severity]++
+				// Keep alert with highest severity, or earliest timestamp if same severity
+				if existing, exists := alertMap[alertID]; exists {
+					if severityOrder[a.Severity] > severityOrder[existing.Severity] {
+						alertMap[alertID] = item
+					} else if severityOrder[a.Severity] == severityOrder[existing.Severity] && a.Since.Time.Before(existing.Since) {
+						// Same severity - keep the one with earlier timestamp
+						alertMap[alertID] = item
+					}
+				} else {
+					alertMap[alertID] = item
+				}
 			}
 		}
+	}
+
+	// Convert map to slice and apply severity filter
+	items := make([]AlertItem, 0, len(alertMap))
+	bySeverity := map[string]int{
+		"critical": 0,
+		"warning":  0,
+	}
+
+	for _, item := range alertMap {
+		if severityFilter != "" && item.Severity != severityFilter {
+			continue
+		}
+		items = append(items, item)
+		bySeverity[item.Severity]++
 	}
 
 	writeJSON(w, http.StatusOK, AlertListResponse{
@@ -895,6 +961,10 @@ func (h *Handlers) GetAlertHistory(w http.ResponseWriter, r *http.Request) {
 			OccurredAt:       a.OccurredAt,
 			ResolvedAt:       a.ResolvedAt,
 			ChannelsNotified: a.GetChannelsNotified(),
+			// Context fields for failure alerts
+			ExitCode:     a.ExitCode,
+			Reason:       a.Reason,
+			SuggestedFix: a.SuggestedFix,
 		}
 		if a.CronJobNamespace != "" || a.CronJobName != "" {
 			item.CronJob = &NamespacedRef{
@@ -1275,4 +1345,75 @@ func (h *Handlers) GetExecutionWithLogs(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeError(w, http.StatusNotFound, "NOT_FOUND", fmt.Sprintf("Execution %s not found", jobName))
+}
+
+// TestPattern handles POST /api/v1/patterns/test
+func (h *Handlers) TestPattern(w http.ResponseWriter, r *http.Request) {
+	var req PatternTestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	// Validate pattern has required fields
+	if req.Pattern.Name == "" || req.Pattern.Suggestion == "" {
+		writeJSON(w, http.StatusOK, PatternTestResponse{
+			Matched: false,
+			Error:   "pattern name and suggestion are required",
+		})
+		return
+	}
+
+	// Convert API input to CRD type
+	pattern := guardianv1alpha1.SuggestedFixPattern{
+		Name:       req.Pattern.Name,
+		Suggestion: req.Pattern.Suggestion,
+		Priority:   req.Pattern.Priority,
+		Match: guardianv1alpha1.PatternMatch{
+			ExitCode:      req.Pattern.Match.ExitCode,
+			Reason:        req.Pattern.Match.Reason,
+			ReasonPattern: req.Pattern.Match.ReasonPattern,
+			LogPattern:    req.Pattern.Match.LogPattern,
+			EventPattern:  req.Pattern.Match.EventPattern,
+		},
+	}
+	if req.Pattern.Match.ExitCodeRange != nil {
+		pattern.Match.ExitCodeRange = &guardianv1alpha1.ExitCodeRange{
+			Min: req.Pattern.Match.ExitCodeRange.Min,
+			Max: req.Pattern.Match.ExitCodeRange.Max,
+		}
+	}
+
+	// Create match context from test data
+	matchCtx := alerting.MatchContext{
+		Namespace: req.TestData.Namespace,
+		Name:      req.TestData.Name,
+		JobName:   req.TestData.JobName,
+		ExitCode:  req.TestData.ExitCode,
+		Reason:    req.TestData.Reason,
+		Logs:      req.TestData.Logs,
+		Events:    req.TestData.Events,
+	}
+
+	// Use the engine to test the pattern
+	engine := alerting.NewSuggestedFixEngine()
+
+	// Test just this one pattern with high priority to ensure it matches first
+	priority := int32(1000)
+	pattern.Priority = &priority
+	patterns := []guardianv1alpha1.SuggestedFixPattern{pattern}
+	suggestion := engine.GetBestSuggestion(matchCtx, patterns)
+
+	// Check if our pattern matched (not the fallback)
+	fallback := "Check job logs and events for details."
+	matched := suggestion != fallback
+
+	resp := PatternTestResponse{
+		Matched: matched,
+	}
+	if matched {
+		resp.RenderedSuggestion = suggestion
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }

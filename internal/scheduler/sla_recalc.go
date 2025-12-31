@@ -142,10 +142,16 @@ func (s *SLARecalcScheduler) recalculate(ctx context.Context) {
 				for _, v := range slaResult.Violations {
 					alertKey := fmt.Sprintf("%s/%s/SLA/%s", cjStatus.Namespace, cjStatus.Name, v.Type)
 
+					// Safely get severity override
+					var slaBreachedSeverity string
+					if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
+						slaBreachedSeverity = monitor.Spec.Alerting.SeverityOverrides.SLABreached
+					}
+
 					alert := alerting.Alert{
 						Key:      alertKey,
 						Type:     "SLABreached",
-						Severity: getSeverity(monitor.Spec.Alerting.SeverityOverrides.SLABreached, "warning"),
+						Severity: getSeverity(slaBreachedSeverity, "warning"),
 						Title:    fmt.Sprintf("SLA breach: %s/%s", cjStatus.Namespace, cjStatus.Name),
 						Message:  v.Message,
 						CronJob:  cronJobNN,
@@ -164,10 +170,16 @@ func (s *SLARecalcScheduler) recalculate(ctx context.Context) {
 			// Check duration regression
 			regResult, err := s.analyzer.CheckDurationRegression(ctx, cronJobNN, monitor.Spec.SLA)
 			if err == nil && regResult.Detected {
+				// Safely get severity override
+				var regressionSeverity string
+				if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
+					regressionSeverity = monitor.Spec.Alerting.SeverityOverrides.DurationRegression
+				}
+
 				alert := alerting.Alert{
 					Key:       fmt.Sprintf("%s/%s/DurationRegression", cjStatus.Namespace, cjStatus.Name),
 					Type:      "DurationRegression",
-					Severity:  getSeverity(monitor.Spec.Alerting.SeverityOverrides.DurationRegression, "warning"),
+					Severity:  getSeverity(regressionSeverity, "warning"),
 					Title:     fmt.Sprintf("Duration regression: %s/%s", cjStatus.Namespace, cjStatus.Name),
 					Message:   regResult.Message,
 					CronJob:   cronJobNN,

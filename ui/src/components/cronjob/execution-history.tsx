@@ -92,7 +92,7 @@ export function ExecutionHistory({
       ? executions?.items ?? []
       : (executions?.items ?? []).filter((e) => e.status === statusFilter);
 
-    // Sort
+    // Sort with stable secondary sort by jobName
     const multiplier = sortDirection === "asc" ? 1 : -1;
     const sorted = [...filtered].sort((a, b) => {
       let comparison = 0;
@@ -112,6 +112,10 @@ export function ExecutionHistory({
         case "status":
           comparison = a.status.localeCompare(b.status);
           break;
+      }
+      // Stable sort: use jobName as tiebreaker when primary sort values are equal
+      if (comparison === 0 && sortColumn !== "jobName") {
+        comparison = a.jobName.localeCompare(b.jobName);
       }
       return comparison * multiplier;
     });
