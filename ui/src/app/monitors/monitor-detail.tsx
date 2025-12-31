@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   ArrowLeft,
   Timer,
@@ -10,8 +9,6 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
@@ -19,22 +16,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { StatusIndicator, StatusBadge } from "@/components/status-indicator";
 import { RelativeTime } from "@/components/relative-time";
-import { SortableTableHeader } from "@/components/sortable-table-header";
 import { AggregateCharts } from "@/components/monitor/aggregate-charts";
-import { getMonitor, type MonitorDetail, type MonitorCronJob } from "@/lib/api";
+import { DataTable, type ColumnDef } from "@/components/data-table";
+import { getMonitor, type MonitorDetail } from "@/lib/api";
 
-const PAGE_SIZE = 15;
-type SortColumn = "name" | "namespace" | "status" | "successRate" | "lastSuccess" | "nextRun";
-type SortDirection = "asc" | "desc";
+// Extract the CronJob type from MonitorDetail
+type MonitorCronJob = MonitorDetail["status"]["cronJobs"][number];
 
 const statusOrder: Record<string, number> = {
   critical: 0,
@@ -332,213 +321,89 @@ export function MonitorDetailClient() {
 }
 
 function MonitoredCronJobsTable({ cronJobs }: { cronJobs: MonitorCronJob[] }) {
-  const [page, setPage] = useState(0);
-  const [sortColumn, setSortColumn] = useState<SortColumn>("status");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-
-  const { paginatedJobs, totalFiltered, totalPages } = useMemo(() => {
-    // Sort
-    const multiplier = sortDirection === "asc" ? 1 : -1;
-    const sorted = [...cronJobs].sort((a, b) => {
-      let comparison = 0;
-      switch (sortColumn) {
-        case "name":
-          comparison = a.name.localeCompare(b.name);
-          break;
-        case "namespace":
-          comparison = a.namespace.localeCompare(b.namespace);
-          break;
-        case "status":
-          comparison = (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
-          break;
-        case "successRate":
-          comparison = (a.metrics?.successRate ?? 0) - (b.metrics?.successRate ?? 0);
-          break;
-        case "lastSuccess":
-          const aTime = a.lastSuccessfulTime ? new Date(a.lastSuccessfulTime).getTime() : 0;
-          const bTime = b.lastSuccessfulTime ? new Date(b.lastSuccessfulTime).getTime() : 0;
-          comparison = aTime - bTime;
-          break;
-        case "nextRun":
-          const aNext = a.nextScheduledTime ? new Date(a.nextScheduledTime).getTime() : 0;
-          const bNext = b.nextScheduledTime ? new Date(b.nextScheduledTime).getTime() : 0;
-          comparison = aNext - bNext;
-          break;
-      }
-      return comparison * multiplier;
-    });
-
-    // Paginate
-    const total = sorted.length;
-    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const effectivePage = Math.min(page, Math.max(0, pages - 1));
-    const start = effectivePage * PAGE_SIZE;
-    const paginated = sorted.slice(start, start + PAGE_SIZE);
-
-    return {
-      paginatedJobs: paginated,
-      totalFiltered: total,
-      totalPages: pages,
-    };
-  }, [cronJobs, sortColumn, sortDirection, page]);
-
-  const handleSort = (column: SortColumn) => {
-    if (sortColumn === column) {
-      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-    setPage(0);
-  };
-
-  const effectivePage = Math.min(page, Math.max(0, totalPages - 1));
+  const columns: ColumnDef<MonitorCronJob>[] = [
+    {
+      id: "name",
+      header: "Name",
+      accessorKey: "name",
+      type: "link",
+      linkHref: (row) => `/cronjob/${row.namespace}/${row.name}`,
+      sortable: true,
+    },
+    {
+      id: "namespace",
+      header: "Namespace",
+      accessorKey: "namespace",
+      type: "badge",
+      badgeVariant: () => "outline",
+      sortable: true,
+      hiddenBelow: "sm",
+    },
+    {
+      id: "status",
+      header: "Status",
+      accessorKey: "status",
+      sortable: true,
+      sortFn: (a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3),
+      cell: (row) => (
+        <StatusIndicator status={row.status as "healthy" | "warning" | "critical"} />
+      ),
+    },
+    {
+      id: "successRate",
+      header: "Success Rate",
+      accessorFn: (row) => row.metrics?.successRate ?? 0,
+      sortable: true,
+      cell: (row) => {
+        const rate = row.metrics?.successRate ?? 0;
+        return (
+          <span className={rate < 90 ? "text-amber-600 dark:text-amber-400" : ""}>
+            {rate.toFixed(1)}%
+          </span>
+        );
+      },
+    },
+    {
+      id: "lastSuccess",
+      header: "Last Successful Run",
+      accessorKey: "lastSuccessfulTime",
+      type: "relativeTime",
+      sortable: true,
+      sortFn: (a, b) => {
+        const aTime = a.lastSuccessfulTime ? new Date(a.lastSuccessfulTime).getTime() : 0;
+        const bTime = b.lastSuccessfulTime ? new Date(b.lastSuccessfulTime).getTime() : 0;
+        return aTime - bTime;
+      },
+      hiddenBelow: "sm",
+    },
+    {
+      id: "nextRun",
+      header: "Next Run",
+      accessorKey: "nextScheduledTime",
+      type: "relativeTime",
+      sortable: true,
+      sortFn: (a, b) => {
+        const aNext = a.nextScheduledTime ? new Date(a.nextScheduledTime).getTime() : 0;
+        const bNext = b.nextScheduledTime ? new Date(b.nextScheduledTime).getTime() : 0;
+        return aNext - bNext;
+      },
+      hiddenBelow: "sm",
+    },
+  ];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Monitored CronJobs</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {cronJobs.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-8">
-            No CronJobs match the selector
-          </p>
-        ) : (
-          <>
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <SortableTableHeader
-                      column="name"
-                      label="Name"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHeader
-                      column="namespace"
-                      label="Namespace"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                      hideOnMobile
-                    />
-                    <SortableTableHeader
-                      column="status"
-                      label="Status"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHeader
-                      column="successRate"
-                      label="Success Rate"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHeader
-                      column="lastSuccess"
-                      label="Last Successful Run"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                      hideOnMobile
-                    />
-                    <SortableTableHeader
-                      column="nextRun"
-                      label="Next Run"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                      hideOnMobile
-                    />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedJobs.map((cj) => (
-                    <TableRow key={`${cj.namespace}/${cj.name}`}>
-                      <TableCell>
-                        <Link
-                          href={`/cronjob/${cj.namespace}/${cj.name}`}
-                          className="font-medium hover:underline"
-                        >
-                          {cj.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">
-                        <Badge variant="outline">{cj.namespace}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <StatusIndicator status={cj.status as "healthy" | "warning" | "critical"} />
-                      </TableCell>
-                      <TableCell>
-                        <span className={(cj.metrics?.successRate ?? 0) < 90 ? "text-amber-600 dark:text-amber-400" : ""}>
-                          {(cj.metrics?.successRate ?? 0).toFixed(1)}%
-                        </span>
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                        {cj.lastSuccessfulTime ? (
-                          <RelativeTime date={cj.lastSuccessfulTime} />
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                        {cj.nextScheduledTime ? (
-                          <RelativeTime date={cj.nextScheduledTime} />
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            {/* Pagination */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-4 mt-4">
-              <div className="text-sm text-muted-foreground order-2 sm:order-1">
-                {totalFiltered > 0 ? (
-                  <>
-                    Showing {effectivePage * PAGE_SIZE + 1}-
-                    {Math.min((effectivePage + 1) * PAGE_SIZE, totalFiltered)} of {totalFiltered}
-                  </>
-                ) : (
-                  "No items"
-                )}
-              </div>
-              <div className="flex items-center gap-2 order-1 sm:order-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={effectivePage === 0}
-                  className="cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">Previous</span>
-                </Button>
-                <span className="text-sm text-muted-foreground whitespace-nowrap">
-                  {effectivePage + 1} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  disabled={effectivePage >= totalPages - 1}
-                  className="cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <span className="hidden sm:inline">Next</span>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <DataTable
+      data={cronJobs}
+      columns={columns}
+      getRowKey={(row) => `${row.namespace}/${row.name}`}
+      pageSize={15}
+      defaultSort={{ column: "status", direction: "asc" }}
+      title="Monitored CronJobs"
+      emptyState={{
+        icon: Timer,
+        title: "No CronJobs match the selector",
+        description: "Adjust the monitor's selector to match CronJobs",
+      }}
+    />
   );
 }
