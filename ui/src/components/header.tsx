@@ -32,7 +32,7 @@ export function Header({
   isRefreshing,
   actions,
 }: HeaderProps) {
-  const { setTheme, theme } = useTheme();
+  const { setTheme } = useTheme();
 
   return (
     <header className="flex h-14 md:h-16 items-center justify-between border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 md:px-6">

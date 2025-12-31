@@ -18,7 +18,6 @@ import { toast } from "sonner";
 import { Header } from "@/components/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -38,14 +37,7 @@ import {
 import { ExportButton } from "@/components/export/export-button";
 import { exportSLAReportToCSV } from "@/lib/export/csv";
 import { generateSLAPDFReport } from "@/lib/export/pdf";
-import {
-  listMonitors,
-  listCronJobs,
-  getMonitor,
-  type MonitorsResponse,
-  type CronJobListResponse,
-  type MonitorDetail,
-} from "@/lib/api";
+import { listMonitors, listCronJobs, getMonitor } from "@/lib/api";
 
 type SLAStatus = "meeting" | "breaching" | "at-risk" | "no-sla";
 type SLASortColumn = "name" | "monitor" | "targetSLA" | "currentRate" | "status" | "trend";

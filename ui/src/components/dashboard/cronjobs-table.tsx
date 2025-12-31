@@ -49,6 +49,26 @@ function parseDate(dateStr: string | null): number {
   return new Date(dateStr).getTime();
 }
 
+// SortIcon component - defined outside to avoid recreation during render
+function SortIcon({
+  column,
+  sortColumn,
+  sortDirection,
+}: {
+  column: SortColumn;
+  sortColumn: SortColumn;
+  sortDirection: SortDirection;
+}) {
+  if (sortColumn !== column) {
+    return <ChevronUp className="h-3 w-3 opacity-0 group-hover:opacity-30" />;
+  }
+  return sortDirection === "asc" ? (
+    <ChevronUp className="h-3 w-3" />
+  ) : (
+    <ChevronDown className="h-3 w-3" />
+  );
+}
+
 // Pure function to filter and sort - no side effects
 function getDisplayData(
   items: CronJob[] | undefined,
@@ -182,17 +202,6 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
     setPage(0);
   };
 
-  const SortIcon = ({ column }: { column: SortColumn }) => {
-    if (sortColumn !== column) {
-      return <ChevronUp className="h-3 w-3 opacity-0 group-hover:opacity-30" />;
-    }
-    return sortDirection === "asc" ? (
-      <ChevronUp className="h-3 w-3" />
-    ) : (
-      <ChevronDown className="h-3 w-3" />
-    );
-  };
-
   if (isLoading) {
     return (
       <Card>
@@ -285,7 +294,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                       >
                         <span className="flex items-center gap-1">
                           Name
-                          <SortIcon column="name" />
+                          <SortIcon column="name" sortColumn={sortColumn} sortDirection={sortDirection} />
                         </span>
                       </TableHead>
                       <TableHead
@@ -294,7 +303,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                       >
                         <span className="flex items-center gap-1">
                           Namespace
-                          <SortIcon column="namespace" />
+                          <SortIcon column="namespace" sortColumn={sortColumn} sortDirection={sortDirection} />
                         </span>
                       </TableHead>
                       <TableHead
@@ -303,7 +312,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                       >
                         <span className="flex items-center gap-1">
                           Schedule
-                          <SortIcon column="schedule" />
+                          <SortIcon column="schedule" sortColumn={sortColumn} sortDirection={sortDirection} />
                         </span>
                       </TableHead>
                       <TableHead
@@ -312,7 +321,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                       >
                         <span className="flex items-center justify-end gap-1">
                           Success Rate
-                          <SortIcon column="successRate" />
+                          <SortIcon column="successRate" sortColumn={sortColumn} sortDirection={sortDirection} />
                         </span>
                       </TableHead>
                       <TableHead
@@ -321,7 +330,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                       >
                         <span className="flex items-center gap-1">
                           Last Successful Run
-                          <SortIcon column="lastSuccess" />
+                          <SortIcon column="lastSuccess" sortColumn={sortColumn} sortDirection={sortDirection} />
                         </span>
                       </TableHead>
                       <TableHead
@@ -330,7 +339,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                       >
                         <span className="flex items-center gap-1">
                           Next Run
-                          <SortIcon column="nextRun" />
+                          <SortIcon column="nextRun" sortColumn={sortColumn} sortDirection={sortDirection} />
                         </span>
                       </TableHead>
                     </TableRow>

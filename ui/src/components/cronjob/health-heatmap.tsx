@@ -39,7 +39,7 @@ export function HealthHeatmap({
 }: HealthHeatmapProps) {
   const [daysRange, setDaysRange] = useState(defaultDays);
 
-  const { heatmapData, weeks } = useMemo(() => {
+  const { weeks } = useMemo(() => {
     // Group executions by day
     const dayMap = new Map<string, { success: number; failed: number }>();
 
