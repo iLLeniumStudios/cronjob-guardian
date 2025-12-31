@@ -14,12 +14,27 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-ui:
-    name: Build UI
+  release:
+    name: Build and Release
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache Go tools
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: go-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: go-tools-${{ runner.os }}-
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -37,58 +52,6 @@ jobs:
 
       - name: Build UI
         run: make ui-build
-
-      - name: Upload UI artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-build
-          path: ui/out
-          retention-days: 1
-
-  test:
-    name: Run Tests
-    needs: build-ui
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone the code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Download UI artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ui-build
-          path: ui/out
-
-      - name: Run tests
-        run: make test
-
-  release:
-    name: Build and Release
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone the code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Download UI artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ui-build
-          path: ui/out
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -108,7 +71,6 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          # Check if prerelease (contains hyphen like v1.0.0-rc.1)
           if [[ "$VERSION" == *"-"* ]]; then
             echo "PRERELEASE=true" >> $GITHUB_OUTPUT
           else
@@ -140,7 +102,7 @@ jobs:
       - name: Generate install.yaml
         run: make build-installer IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
 
-      - name: Generate changelog for release
+      - name: Generate changelog
         uses: orhun/git-cliff-action@v4
         id: changelog
         with:
