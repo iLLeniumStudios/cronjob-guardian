@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -13,15 +12,10 @@ import type { CronJobExecution } from "@/lib/api";
 
 interface HealthHeatmapProps {
   executions: CronJobExecution[];
-  defaultDays?: number;
   onDayClick?: (date: string) => void;
 }
 
-const RANGE_OPTIONS = [
-  { value: 30, label: "30d" },
-  { value: 60, label: "60d" },
-  { value: 90, label: "90d" },
-] as const;
+const DAYS_IN_YEAR = 365;
 
 interface DayData {
   date: string;
@@ -32,20 +26,25 @@ interface DayData {
   total: number;
 }
 
+// Helper to get local date key (YYYY-MM-DD) without timezone issues
+function getLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function HealthHeatmap({
   executions,
-  defaultDays = 30,
   onDayClick,
 }: HealthHeatmapProps) {
-  const [daysRange, setDaysRange] = useState(defaultDays);
-
   const { weeks } = useMemo(() => {
-    // Group executions by day
+    // Group executions by day (using local date)
     const dayMap = new Map<string, { success: number; failed: number }>();
 
     executions.forEach((exec) => {
       const dateObj = new Date(exec.startTime);
-      const dateKey = dateObj.toISOString().split("T")[0]; // YYYY-MM-DD
+      const dateKey = getLocalDateKey(dateObj);
 
       if (!dayMap.has(dateKey)) {
         dayMap.set(dateKey, { success: 0, failed: 0 });
@@ -58,17 +57,17 @@ export function HealthHeatmap({
       }
     });
 
-    // Generate all days in range
+    // Generate all days in the past year
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - daysRange + 1);
+    startDate.setDate(startDate.getDate() - DAYS_IN_YEAR + 1);
 
     const days: DayData[] = [];
     const current = new Date(startDate);
 
     while (current <= today) {
-      const dateKey = current.toISOString().split("T")[0];
+      const dateKey = getLocalDateKey(current);
       const counts = dayMap.get(dateKey) || { success: 0, failed: 0 };
       const total = counts.success + counts.failed;
 
@@ -114,8 +113,8 @@ export function HealthHeatmap({
       weeksData.push(currentWeek);
     }
 
-    return { heatmapData: days, weeks: weeksData };
-  }, [executions, daysRange]);
+    return { weeks: weeksData };
+  }, [executions]);
 
   const getColorClass = (successRate: number): string => {
     if (successRate < 0) return "bg-muted/50"; // No data
@@ -160,22 +159,7 @@ export function HealthHeatmap({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-medium">Health Heatmap</CardTitle>
-          <div className="flex gap-1">
-            {RANGE_OPTIONS.map((option) => (
-              <Button
-                key={option.value}
-                variant={daysRange === option.value ? "default" : "outline"}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setDaysRange(option.value)}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
-        </div>
+        <CardTitle className="text-base font-medium">Health Heatmap</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
