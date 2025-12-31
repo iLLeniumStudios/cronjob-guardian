@@ -11,22 +11,21 @@ import {
   TrendingDown,
   Minus,
   Filter,
-  ChevronUp,
-  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { EmptyState } from "@/components/empty-state";
+import { SortableTableHeader } from "@/components/sortable-table-header";
+import { PageSkeleton } from "@/components/page-skeleton";
 import {
   Select,
   SelectContent,
@@ -37,7 +36,7 @@ import {
 import { ExportButton } from "@/components/export/export-button";
 import { exportSLAReportToCSV } from "@/lib/export/csv";
 import { generateSLAPDFReport } from "@/lib/export/pdf";
-import { listMonitors, listCronJobs, getMonitor } from "@/lib/api";
+import { listMonitors, listCronJobs, getMonitor, getCronJob } from "@/lib/api";
 
 type SLAStatus = "meeting" | "breaching" | "at-risk" | "no-sla";
 type SLASortColumn = "name" | "monitor" | "targetSLA" | "currentRate" | "status" | "trend";
@@ -104,9 +103,15 @@ export default function SLAPage() {
         monitorsRes.items.map((m) => getMonitor(m.namespace, m.name).catch(() => null))
       );
 
-      // Build SLA data by cross-referencing monitors and cronjobs
-      // Use a Map to deduplicate by cronjob (keeping the strictest SLA)
-      const slaMap = new Map<string, SLACronJob>();
+      // First pass: collect all cronjobs with SLA and their window configs
+      // Key: namespace/name, Value: { windowDays, targetSLA, monitorName, monitorNamespace }
+      type CronJobSLAConfig = {
+        windowDays: number;
+        targetSLA: number;
+        monitorName: string;
+        monitorNamespace: string;
+      };
+      const cronJobConfigs = new Map<string, CronJobSLAConfig>();
 
       for (const detail of monitorDetails) {
         if (!detail || !detail.spec.sla?.enabled) continue;
@@ -116,50 +121,89 @@ export default function SLAPage() {
 
         for (const cj of detail.status.cronJobs) {
           const key = `${cj.namespace}/${cj.name}`;
-
-          // Find the cronjob in the list to get full metrics
-          const fullCronJob = cronJobsRes.items.find(
-            (c) => c.name === cj.name && c.namespace === cj.namespace
-          );
-
-          const successRate = cj.metrics?.successRate ?? fullCronJob?.successRate ?? 0;
-
-          // Determine SLA status
-          let status: SLAStatus;
-          if (successRate >= targetSLA) {
-            status = "meeting";
-          } else if (successRate >= targetSLA * 0.9) {
-            // Within 10% of target
-            status = "at-risk";
-          } else {
-            status = "breaching";
-          }
-
-          // Determine trend (simplified - would need historical data for real trend)
-          // For now, use current rate vs target as proxy
-          let trend: "improving" | "declining" | "stable" = "stable";
-          const gap = successRate - targetSLA;
-          if (gap > 5) trend = "improving";
-          else if (gap < -10) trend = "declining";
-
-          const newItem: SLACronJob = {
-            name: cj.name,
-            namespace: cj.namespace,
-            monitorName: detail.metadata.name,
-            monitorNamespace: detail.metadata.namespace,
-            targetSLA,
-            currentSuccessRate: successRate,
-            status,
-            trend,
-            windowDays,
-          };
-
-          // If cronjob already exists, keep the entry with the strictest (highest) SLA target
-          const existing = slaMap.get(key);
+          const existing = cronJobConfigs.get(key);
+          // Keep the strictest (highest) SLA target
           if (!existing || targetSLA > existing.targetSLA) {
-            slaMap.set(key, newItem);
+            cronJobConfigs.set(key, {
+              windowDays,
+              targetSLA,
+              monitorName: detail.metadata.name,
+              monitorNamespace: detail.metadata.namespace,
+            });
           }
         }
+      }
+
+      // Second pass: fetch cronjob details to get metrics for the correct window
+      // Use batched fetching to avoid too many concurrent requests
+      const cronJobKeys = Array.from(cronJobConfigs.keys());
+      const cronJobDetails = await Promise.all(
+        cronJobKeys.map(async (key) => {
+          const [namespace, name] = key.split("/");
+          try {
+            return await getCronJob(namespace, name);
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      // Build SLA data with correct window metrics
+      const slaMap = new Map<string, SLACronJob>();
+
+      for (let i = 0; i < cronJobKeys.length; i++) {
+        const key = cronJobKeys[i];
+        const config = cronJobConfigs.get(key)!;
+        const detail = cronJobDetails[i];
+        const [namespace, name] = key.split("/");
+
+        // Get success rate based on configured window
+        // For windows <= 7 days, use 7d metrics
+        // For windows > 7 days, use 30d metrics (closest we have)
+        let successRate = 0;
+        if (detail?.metrics) {
+          if (config.windowDays <= 7) {
+            successRate = detail.metrics.successRate7d;
+          } else {
+            // Use 30d metrics for windows > 7 days
+            successRate = detail.metrics.successRate30d;
+          }
+        } else {
+          // Fallback to list data
+          const listCronJob = cronJobsRes.items.find(
+            (c) => c.name === name && c.namespace === namespace
+          );
+          successRate = listCronJob?.successRate ?? 0;
+        }
+
+        // Determine SLA status
+        let status: SLAStatus;
+        if (successRate >= config.targetSLA) {
+          status = "meeting";
+        } else if (successRate >= config.targetSLA * 0.9) {
+          // Within 10% of target
+          status = "at-risk";
+        } else {
+          status = "breaching";
+        }
+
+        // Determine trend (simplified - would need historical data for real trend)
+        let trend: "improving" | "declining" | "stable" = "stable";
+        const gap = successRate - config.targetSLA;
+        if (gap > 5) trend = "improving";
+        else if (gap < -10) trend = "declining";
+
+        slaMap.set(key, {
+          name,
+          namespace,
+          monitorName: config.monitorName,
+          monitorNamespace: config.monitorNamespace,
+          targetSLA: config.targetSLA,
+          currentSuccessRate: successRate,
+          status,
+          trend,
+          windowDays: config.windowDays,
+        });
       }
 
       // Also check cronjobs without SLA configured
@@ -249,17 +293,6 @@ export default function SLAPage() {
     }
   };
 
-  const SortIcon = ({ column }: { column: SLASortColumn }) => {
-    if (sortColumn !== column) {
-      return <ChevronUp className="h-3 w-3 opacity-0 group-hover:opacity-30" />;
-    }
-    return sortDirection === "asc" ? (
-      <ChevronUp className="h-3 w-3" />
-    ) : (
-      <ChevronDown className="h-3 w-3" />
-    );
-  };
-
   const handleExportCSV = () => {
     if (slaData.length > 0) {
       exportSLAReportToCSV(
@@ -304,19 +337,7 @@ export default function SLAPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex h-full flex-col">
-        <Header title="SLA Compliance" />
-        <div className="flex-1 space-y-6 overflow-auto p-6">
-          <div className="grid gap-4 md:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-24" />
-            ))}
-          </div>
-          <Skeleton className="h-96" />
-        </div>
-      </div>
-    );
+    return <PageSkeleton title="SLA Compliance" variant="table" />;
   }
 
   return (
@@ -394,73 +415,64 @@ export default function SLAPage() {
           </CardHeader>
           <CardContent>
             {filteredData.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Target className="mb-4 h-12 w-12 text-muted-foreground/50" />
-                <p className="text-lg font-medium">No SLA data available</p>
-                <p className="text-sm text-muted-foreground">
-                  {filter === "all"
-                    ? "Configure SLA targets on your CronJobMonitor resources"
-                    : "No CronJobs match the selected filter"}
-                </p>
-              </div>
+              <EmptyState
+                icon={Target}
+                title="No SLA data available"
+                description={filter === "all"
+                  ? "Configure SLA targets on your CronJobMonitor resources"
+                  : "No CronJobs match the selected filter"}
+                bordered={false}
+              />
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead
-                      className="cursor-pointer select-none group"
-                      onClick={() => handleSort("name")}
-                    >
-                      <span className="flex items-center gap-1">
-                        CronJob
-                        <SortIcon column="name" />
-                      </span>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer select-none group"
-                      onClick={() => handleSort("monitor")}
-                    >
-                      <span className="flex items-center gap-1">
-                        Monitor
-                        <SortIcon column="monitor" />
-                      </span>
-                    </TableHead>
-                    <TableHead
-                      className="text-right cursor-pointer select-none group"
-                      onClick={() => handleSort("targetSLA")}
-                    >
-                      <span className="flex items-center justify-end gap-1">
-                        Target SLA
-                        <SortIcon column="targetSLA" />
-                      </span>
-                    </TableHead>
-                    <TableHead
-                      className="text-right cursor-pointer select-none group"
-                      onClick={() => handleSort("currentRate")}
-                    >
-                      <span className="flex items-center justify-end gap-1">
-                        Current Rate
-                        <SortIcon column="currentRate" />
-                      </span>
-                    </TableHead>
-                    <TableHead
-                      className="text-center cursor-pointer select-none group"
-                      onClick={() => handleSort("status")}
-                    >
-                      <span className="flex items-center justify-center gap-1">
-                        Status
-                        <SortIcon column="status" />
-                      </span>
-                    </TableHead>
-                    <TableHead
-                      className="text-center cursor-pointer select-none group"
-                      onClick={() => handleSort("trend")}
-                    >
-                      <span className="flex items-center justify-center gap-1">
-                        Trend
-                        <SortIcon column="trend" />
-                      </span>
-                    </TableHead>
+                    <SortableTableHeader
+                      column="name"
+                      label="CronJob"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHeader
+                      column="monitor"
+                      label="Monitor"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHeader
+                      column="targetSLA"
+                      label="Target SLA"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                      align="right"
+                    />
+                    <SortableTableHeader
+                      column="currentRate"
+                      label="Current Rate"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                      align="right"
+                    />
+                    <SortableTableHeader
+                      column="status"
+                      label="Status"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                      align="center"
+                    />
+                    <SortableTableHeader
+                      column="trend"
+                      label="Trend"
+                      currentSort={sortColumn}
+                      direction={sortDirection}
+                      onSort={handleSort}
+                      align="center"
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -495,19 +507,26 @@ export default function SLAPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span
-                          className={`font-mono font-medium ${
-                            item.status === "meeting"
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : item.status === "at-risk"
-                                ? "text-amber-600 dark:text-amber-400"
-                                : item.status === "breaching"
-                                  ? "text-red-600 dark:text-red-400"
-                                  : ""
-                          }`}
-                        >
-                          {item.currentSuccessRate.toFixed(1)}%
-                        </span>
+                        <div className="flex flex-col items-end">
+                          <span
+                            className={`font-mono font-medium ${
+                              item.status === "meeting"
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : item.status === "at-risk"
+                                  ? "text-amber-600 dark:text-amber-400"
+                                  : item.status === "breaching"
+                                    ? "text-red-600 dark:text-red-400"
+                                    : ""
+                            }`}
+                          >
+                            {item.currentSuccessRate.toFixed(1)}%
+                          </span>
+                          {item.windowDays > 0 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {item.windowDays}d window
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-center">
                         <StatusBadge status={item.status} />

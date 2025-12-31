@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Play, Search, Timer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, Search, Timer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,8 +25,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusIndicator } from "@/components/status-indicator";
 import { RelativeTime } from "@/components/relative-time";
+import { EmptyState } from "@/components/empty-state";
+import { SortableTableHeader } from "@/components/sortable-table-header";
 import type { CronJobListResponse, CronJob } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { getSuccessRateColor } from "@/lib/constants";
 
 interface CronJobsTableProps {
   cronJobs: CronJobListResponse | null;
@@ -38,35 +41,9 @@ const PAGE_SIZE = 10;
 type SortColumn = "name" | "namespace" | "schedule" | "successRate" | "lastSuccess" | "nextRun";
 type SortDirection = "asc" | "desc";
 
-function getSuccessRateColor(rate: number): string {
-  if (rate >= 99) return "text-emerald-600 dark:text-emerald-400";
-  if (rate >= 95) return "text-amber-600 dark:text-amber-400";
-  return "text-red-600 dark:text-red-400";
-}
-
 function parseDate(dateStr: string | null): number {
   if (!dateStr) return 0;
   return new Date(dateStr).getTime();
-}
-
-// SortIcon component - defined outside to avoid recreation during render
-function SortIcon({
-  column,
-  sortColumn,
-  sortDirection,
-}: {
-  column: SortColumn;
-  sortColumn: SortColumn;
-  sortDirection: SortDirection;
-}) {
-  if (sortColumn !== column) {
-    return <ChevronUp className="h-3 w-3 opacity-0 group-hover:opacity-30" />;
-  }
-  return sortDirection === "asc" ? (
-    <ChevronUp className="h-3 w-3" />
-  ) : (
-    <ChevronDown className="h-3 w-3" />
-  );
 }
 
 // Pure function to filter and sort - no side effects
@@ -254,23 +231,18 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
       <CardContent>
         <div className="h-[400px] md:h-[520px] flex flex-col">
           {jobs.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
-              <Timer className="mb-3 h-12 w-12 text-muted-foreground/50" />
-              <p className="text-lg font-medium text-muted-foreground">
-                {search || namespace !== "all"
-                  ? "No CronJobs match your filters"
-                  : "No CronJobs found"}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground/70">
-                {search || namespace !== "all"
-                  ? "Try adjusting your search or filter criteria"
-                  : "CronJobs being monitored will appear here"}
-              </p>
-              {(search || namespace !== "all") && (
+            <EmptyState
+              icon={Timer}
+              title={search || namespace !== "all"
+                ? "No CronJobs match your filters"
+                : "No CronJobs found"}
+              description={search || namespace !== "all"
+                ? "Try adjusting your search or filter criteria"
+                : "CronJobs being monitored will appear here"}
+              action={(search || namespace !== "all") ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mt-4"
                   onClick={() => {
                     setSearch("");
                     setNamespace("all");
@@ -279,8 +251,9 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                 >
                   Clear filters
                 </Button>
-              )}
-            </div>
+              ) : undefined}
+              className="flex-1"
+            />
           ) : (
             <div className="flex-1 rounded border overflow-hidden">
               <div className="overflow-x-auto">
@@ -288,60 +261,53 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-8"></TableHead>
-                      <TableHead
-                        className="cursor-pointer select-none group"
-                        onClick={() => handleSort("name")}
-                      >
-                        <span className="flex items-center gap-1">
-                          Name
-                          <SortIcon column="name" sortColumn={sortColumn} sortDirection={sortDirection} />
-                        </span>
-                      </TableHead>
-                      <TableHead
-                        className="hidden sm:table-cell cursor-pointer select-none group"
-                        onClick={() => handleSort("namespace")}
-                      >
-                        <span className="flex items-center gap-1">
-                          Namespace
-                          <SortIcon column="namespace" sortColumn={sortColumn} sortDirection={sortDirection} />
-                        </span>
-                      </TableHead>
-                      <TableHead
-                        className="hidden md:table-cell cursor-pointer select-none group"
-                        onClick={() => handleSort("schedule")}
-                      >
-                        <span className="flex items-center gap-1">
-                          Schedule
-                          <SortIcon column="schedule" sortColumn={sortColumn} sortDirection={sortDirection} />
-                        </span>
-                      </TableHead>
-                      <TableHead
-                        className="text-right cursor-pointer select-none group"
-                        onClick={() => handleSort("successRate")}
-                      >
-                        <span className="flex items-center justify-end gap-1">
-                          Success Rate
-                          <SortIcon column="successRate" sortColumn={sortColumn} sortDirection={sortDirection} />
-                        </span>
-                      </TableHead>
-                      <TableHead
-                        className="hidden lg:table-cell cursor-pointer select-none group"
-                        onClick={() => handleSort("lastSuccess")}
-                      >
-                        <span className="flex items-center gap-1">
-                          Last Successful Run
-                          <SortIcon column="lastSuccess" sortColumn={sortColumn} sortDirection={sortDirection} />
-                        </span>
-                      </TableHead>
-                      <TableHead
-                        className="hidden sm:table-cell cursor-pointer select-none group"
-                        onClick={() => handleSort("nextRun")}
-                      >
-                        <span className="flex items-center gap-1">
-                          Next Run
-                          <SortIcon column="nextRun" sortColumn={sortColumn} sortDirection={sortDirection} />
-                        </span>
-                      </TableHead>
+                      <SortableTableHeader
+                        column="name"
+                        label="Name"
+                        currentSort={sortColumn}
+                        direction={sortDirection}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHeader
+                        column="namespace"
+                        label="Namespace"
+                        currentSort={sortColumn}
+                        direction={sortDirection}
+                        onSort={handleSort}
+                        hideOnMobile
+                      />
+                      <SortableTableHeader
+                        column="schedule"
+                        label="Schedule"
+                        currentSort={sortColumn}
+                        direction={sortDirection}
+                        onSort={handleSort}
+                        hideOnTablet
+                      />
+                      <SortableTableHeader
+                        column="successRate"
+                        label="Success (7d)"
+                        currentSort={sortColumn}
+                        direction={sortDirection}
+                        onSort={handleSort}
+                        align="right"
+                      />
+                      <SortableTableHeader
+                        column="lastSuccess"
+                        label="Last Successful Run"
+                        currentSort={sortColumn}
+                        direction={sortDirection}
+                        onSort={handleSort}
+                        className="hidden lg:table-cell"
+                      />
+                      <SortableTableHeader
+                        column="nextRun"
+                        label="Next Run"
+                        currentSort={sortColumn}
+                        direction={sortDirection}
+                        onSort={handleSort}
+                        hideOnMobile
+                      />
                     </TableRow>
                   </TableHeader>
                   <TableBody>

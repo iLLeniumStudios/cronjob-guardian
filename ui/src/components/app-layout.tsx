@@ -21,6 +21,9 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 const navItems = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard", exact: true },
@@ -65,6 +68,12 @@ function NavItem({
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Register keyboard shortcuts (navigation handled by hook, refresh per-page)
+  useKeyboardShortcuts({
+    onShowHelp: () => setShortcutsOpen(true),
+  });
 
   return (
     <div className="flex h-screen flex-col md:flex-row">
@@ -130,7 +139,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto min-w-0">{children}</main>
+      <main className="flex-1 overflow-auto min-w-0">
+        <ErrorBoundary>{children}</ErrorBoundary>
+      </main>
+
+      {/* Keyboard Shortcuts Dialog */}
+      <KeyboardShortcutsDialog
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+      />
     </div>
   );
 }

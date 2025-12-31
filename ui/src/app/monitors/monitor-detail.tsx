@@ -340,8 +340,8 @@ export function MonitorDetailClient() {
                           <StatusIndicator status={cj.status as "healthy" | "warning" | "critical"} />
                         </td>
                         <td className="px-4 py-2">
-                          <span className={cj.metrics.successRate < 90 ? "text-amber-600 dark:text-amber-400" : ""}>
-                            {cj.metrics.successRate.toFixed(1)}%
+                          <span className={(cj.metrics?.successRate ?? 0) < 90 ? "text-amber-600 dark:text-amber-400" : ""}>
+                            {(cj.metrics?.successRate ?? 0).toFixed(1)}%
                           </span>
                         </td>
                         <td className="px-4 py-2 text-sm text-muted-foreground">

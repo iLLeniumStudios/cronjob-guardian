@@ -6,31 +6,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RelativeTime } from "@/components/relative-time";
+import { EmptyState } from "@/components/empty-state";
 import type { AlertsResponse, Alert } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { SEVERITY_STYLES, SEVERITY_ORDER, type Severity } from "@/lib/constants";
 
 interface AlertsPanelProps {
   alerts: AlertsResponse | null;
   isLoading: boolean;
 }
-
-const severityStyles = {
-  critical: {
-    dot: "bg-red-500",
-    text: "text-red-700 dark:text-red-400",
-    bg: "bg-red-500/5",
-  },
-  warning: {
-    dot: "bg-amber-500",
-    text: "text-amber-700 dark:text-amber-400",
-    bg: "bg-amber-500/5",
-  },
-  info: {
-    dot: "bg-blue-500",
-    text: "text-blue-700 dark:text-blue-400",
-    bg: "bg-blue-500/5",
-  },
-};
 
 export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
   if (isLoading) {
@@ -60,8 +44,9 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
   }, new Map<string, Alert>());
 
   const sortedAlerts = [...(uniqueAlerts?.values() ?? [])].sort((a, b) => {
-    const severityOrder = { critical: 0, warning: 1, info: 2 };
-    return severityOrder[a.severity] - severityOrder[b.severity];
+    const aSeverity = (a.severity || "info") as Severity;
+    const bSeverity = (b.severity || "info") as Severity;
+    return SEVERITY_ORDER[aSeverity] - SEVERITY_ORDER[bSeverity];
   });
 
   return (
@@ -78,13 +63,12 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
       </CardHeader>
       <CardContent>
         {sortedAlerts.length === 0 ? (
-          <div className="flex h-[300px] xl:h-[520px] flex-col items-center justify-center text-center rounded-lg border border-dashed">
-            <Bell className="mb-2 h-8 w-8 text-muted-foreground/50" />
-            <p className="text-sm text-muted-foreground">No active alerts</p>
-            <p className="text-xs text-muted-foreground/70">
-              All systems operating normally
-            </p>
-          </div>
+          <EmptyState
+            icon={Bell}
+            title="No active alerts"
+            description="All systems operating normally"
+            className="h-[300px] xl:h-[520px]"
+          />
         ) : (
           <ScrollArea className="h-[300px] xl:h-[520px]">
             <div className="space-y-2 pr-3">
@@ -101,8 +85,8 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
 
 function AlertItem({ alert }: { alert: Alert }) {
   // Normalize severity to lowercase and default to warning for unknown values
-  const normalizedSeverity = (alert.severity?.toLowerCase() || "warning") as keyof typeof severityStyles;
-  const styles = severityStyles[normalizedSeverity] || severityStyles.warning;
+  const severity = (alert.severity?.toLowerCase() || "warning") as Severity;
+  const styles = SEVERITY_STYLES[severity] || SEVERITY_STYLES.warning;
 
   return (
     <Link

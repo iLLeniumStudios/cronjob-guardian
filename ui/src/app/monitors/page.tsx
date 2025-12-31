@@ -1,16 +1,17 @@
 "use client";
 
-import { useCallback, useState, useEffect, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Timer, AlertTriangle } from "lucide-react";
-import { toast } from "sonner";
 import { Header } from "@/components/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { RelativeTime } from "@/components/relative-time";
 import { StatusIndicator } from "@/components/status-indicator";
-import { listMonitors, type MonitorsResponse, type Monitor } from "@/lib/api";
+import { EmptyState } from "@/components/empty-state";
+import { PageSkeleton } from "@/components/page-skeleton";
+import { useFetchData } from "@/hooks/use-fetch-data";
+import { listMonitors, type Monitor } from "@/lib/api";
 import { MonitorDetailClient } from "./monitor-detail";
 
 // Subscribe function for useSyncExternalStore (no-op since pathname won't change without navigation)
@@ -43,43 +44,10 @@ export default function MonitorsPage() {
 }
 
 function MonitorsListView() {
-  const [monitors, setMonitors] = useState<MonitorsResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const fetchData = useCallback(async (showRefreshing = false) => {
-    if (showRefreshing) setIsRefreshing(true);
-    try {
-      const data = await listMonitors();
-      setMonitors(data);
-    } catch (error) {
-      console.error("Failed to fetch monitors:", error);
-      toast.error("Failed to load monitors");
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(() => fetchData(), 5000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+  const { data: monitors, isLoading, isRefreshing, refetch } = useFetchData(listMonitors);
 
   if (isLoading) {
-    return (
-      <div className="flex h-full flex-col">
-        <Header title="Monitors" />
-        <div className="flex-1 space-y-6 overflow-auto p-6">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-48" />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
+    return <PageSkeleton title="Monitors" variant="grid" />;
   }
 
   return (
@@ -87,18 +55,19 @@ function MonitorsListView() {
       <Header
         title="Monitors"
         description="CronJobMonitor resources"
-        onRefresh={() => fetchData(true)}
+        onRefresh={refetch}
         isRefreshing={isRefreshing}
       />
-      <div className="flex-1 space-y-6 overflow-auto p-6">
+      <div className="flex-1 space-y-6 overflow-auto p-4 md:p-6">
         {monitors?.items.length === 0 ? (
           <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Timer className="mb-4 h-12 w-12 text-muted-foreground/50" />
-              <p className="text-lg font-medium">No monitors configured</p>
-              <p className="text-sm text-muted-foreground">
-                Create a CronJobMonitor resource to start monitoring your CronJobs
-              </p>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Timer}
+                title="No monitors configured"
+                description="Create a CronJobMonitor resource to start monitoring your CronJobs"
+                bordered={false}
+              />
             </CardContent>
           </Card>
         ) : (

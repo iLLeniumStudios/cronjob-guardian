@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import {
   MessageSquare,
   Bell,
@@ -16,9 +16,12 @@ import { Header } from "@/components/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { RelativeTime } from "@/components/relative-time";
-import { listChannels, testChannel, type ChannelsResponse, type Channel } from "@/lib/api";
+import { EmptyState } from "@/components/empty-state";
+import { SimpleStatCard } from "@/components/stat-card";
+import { PageSkeleton } from "@/components/page-skeleton";
+import { useFetchData } from "@/hooks/use-fetch-data";
+import { listChannels, testChannel, type Channel } from "@/lib/api";
 
 const channelIcons: Record<string, typeof MessageSquare> = {
   slack: MessageSquare,
@@ -28,30 +31,8 @@ const channelIcons: Record<string, typeof MessageSquare> = {
 };
 
 export default function ChannelsPage() {
-  const [channels, setChannels] = useState<ChannelsResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { data: channels, isLoading, isRefreshing, refetch } = useFetchData(listChannels);
   const [testingChannel, setTestingChannel] = useState<string | null>(null);
-
-  const fetchData = useCallback(async (showRefreshing = false) => {
-    if (showRefreshing) setIsRefreshing(true);
-    try {
-      const data = await listChannels();
-      setChannels(data);
-    } catch (error) {
-      console.error("Failed to fetch channels:", error);
-      toast.error("Failed to load channels");
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(() => fetchData(), 5000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
 
   const handleTest = async (name: string) => {
     setTestingChannel(name);
@@ -62,7 +43,7 @@ export default function ChannelsPage() {
       } else {
         toast.error(result.error || "Failed to send test alert");
       }
-      fetchData();
+      refetch();
     } catch {
       toast.error("Failed to send test alert");
     } finally {
@@ -71,23 +52,7 @@ export default function ChannelsPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex h-full flex-col">
-        <Header title="Alert Channels" />
-        <div className="flex-1 space-y-6 overflow-auto p-6">
-          <div className="grid gap-4 md:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-20" />
-            ))}
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-48" />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
+    return <PageSkeleton title="Alert Channels" variant="grid" />;
   }
 
   return (
@@ -95,55 +60,42 @@ export default function ChannelsPage() {
       <Header
         title="Alert Channels"
         description="Manage notification destinations"
-        onRefresh={() => fetchData(true)}
+        onRefresh={refetch}
         isRefreshing={isRefreshing}
       />
-      <div className="flex-1 space-y-6 overflow-auto p-6">
+      <div className="flex-1 space-y-6 overflow-auto p-4 md:p-6">
         {/* Stats */}
         <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">Total Channels</p>
-              <p className="mt-1 text-2xl font-semibold">
-                {channels?.summary.total ?? 0}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">Ready</p>
-              <p className="mt-1 text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
-                {channels?.summary.ready ?? 0}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">Not Ready</p>
-              <p className="mt-1 text-2xl font-semibold text-red-600 dark:text-red-400">
-                {channels?.summary.notReady ?? 0}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">Alerts (24h)</p>
-              <p className="mt-1 text-2xl font-semibold">
-                {channels?.items.reduce((sum, c) => sum + c.stats.alertsSent24h, 0) ?? 0}
-              </p>
-            </CardContent>
-          </Card>
+          <SimpleStatCard
+            label="Total Channels"
+            value={channels?.summary.total ?? 0}
+          />
+          <SimpleStatCard
+            label="Ready"
+            value={channels?.summary.ready ?? 0}
+            valueClassName="text-emerald-600 dark:text-emerald-400"
+          />
+          <SimpleStatCard
+            label="Not Ready"
+            value={channels?.summary.notReady ?? 0}
+            valueClassName="text-red-600 dark:text-red-400"
+          />
+          <SimpleStatCard
+            label="Alerts (24h)"
+            value={channels?.items.reduce((sum, c) => sum + c.stats.alertsSent24h, 0) ?? 0}
+          />
         </div>
 
         {/* Channel Cards */}
         {channels?.items.length === 0 ? (
           <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Bell className="mb-4 h-12 w-12 text-muted-foreground/50" />
-              <p className="text-lg font-medium">No alert channels configured</p>
-              <p className="text-sm text-muted-foreground">
-                Create an AlertChannel resource to start receiving notifications
-              </p>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Bell}
+                title="No alert channels configured"
+                description="Create an AlertChannel resource to start receiving notifications"
+                bordered={false}
+              />
             </CardContent>
           </Card>
         ) : (

@@ -83,9 +83,18 @@ export function CronJobDetailClient() {
       }
       if (showRefreshing) setIsRefreshing(true);
       try {
+        // Calculate 1 year ago for the heatmap data
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
         const [cronJobData, executionsData] = await Promise.all([
           getCronJob(namespace, name),
-          getExecutions(namespace, name, { limit: 20 }),
+          // Fetch executions for the full year heatmap
+          // limit=10000 covers hourly jobs running for a year (365 * 24 = 8760)
+          getExecutions(namespace, name, {
+            limit: 10000,
+            since: oneYearAgo.toISOString(),
+          }),
         ]);
         setCronJob(cronJobData);
         setExecutions(executionsData);

@@ -394,9 +394,11 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 		resp.Timezone = *cj.Spec.TimeZone
 	}
 
-	// Find monitor for this CronJob
+	// Find monitor for this CronJob - search ALL namespaces since monitors can
+	// monitor CronJobs across namespaces (e.g., monitor in "monitoring" namespace
+	// can watch CronJobs in "default" namespace)
 	monitors := &guardianv1alpha1.CronJobMonitorList{}
-	if err := h.client.List(ctx, monitors, client.InNamespace(namespace)); err == nil {
+	if err := h.client.List(ctx, monitors); err == nil {
 		for _, m := range monitors.Items {
 			for _, cjStatus := range m.Status.CronJobs {
 				if cjStatus.Name == name && cjStatus.Namespace == namespace {

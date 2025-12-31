@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import Link from "next/link";
 import { Bell, AlertCircle, History } from "lucide-react";
-import { toast } from "sonner";
 import { Header } from "@/components/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
 import { RelativeTime } from "@/components/relative-time";
+import { EmptyState } from "@/components/empty-state";
+import { StatCard } from "@/components/stat-card";
+import { PageSkeleton } from "@/components/page-skeleton";
+import { useFetchData } from "@/hooks/use-fetch-data";
 import {
   listAlerts,
   getAlertHistory,
@@ -20,130 +22,60 @@ import {
   type AlertHistoryItem,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { SEVERITY_STYLES, type Severity } from "@/lib/constants";
 
-const severityStyles = {
-  critical: {
-    dot: "bg-red-500",
-    text: "text-red-700 dark:text-red-400",
-    bg: "bg-red-500/5",
-    badge: "bg-red-500/10 text-red-700 dark:text-red-400",
-  },
-  warning: {
-    dot: "bg-amber-500",
-    text: "text-amber-700 dark:text-amber-400",
-    bg: "bg-amber-500/5",
-    badge: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  },
-  info: {
-    dot: "bg-blue-500",
-    text: "text-blue-700 dark:text-blue-400",
-    bg: "bg-blue-500/5",
-    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
-  },
-};
+interface AlertsData {
+  activeAlerts: AlertsResponse;
+  alertHistory: AlertHistoryResponse;
+}
 
 export default function AlertsPage() {
-  const [activeAlerts, setActiveAlerts] = useState<AlertsResponse | null>(null);
-  const [alertHistory, setAlertHistory] = useState<AlertHistoryResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const fetchData = useCallback(async (showRefreshing = false) => {
-    if (showRefreshing) setIsRefreshing(true);
-    try {
-      const [activeData, historyData] = await Promise.all([
-        listAlerts(),
-        getAlertHistory({ limit: 50 }),
-      ]);
-      setActiveAlerts(activeData);
-      setAlertHistory(historyData);
-    } catch (error) {
-      console.error("Failed to fetch alerts:", error);
-      toast.error("Failed to load alerts");
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
+  const fetchAlertsData = useCallback(async (): Promise<AlertsData> => {
+    const [activeAlerts, alertHistory] = await Promise.all([
+      listAlerts(),
+      getAlertHistory({ limit: 50 }),
+    ]);
+    return { activeAlerts, alertHistory };
   }, []);
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(() => fetchData(), 5000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+  const { data, isLoading, isRefreshing, refetch } = useFetchData(fetchAlertsData);
 
   if (isLoading) {
-    return (
-      <div className="flex h-full flex-col">
-        <Header title="Alerts" />
-        <div className="flex-1 space-y-6 overflow-auto p-6">
-          <div className="grid gap-4 md:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-20" />
-            ))}
-          </div>
-          <Skeleton className="h-96" />
-        </div>
-      </div>
-    );
+    return <PageSkeleton title="Alerts" variant="table" />;
   }
+
+  const activeAlerts = data?.activeAlerts;
+  const alertHistory = data?.alertHistory;
 
   return (
     <div className="flex h-full flex-col">
       <Header
         title="Alerts"
         description="Active alerts and history"
-        onRefresh={() => fetchData(true)}
+        onRefresh={refetch}
         isRefreshing={isRefreshing}
       />
-      <div className="flex-1 space-y-6 overflow-auto p-6">
+      <div className="flex-1 space-y-6 overflow-auto p-4 md:p-6">
         {/* Summary */}
         <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded bg-red-500/10 p-2.5">
-                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Critical</p>
-                  <p className="text-2xl font-semibold">
-                    {activeAlerts?.bySeverity.critical ?? 0}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded bg-amber-500/10 p-2.5">
-                  <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Warning</p>
-                  <p className="text-2xl font-semibold">
-                    {activeAlerts?.bySeverity.warning ?? 0}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded bg-blue-500/10 p-2.5">
-                  <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Info</p>
-                  <p className="text-2xl font-semibold">
-                    {activeAlerts?.bySeverity.info ?? 0}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <StatCard
+            icon={AlertCircle}
+            iconColor="red"
+            label="Critical"
+            value={activeAlerts?.bySeverity.critical ?? 0}
+          />
+          <StatCard
+            icon={AlertCircle}
+            iconColor="amber"
+            label="Warning"
+            value={activeAlerts?.bySeverity.warning ?? 0}
+          />
+          <StatCard
+            icon={AlertCircle}
+            iconColor="blue"
+            label="Info"
+            value={activeAlerts?.bySeverity.info ?? 0}
+          />
         </div>
 
         {/* Tabs */}
@@ -166,13 +98,12 @@ export default function AlertsPage() {
               </CardHeader>
               <CardContent>
                 {activeAlerts?.items.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Bell className="mb-4 h-12 w-12 text-muted-foreground/50" />
-                    <p className="text-lg font-medium">No active alerts</p>
-                    <p className="text-sm text-muted-foreground">
-                      All systems operating normally
-                    </p>
-                  </div>
+                  <EmptyState
+                    icon={Bell}
+                    title="No active alerts"
+                    description="All systems operating normally"
+                    bordered={false}
+                  />
                 ) : (
                   <ScrollArea className="h-[500px]">
                     <div className="space-y-3 pr-3">
@@ -193,13 +124,12 @@ export default function AlertsPage() {
               </CardHeader>
               <CardContent>
                 {alertHistory?.items.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <History className="mb-4 h-12 w-12 text-muted-foreground/50" />
-                    <p className="text-lg font-medium">No alert history</p>
-                    <p className="text-sm text-muted-foreground">
-                      Historical alerts will appear here
-                    </p>
-                  </div>
+                  <EmptyState
+                    icon={History}
+                    title="No alert history"
+                    description="Historical alerts will appear here"
+                    bordered={false}
+                  />
                 ) : (
                   <ScrollArea className="h-[500px]">
                     <div className="space-y-3 pr-3">
@@ -219,7 +149,8 @@ export default function AlertsPage() {
 }
 
 function ActiveAlertCard({ alert }: { alert: Alert }) {
-  const styles = severityStyles[alert.severity] || severityStyles.info;
+  const severity = (alert.severity || "info") as Severity;
+  const styles = SEVERITY_STYLES[severity] || SEVERITY_STYLES.info;
 
   return (
     <Link
@@ -253,7 +184,8 @@ function ActiveAlertCard({ alert }: { alert: Alert }) {
 }
 
 function HistoryAlertCard({ alert }: { alert: AlertHistoryItem }) {
-  const styles = severityStyles[alert.severity] || severityStyles.info;
+  const severity = (alert.severity || "info") as Severity;
+  const styles = SEVERITY_STYLES[severity] || SEVERITY_STYLES.info;
 
   return (
     <div className="rounded border p-4">

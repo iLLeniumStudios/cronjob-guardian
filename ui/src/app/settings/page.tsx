@@ -1,18 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { CheckCircle2, XCircle, Database, Trash2 } from "lucide-react";
-
-// Format nanoseconds duration to human readable string
-function formatDuration(nanoseconds: number | undefined): string {
-  if (!nanoseconds) return "-";
-  const seconds = nanoseconds / 1_000_000_000;
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = seconds / 60;
-  if (minutes < 60) return `${Math.round(minutes)}m`;
-  const hours = minutes / 60;
-  return `${Math.round(hours)}h`;
-}
 import { toast } from "sonner";
 import { Header } from "@/components/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useFetchData } from "@/hooks/use-fetch-data";
 import {
   getConfig,
   getHealth,
@@ -41,6 +31,17 @@ import {
   type StatsResponse,
   type StorageStatsResponse,
 } from "@/lib/api";
+
+// Format nanoseconds duration to human readable string
+function formatDuration(nanoseconds: number | undefined): string {
+  if (!nanoseconds) return "-";
+  const seconds = nanoseconds / 1_000_000_000;
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = seconds / 60;
+  if (minutes < 60) return `${Math.round(minutes)}m`;
+  const hours = minutes / 60;
+  return `${Math.round(hours)}h`;
+}
 
 function StatusIcon({ ok }: { ok: boolean }) {
   return ok ? (
@@ -67,38 +68,29 @@ function SettingRow({
   );
 }
 
+interface SettingsData {
+  config: Config;
+  health: HealthResponse;
+  stats: StatsResponse;
+  storageStats: StorageStatsResponse;
+}
+
 export default function SettingsPage() {
-  const [config, setConfig] = useState<Config | null>(null);
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [storageStats, setStorageStats] = useState<StorageStatsResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [pruneDialogOpen, setPruneDialogOpen] = useState(false);
   const [pruneLoading, setPruneLoading] = useState(false);
   const [pruneDays, setPruneDays] = useState("30");
 
-  const fetchData = useCallback(async (showRefreshing = false) => {
-    if (showRefreshing) setIsRefreshing(true);
-    try {
-      const [configData, healthData, statsData, storageData] = await Promise.all([
-        getConfig(),
-        getHealth(),
-        getStats(),
-        getStorageStats(),
-      ]);
-      setConfig(configData);
-      setHealth(healthData);
-      setStats(statsData);
-      setStorageStats(storageData);
-    } catch (error) {
-      console.error("Failed to fetch config:", error);
-      toast.error("Failed to load configuration");
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
+  const fetchSettingsData = useCallback(async (): Promise<SettingsData> => {
+    const [config, health, stats, storageStats] = await Promise.all([
+      getConfig(),
+      getHealth(),
+      getStats(),
+      getStorageStats(),
+    ]);
+    return { config, health, stats, storageStats };
   }, []);
+
+  const { data, isLoading, isRefreshing, refetch } = useFetchData(fetchSettingsData);
 
   const handlePrune = async (dryRun: boolean) => {
     setPruneLoading(true);
@@ -115,7 +107,7 @@ export default function SettingsPage() {
         } else {
           toast.success(`Pruned ${result.recordsPruned} records older than ${days} days`);
           setPruneDialogOpen(false);
-          fetchData(true);
+          refetch();
         }
       } else {
         toast.error(result.message || "Failed to prune records");
@@ -127,17 +119,11 @@ export default function SettingsPage() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(() => fetchData(), 5000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
-
   if (isLoading) {
     return (
       <div className="flex h-full flex-col">
         <Header title="Settings" />
-        <div className="flex-1 space-y-6 overflow-auto p-6">
+        <div className="flex-1 space-y-6 overflow-auto p-4 md:p-6">
           <div className="grid gap-6 lg:grid-cols-2">
             <Skeleton className="h-64" />
             <Skeleton className="h-64" />
@@ -146,6 +132,11 @@ export default function SettingsPage() {
       </div>
     );
   }
+
+  const config = data?.config;
+  const health = data?.health;
+  const stats = data?.stats;
+  const storageStats = data?.storageStats;
 
   const storageLocation =
     config?.storage?.sqlite?.path ??
@@ -158,10 +149,10 @@ export default function SettingsPage() {
       <Header
         title="Settings"
         description="System configuration and status"
-        onRefresh={() => fetchData(true)}
+        onRefresh={refetch}
         isRefreshing={isRefreshing}
       />
-      <div className="flex-1 space-y-6 overflow-auto p-6">
+      <div className="flex-1 space-y-6 overflow-auto p-4 md:p-6">
         <div className="grid gap-6 lg:grid-cols-2">
           {/* System Status */}
           <Card>

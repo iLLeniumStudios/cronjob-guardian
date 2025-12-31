@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { RelativeTime } from "@/components/relative-time";
 import type { CronJobMetrics } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { getSuccessRateColor } from "@/lib/constants";
 
 interface MetricsCardsProps {
   metrics: CronJobMetrics | null | undefined;
@@ -24,12 +25,6 @@ function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-}
-
-function getSuccessRateColor(rate: number): string {
-  if (rate >= 99) return "text-emerald-600 dark:text-emerald-400";
-  if (rate >= 95) return "text-amber-600 dark:text-amber-400";
-  return "text-red-600 dark:text-red-400";
 }
 
 export function MetricsCards({ metrics, nextRun }: MetricsCardsProps) {

@@ -189,10 +189,17 @@ export interface MonitorDetail {
       status: string;
       lastSuccessfulTime: string | null;
       nextScheduledTime: string | null;
-      metrics: {
+      // metrics is optional - will be null/undefined if no executions recorded yet
+      metrics?: {
         successRate: number;
+        totalRuns: number;
+        successfulRuns: number;
+        failedRuns: number;
         avgDurationSeconds: number;
-      };
+        p50DurationSeconds?: number;
+        p95DurationSeconds?: number;
+        p99DurationSeconds?: number;
+      } | null;
     }>;
     lastReconcileTime: string;
   };

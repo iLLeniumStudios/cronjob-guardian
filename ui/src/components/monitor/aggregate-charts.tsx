@@ -30,11 +30,11 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
 
     // Calculate overall success rate (weighted average)
     const totalSuccessRate =
-      cronJobs.reduce((sum, cj) => sum + cj.metrics.successRate, 0) / cronJobs.length;
+      cronJobs.reduce((sum, cj) => sum + (cj.metrics?.successRate ?? 0), 0) / cronJobs.length;
 
     // Calculate average duration
     const avgDuration =
-      cronJobs.reduce((sum, cj) => sum + cj.metrics.avgDurationSeconds, 0) / cronJobs.length;
+      cronJobs.reduce((sum, cj) => sum + (cj.metrics?.avgDurationSeconds ?? 0), 0) / cronJobs.length;
 
     return {
       totalSuccessRate: totalSuccessRate.toFixed(1),
@@ -49,8 +49,8 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
       .map((cj) => ({
         name: cj.name.length > 12 ? cj.name.substring(0, 12) + "..." : cj.name,
         fullName: cj.name,
-        successRate: cj.metrics.successRate,
-        avgDuration: cj.metrics.avgDurationSeconds,
+        successRate: cj.metrics?.successRate ?? 0,
+        avgDuration: cj.metrics?.avgDurationSeconds ?? 0,
         status: cj.status,
       }))
       .sort((a, b) => a.successRate - b.successRate); // Sort by success rate ascending
