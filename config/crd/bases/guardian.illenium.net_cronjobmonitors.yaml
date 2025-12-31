@@ -123,31 +123,26 @@ spec:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                       durationRegression:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                       jobFailed:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                       missedSchedule:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                       slaBreached:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                     type: object
                   suppressDuplicatesFor:

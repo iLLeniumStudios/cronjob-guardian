@@ -261,7 +261,7 @@ export function MonitorDetailClient() {
                   ))}
                 {monitor.spec.selector.matchExpressions?.map((expr, i) => (
                   <Badge key={i} variant="secondary">
-                    {expr.key} {expr.operator} [{expr.values.join(", ")}]
+                    {expr.key} {expr.operator}{expr.values?.length ? ` [${expr.values.join(", ")}]` : ""}
                   </Badge>
                 ))}
               </div>

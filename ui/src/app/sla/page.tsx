@@ -11,6 +11,8 @@ import {
   TrendingDown,
   Minus,
   Filter,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
@@ -46,6 +48,21 @@ import {
 } from "@/lib/api";
 
 type SLAStatus = "meeting" | "breaching" | "at-risk" | "no-sla";
+type SLASortColumn = "name" | "monitor" | "targetSLA" | "currentRate" | "status" | "trend";
+type SortDirection = "asc" | "desc";
+
+const statusOrder: Record<SLAStatus, number> = {
+  breaching: 0,
+  "at-risk": 1,
+  meeting: 2,
+  "no-sla": 3,
+};
+
+const trendOrder: Record<string, number> = {
+  declining: 0,
+  stable: 1,
+  improving: 2,
+};
 
 interface SLACronJob {
   name: string;
@@ -79,6 +96,8 @@ export default function SLAPage() {
     noSLA: 0,
   });
   const [filter, setFilter] = useState<SLAStatus | "all">("all");
+  const [sortColumn, setSortColumn] = useState<SLASortColumn>("status");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const fetchData = useCallback(async (showRefreshing = false) => {
     if (showRefreshing) setIsRefreshing(true);
@@ -94,7 +113,8 @@ export default function SLAPage() {
       );
 
       // Build SLA data by cross-referencing monitors and cronjobs
-      const slaItems: SLACronJob[] = [];
+      // Use a Map to deduplicate by cronjob (keeping the strictest SLA)
+      const slaMap = new Map<string, SLACronJob>();
 
       for (const detail of monitorDetails) {
         if (!detail || !detail.spec.sla?.enabled) continue;
@@ -103,6 +123,8 @@ export default function SLAPage() {
         const windowDays = detail.spec.sla.windowDays || 7;
 
         for (const cj of detail.status.cronJobs) {
+          const key = `${cj.namespace}/${cj.name}`;
+
           // Find the cronjob in the list to get full metrics
           const fullCronJob = cronJobsRes.items.find(
             (c) => c.name === cj.name && c.namespace === cj.namespace
@@ -128,7 +150,7 @@ export default function SLAPage() {
           if (gap > 5) trend = "improving";
           else if (gap < -10) trend = "declining";
 
-          slaItems.push({
+          const newItem: SLACronJob = {
             name: cj.name,
             namespace: cj.namespace,
             monitorName: detail.metadata.name,
@@ -138,18 +160,22 @@ export default function SLAPage() {
             status,
             trend,
             windowDays,
-          });
+          };
+
+          // If cronjob already exists, keep the entry with the strictest (highest) SLA target
+          const existing = slaMap.get(key);
+          if (!existing || targetSLA > existing.targetSLA) {
+            slaMap.set(key, newItem);
+          }
         }
       }
 
       // Also check cronjobs without SLA configured
       for (const cj of cronJobsRes.items) {
-        const hasSLA = slaItems.some(
-          (s) => s.name === cj.name && s.namespace === cj.namespace
-        );
-        if (!hasSLA && cj.monitorRef) {
+        const key = `${cj.namespace}/${cj.name}`;
+        if (!slaMap.has(key) && cj.monitorRef) {
           // Has monitor but no SLA configured
-          slaItems.push({
+          slaMap.set(key, {
             name: cj.name,
             namespace: cj.namespace,
             monitorName: cj.monitorRef.name,
@@ -162,6 +188,8 @@ export default function SLAPage() {
           });
         }
       }
+
+      const slaItems = Array.from(slaMap.values());
 
       // Calculate summary
       const newSummary: SLASummary = {
@@ -189,8 +217,56 @@ export default function SLAPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const filteredData =
-    filter === "all" ? slaData : slaData.filter((s) => s.status === filter);
+  // Filter and sort data
+  const filteredData = (() => {
+    const filtered = filter === "all" ? slaData : slaData.filter((s) => s.status === filter);
+    const multiplier = sortDirection === "asc" ? 1 : -1;
+
+    return [...filtered].sort((a, b) => {
+      let comparison = 0;
+      switch (sortColumn) {
+        case "name":
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case "monitor":
+          comparison = a.monitorName.localeCompare(b.monitorName);
+          break;
+        case "targetSLA":
+          comparison = a.targetSLA - b.targetSLA;
+          break;
+        case "currentRate":
+          comparison = a.currentSuccessRate - b.currentSuccessRate;
+          break;
+        case "status":
+          comparison = statusOrder[a.status] - statusOrder[b.status];
+          break;
+        case "trend":
+          comparison = trendOrder[a.trend] - trendOrder[b.trend];
+          break;
+      }
+      return comparison * multiplier;
+    });
+  })();
+
+  const handleSort = (column: SLASortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
+
+  const SortIcon = ({ column }: { column: SLASortColumn }) => {
+    if (sortColumn !== column) {
+      return <ChevronUp className="h-3 w-3 opacity-0 group-hover:opacity-30" />;
+    }
+    return sortDirection === "asc" ? (
+      <ChevronUp className="h-3 w-3" />
+    ) : (
+      <ChevronDown className="h-3 w-3" />
+    );
+  };
 
   const handleExportCSV = () => {
     if (slaData.length > 0) {
@@ -339,12 +415,60 @@ export default function SLAPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>CronJob</TableHead>
-                    <TableHead>Monitor</TableHead>
-                    <TableHead className="text-right">Target SLA</TableHead>
-                    <TableHead className="text-right">Current Rate</TableHead>
-                    <TableHead className="text-center">Status</TableHead>
-                    <TableHead className="text-center">Trend</TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none group"
+                      onClick={() => handleSort("name")}
+                    >
+                      <span className="flex items-center gap-1">
+                        CronJob
+                        <SortIcon column="name" />
+                      </span>
+                    </TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none group"
+                      onClick={() => handleSort("monitor")}
+                    >
+                      <span className="flex items-center gap-1">
+                        Monitor
+                        <SortIcon column="monitor" />
+                      </span>
+                    </TableHead>
+                    <TableHead
+                      className="text-right cursor-pointer select-none group"
+                      onClick={() => handleSort("targetSLA")}
+                    >
+                      <span className="flex items-center justify-end gap-1">
+                        Target SLA
+                        <SortIcon column="targetSLA" />
+                      </span>
+                    </TableHead>
+                    <TableHead
+                      className="text-right cursor-pointer select-none group"
+                      onClick={() => handleSort("currentRate")}
+                    >
+                      <span className="flex items-center justify-end gap-1">
+                        Current Rate
+                        <SortIcon column="currentRate" />
+                      </span>
+                    </TableHead>
+                    <TableHead
+                      className="text-center cursor-pointer select-none group"
+                      onClick={() => handleSort("status")}
+                    >
+                      <span className="flex items-center justify-center gap-1">
+                        Status
+                        <SortIcon column="status" />
+                      </span>
+                    </TableHead>
+                    <TableHead
+                      className="text-center cursor-pointer select-none group"
+                      onClick={() => handleSort("trend")}
+                    >
+                      <span className="flex items-center justify-center gap-1">
+                        Trend
+                        <SortIcon column="trend" />
+                      </span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

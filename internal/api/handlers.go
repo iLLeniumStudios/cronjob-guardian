@@ -791,7 +791,6 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 	bySeverity := map[string]int{
 		"critical": 0,
 		"warning":  0,
-		"info":     0,
 	}
 
 	for _, m := range monitors.Items {

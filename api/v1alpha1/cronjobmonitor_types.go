@@ -238,20 +238,21 @@ type AlertContext struct {
 }
 
 // SeverityOverrides customizes alert severities
+// Only critical and warning are valid - info is not appropriate for alerts
 type SeverityOverrides struct {
-	// +kubebuilder:validation:Enum=critical;warning;info
+	// +kubebuilder:validation:Enum=critical;warning
 	// +optional
 	MissedSchedule string `json:"missedSchedule,omitempty"`
-	// +kubebuilder:validation:Enum=critical;warning;info
+	// +kubebuilder:validation:Enum=critical;warning
 	// +optional
 	JobFailed string `json:"jobFailed,omitempty"`
-	// +kubebuilder:validation:Enum=critical;warning;info
+	// +kubebuilder:validation:Enum=critical;warning
 	// +optional
 	SLABreached string `json:"slaBreached,omitempty"`
-	// +kubebuilder:validation:Enum=critical;warning;info
+	// +kubebuilder:validation:Enum=critical;warning
 	// +optional
 	DeadManTriggered string `json:"deadManTriggered,omitempty"`
-	// +kubebuilder:validation:Enum=critical;warning;info
+	// +kubebuilder:validation:Enum=critical;warning
 	// +optional
 	DurationRegression string `json:"durationRegression,omitempty"`
 }

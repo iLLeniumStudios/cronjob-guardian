@@ -193,6 +193,7 @@ func (h *JobHandler) getCronJobOwner(job *batchv1.Job) string {
 
 // findMonitorsForCronJob finds ALL monitors whose selector matches the given CronJob.
 // This uses real-time selector evaluation (not cached status) to avoid race conditions.
+// It searches monitors in ALL namespaces since a monitor can watch CronJobs across namespaces.
 func (h *JobHandler) findMonitorsForCronJob(ctx context.Context, namespace, cronJobName string) []*guardianv1alpha1.CronJobMonitor {
 	log := h.Log.V(1)
 
@@ -203,26 +204,64 @@ func (h *JobHandler) findMonitorsForCronJob(ctx context.Context, namespace, cron
 		return nil
 	}
 
-	// List all monitors in namespace
+	// List ALL monitors across all namespaces - monitors can watch CronJobs in other namespaces
 	monitors := &guardianv1alpha1.CronJobMonitorList{}
-	if err := h.List(ctx, monitors, client.InNamespace(namespace)); err != nil {
-		log.Error(err, "failed to list monitors", "namespace", namespace)
+	if err := h.List(ctx, monitors); err != nil {
+		log.Error(err, "failed to list monitors")
 		return nil
 	}
 
-	log.Info("searching for monitors", "namespace", namespace, "cronJob", cronJobName, "monitorCount", len(monitors.Items))
+	log.Info("searching for monitors", "cronJobNamespace", namespace, "cronJob", cronJobName, "monitorCount", len(monitors.Items))
 
 	// Find ALL monitors whose selector matches this CronJob
 	var matching []*guardianv1alpha1.CronJobMonitor
 	for i := range monitors.Items {
 		monitor := &monitors.Items[i]
+		// Check if monitor watches this namespace
+		if !h.monitorWatchesNamespace(monitor, namespace) {
+			continue
+		}
 		if MatchesSelector(cronJob, monitor.Spec.Selector) {
-			log.Info("found matching monitor", "monitor", monitor.Name)
+			log.Info("found matching monitor", "monitor", monitor.Name, "monitorNamespace", monitor.Namespace)
 			matching = append(matching, monitor)
 		}
 	}
 
 	return matching
+}
+
+// monitorWatchesNamespace checks if a monitor is configured to watch the given namespace
+func (h *JobHandler) monitorWatchesNamespace(monitor *guardianv1alpha1.CronJobMonitor, namespace string) bool {
+	if monitor.Spec.Selector == nil {
+		// No selector means watch monitor's own namespace only
+		return monitor.Namespace == namespace
+	}
+
+	// AllNamespaces takes precedence
+	if monitor.Spec.Selector.AllNamespaces {
+		return true
+	}
+
+	// Check explicit namespace list
+	if len(monitor.Spec.Selector.Namespaces) > 0 {
+		for _, ns := range monitor.Spec.Selector.Namespaces {
+			if ns == namespace {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Check namespace label selector
+	if monitor.Spec.Selector.NamespaceSelector != nil {
+		// For simplicity, we'll need to get the namespace and check labels
+		// This is already handled in MatchesSelector, so we return true here
+		// and let MatchesSelector do the full check
+		return true
+	}
+
+	// Default: watch only monitor's own namespace
+	return monitor.Namespace == namespace
 }
 
 func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJobName, cronJobUID string, monitor *guardianv1alpha1.CronJobMonitor) store.Execution {

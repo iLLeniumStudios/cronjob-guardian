@@ -50,20 +50,20 @@ export default function DashboardPage() {
   const handleRefresh = () => fetchData(true);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col min-w-0">
       <Header
         title="Dashboard"
         description="Overview of your CronJob health"
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
       />
-      <div className="flex-1 space-y-4 md:space-y-6 overflow-auto p-4 md:p-6">
+      <div className="flex-1 space-y-4 md:space-y-6 overflow-auto p-4 md:p-6 min-w-0">
         <StatsCards stats={stats} isLoading={isLoading} />
-        <div className="grid gap-4 md:gap-6 xl:grid-cols-3">
-          <div className="xl:col-span-2">
+        <div className="grid gap-4 md:gap-6 xl:grid-cols-3 min-w-0">
+          <div className="xl:col-span-2 min-w-0">
             <CronJobsTable cronJobs={cronJobs} isLoading={isLoading} />
           </div>
-          <div>
+          <div className="min-w-0">
             <AlertsPanel alerts={alerts} isLoading={isLoading} />
           </div>
         </div>

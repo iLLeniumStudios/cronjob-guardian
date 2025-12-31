@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Play, Search, Timer } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Play, Search, Timer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -35,17 +35,27 @@ interface CronJobsTableProps {
 
 const PAGE_SIZE = 10;
 
+type SortColumn = "name" | "namespace" | "schedule" | "successRate" | "lastSuccess" | "nextRun";
+type SortDirection = "asc" | "desc";
+
 function getSuccessRateColor(rate: number): string {
   if (rate >= 99) return "text-emerald-600 dark:text-emerald-400";
   if (rate >= 95) return "text-amber-600 dark:text-amber-400";
   return "text-red-600 dark:text-red-400";
 }
 
+function parseDate(dateStr: string | null): number {
+  if (!dateStr) return 0;
+  return new Date(dateStr).getTime();
+}
+
 // Pure function to filter and sort - no side effects
 function getDisplayData(
   items: CronJob[] | undefined,
   namespace: string,
-  search: string
+  search: string,
+  sortColumn: SortColumn,
+  sortDirection: SortDirection
 ): { filtered: CronJob[]; namespaces: string[] } {
   if (!items || items.length === 0) {
     return { filtered: [], namespaces: [] };
@@ -78,11 +88,31 @@ function getDisplayData(
     filtered.push(job);
   }
 
-  // Sort by namespace, then name
+  // Sort
+  const multiplier = sortDirection === "asc" ? 1 : -1;
   filtered.sort((a, b) => {
-    const nsCompare = a.namespace.localeCompare(b.namespace);
-    if (nsCompare !== 0) return nsCompare;
-    return a.name.localeCompare(b.name);
+    let comparison = 0;
+    switch (sortColumn) {
+      case "name":
+        comparison = a.name.localeCompare(b.name);
+        break;
+      case "namespace":
+        comparison = a.namespace.localeCompare(b.namespace);
+        break;
+      case "schedule":
+        comparison = a.schedule.localeCompare(b.schedule);
+        break;
+      case "successRate":
+        comparison = a.successRate - b.successRate;
+        break;
+      case "lastSuccess":
+        comparison = parseDate(a.lastSuccess) - parseDate(b.lastSuccess);
+        break;
+      case "nextRun":
+        comparison = parseDate(a.nextRun) - parseDate(b.nextRun);
+        break;
+    }
+    return comparison * multiplier;
   });
 
   return { filtered, namespaces };
@@ -107,11 +137,13 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
   const [search, setSearch] = useState("");
   const [namespace, setNamespace] = useState("all");
   const [page, setPage] = useState(0);
+  const [sortColumn, setSortColumn] = useState<SortColumn>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   // Compute filtered data - memoized to avoid recomputation
   const { filtered, namespaces } = useMemo(
-    () => getDisplayData(cronJobs?.items, namespace, search),
-    [cronJobs?.items, namespace, search]
+    () => getDisplayData(cronJobs?.items, namespace, search, sortColumn, sortDirection),
+    [cronJobs?.items, namespace, search, sortColumn, sortDirection]
   );
 
   // Paginate with automatic page clamping (handles when filters reduce available pages)
@@ -140,6 +172,27 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
     setPage((p) => Math.min(totalPages - 1, p + 1));
   };
 
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+    setPage(0);
+  };
+
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column) {
+      return <ChevronUp className="h-3 w-3 opacity-0 group-hover:opacity-30" />;
+    }
+    return sortDirection === "asc" ? (
+      <ChevronUp className="h-3 w-3" />
+    ) : (
+      <ChevronDown className="h-3 w-3" />
+    );
+  };
+
   if (isLoading) {
     return (
       <Card>
@@ -159,7 +212,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
   }
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardHeader className="pb-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <CardTitle className="text-base font-medium">CronJobs</CardTitle>
@@ -190,7 +243,7 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="h-[520px] flex flex-col">
+        <div className="h-[400px] md:h-[520px] flex flex-col">
           {jobs.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
               <Timer className="mb-3 h-12 w-12 text-muted-foreground/50" />
@@ -226,12 +279,60 @@ export function CronJobsTable({ cronJobs, isLoading }: CronJobsTableProps) {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-8"></TableHead>
-                      <TableHead className="min-w-[120px]">Name</TableHead>
-                      <TableHead className="min-w-[100px]">Namespace</TableHead>
-                      <TableHead className="min-w-[100px]">Schedule</TableHead>
-                      <TableHead className="text-right min-w-[100px]">Success Rate</TableHead>
-                      <TableHead className="min-w-[140px]">Last Successful Run</TableHead>
-                      <TableHead className="min-w-[100px]">Next Run</TableHead>
+                      <TableHead
+                        className="cursor-pointer select-none group"
+                        onClick={() => handleSort("name")}
+                      >
+                        <span className="flex items-center gap-1">
+                          Name
+                          <SortIcon column="name" />
+                        </span>
+                      </TableHead>
+                      <TableHead
+                        className="hidden sm:table-cell cursor-pointer select-none group"
+                        onClick={() => handleSort("namespace")}
+                      >
+                        <span className="flex items-center gap-1">
+                          Namespace
+                          <SortIcon column="namespace" />
+                        </span>
+                      </TableHead>
+                      <TableHead
+                        className="hidden md:table-cell cursor-pointer select-none group"
+                        onClick={() => handleSort("schedule")}
+                      >
+                        <span className="flex items-center gap-1">
+                          Schedule
+                          <SortIcon column="schedule" />
+                        </span>
+                      </TableHead>
+                      <TableHead
+                        className="text-right cursor-pointer select-none group"
+                        onClick={() => handleSort("successRate")}
+                      >
+                        <span className="flex items-center justify-end gap-1">
+                          Success Rate
+                          <SortIcon column="successRate" />
+                        </span>
+                      </TableHead>
+                      <TableHead
+                        className="hidden lg:table-cell cursor-pointer select-none group"
+                        onClick={() => handleSort("lastSuccess")}
+                      >
+                        <span className="flex items-center gap-1">
+                          Last Successful Run
+                          <SortIcon column="lastSuccess" />
+                        </span>
+                      </TableHead>
+                      <TableHead
+                        className="hidden sm:table-cell cursor-pointer select-none group"
+                        onClick={() => handleSort("nextRun")}
+                      >
+                        <span className="flex items-center gap-1">
+                          Next Run
+                          <SortIcon column="nextRun" />
+                        </span>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -297,36 +398,38 @@ function CronJobRow({ job }: { job: CronJob }) {
         <StatusIndicator status={displayStatus} />
       </TableCell>
       <TableCell>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
           <Link
             href={`/cronjob/${job.namespace}/${job.name}`}
             className="font-medium hover:underline"
           >
             {job.name}
           </Link>
+          {/* Show namespace inline on mobile since column is hidden */}
+          <span className="text-xs text-muted-foreground sm:hidden">{job.namespace}</span>
           {hasActiveJobs && (
-            <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20 gap-1">
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20 gap-1 w-fit">
               <Play className="h-3 w-3 fill-current" />
               {job.activeJobs!.length} running
             </Badge>
           )}
         </div>
       </TableCell>
-      <TableCell>
+      <TableCell className="hidden sm:table-cell">
         <Badge variant="outline" className="font-normal">
           {job.namespace}
         </Badge>
       </TableCell>
-      <TableCell className="font-mono text-sm">{job.schedule}</TableCell>
+      <TableCell className="hidden md:table-cell font-mono text-sm">{job.schedule}</TableCell>
       <TableCell className="text-right">
         <span className={cn("font-medium", getSuccessRateColor(job.successRate))}>
           {job.successRate.toFixed(1)}%
         </span>
       </TableCell>
-      <TableCell>
+      <TableCell className="hidden lg:table-cell">
         <RelativeTime date={job.lastSuccess} />
       </TableCell>
-      <TableCell>
+      <TableCell className="hidden sm:table-cell">
         <RelativeTime date={job.nextRun} />
       </TableCell>
     </TableRow>

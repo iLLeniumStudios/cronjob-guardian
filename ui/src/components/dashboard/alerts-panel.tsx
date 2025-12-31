@@ -78,7 +78,7 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
       </CardHeader>
       <CardContent>
         {sortedAlerts.length === 0 ? (
-          <div className="flex h-[520px] flex-col items-center justify-center text-center rounded-lg border border-dashed">
+          <div className="flex h-[300px] xl:h-[520px] flex-col items-center justify-center text-center rounded-lg border border-dashed">
             <Bell className="mb-2 h-8 w-8 text-muted-foreground/50" />
             <p className="text-sm text-muted-foreground">No active alerts</p>
             <p className="text-xs text-muted-foreground/70">
@@ -86,7 +86,7 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
             </p>
           </div>
         ) : (
-          <ScrollArea className="h-[520px]">
+          <ScrollArea className="h-[300px] xl:h-[520px]">
             <div className="space-y-2 pr-3">
               {sortedAlerts.map((alert) => (
                 <AlertItem key={alert.id || `${alert.cronjob.namespace}-${alert.cronjob.name}-${alert.type}`} alert={alert} />
