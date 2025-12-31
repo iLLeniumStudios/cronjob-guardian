@@ -245,7 +245,7 @@ func (s *Server) serveUI(r chi.Router) {
 	uiFS, err := fs.Sub(UIAssets, "ui/out")
 	if err != nil {
 		// No embedded UI, serve a simple message
-		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+		fallbackHandler := func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = w.Write([]byte(`<!DOCTYPE html>
 <html>
@@ -255,13 +255,15 @@ func (s *Server) serveUI(r chi.Router) {
 <p>API available at <a href="/api/v1/health">/api/v1/health</a></p>
 </body>
 </html>`))
-		})
+		}
+		r.Get("/*", fallbackHandler)
+		r.Head("/*", fallbackHandler)
 		return
 	}
 
 	// Serve static files
 	fileServer := http.FileServer(http.FS(uiFS))
-	r.Get("/*", func(w http.ResponseWriter, req *http.Request) {
+	uiHandler := func(w http.ResponseWriter, req *http.Request) {
 		path := req.URL.Path
 		if path == "/" {
 			path = "/index.html"
@@ -309,5 +311,10 @@ func (s *Server) serveUI(r chi.Router) {
 		}
 
 		http.NotFound(w, req)
-	})
+	}
+
+	// Register handler for both GET and HEAD methods
+	// HEAD is used by browsers/Next.js for link prefetching
+	r.Get("/*", uiHandler)
+	r.Head("/*", uiHandler)
 }
