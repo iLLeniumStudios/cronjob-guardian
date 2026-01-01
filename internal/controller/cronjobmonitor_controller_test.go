@@ -128,17 +128,19 @@ func TestReconcile_NewMonitor(t *testing.T) {
 	result, err := r.Reconcile(context.Background(), req)
 	require.NoError(t, err)
 
-	// Should requeue for finalizer addition (either immediate or delayed)
-	//nolint:staticcheck // result.Requeue is used by the controller, test must check both modes
-	assert.True(t, result.Requeue || result.RequeueAfter > 0)
-
-	// Verify monitor still exists
+	// Verify monitor still exists and finalizer was added
 	var updated guardianv1alpha1.CronJobMonitor
 	err = fakeClient.Get(context.Background(), req.NamespacedName, &updated)
 	require.NoError(t, err)
 
-	// Finalizer should be added
-	assert.True(t, controllerutil.ContainsFinalizer(&updated, finalizerName))
+	// Finalizer should be added - this is the key invariant
+	assert.True(t, controllerutil.ContainsFinalizer(&updated, finalizerName), "finalizer should be added to new monitor")
+
+	// Should indicate requeue (either immediate, delayed, or already completed processing)
+	// The reconciler may return Requeue:true after adding finalizer, or RequeueAfter:30s if it
+	// processed the full reconcile in one pass (depends on fake client behavior)
+	//nolint:staticcheck // result.Requeue is used by the controller
+	assert.True(t, result.Requeue || result.RequeueAfter > 0, "should indicate requeue after processing new monitor")
 }
 
 func TestReconcile_UpdateMonitor(t *testing.T) {
