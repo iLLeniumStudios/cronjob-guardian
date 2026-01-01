@@ -4,7 +4,7 @@
 [![App Version](https://img.shields.io/github/v/release/iLLeniumStudios/cronjob-guardian?filter=v*&logo=github&label=app)](https://github.com/iLLeniumStudios/cronjob-guardian/releases/latest)
 [![License](https://img.shields.io/github/license/iLLeniumStudios/cronjob-guardian)](https://github.com/iLLeniumStudios/cronjob-guardian/blob/main/LICENSE)
 
-A Kubernetes operator for intelligent CronJob monitoring, SLA tracking, and auto-remediation.
+A Kubernetes operator for monitoring CronJobs with SLA tracking, intelligent alerting, and a built-in dashboard.
 
 **Homepage:** <https://github.com/iLLeniumStudios/cronjob-guardian>
 
