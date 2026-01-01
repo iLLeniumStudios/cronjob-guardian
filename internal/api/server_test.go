@@ -178,7 +178,7 @@ func TestServer_APIRoutes(t *testing.T) {
 			router.ServeHTTP(w, req)
 
 			resp := w.Result()
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 		})
