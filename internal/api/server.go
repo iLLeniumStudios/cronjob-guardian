@@ -14,6 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// @title           CronJob Guardian API
+// @version         1.0
+// @description     Kubernetes CronJob monitoring and alerting API. Provides SLA tracking, dead-man switches, and intelligent alerting for CronJobs.
+
+// @contact.name   CronJob Guardian
+// @contact.url    https://github.com/iLLeniumStudios/cronjob-guardian
+
+// @license.name  Apache 2.0
+// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host      localhost:8080
+// @BasePath  /api/v1
+
+// @schemes http https
+
 package api
 
 import (

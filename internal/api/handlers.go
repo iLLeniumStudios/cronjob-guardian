@@ -101,6 +101,12 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 // GetHealth handles GET /api/v1/health
+// @Summary      Health check
+// @Description  Returns the health status of the Guardian operator
+// @Tags         System
+// @Produce      json
+// @Success      200  {object}  HealthResponse
+// @Router       /health [get]
 func (h *Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -135,6 +141,13 @@ func (h *Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetStats handles GET /api/v1/stats
+// @Summary      Get statistics
+// @Description  Returns aggregate statistics for all monitored CronJobs
+// @Tags         System
+// @Produce      json
+// @Success      200  {object}  StatsResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /stats [get]
 func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -182,6 +195,14 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListMonitors handles GET /api/v1/monitors
+// @Summary      List monitors
+// @Description  Returns all CronJobMonitor resources
+// @Tags         Monitors
+// @Produce      json
+// @Param        namespace  query     string  false  "Filter by namespace"
+// @Success      200  {object}  MonitorListResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /monitors [get]
 func (h *Handlers) ListMonitors(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := r.URL.Query().Get("namespace")
@@ -229,6 +250,16 @@ func (h *Handlers) ListMonitors(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetMonitor handles GET /api/v1/monitors/:namespace/:name
+// @Summary      Get monitor details
+// @Description  Returns detailed information about a specific CronJobMonitor
+// @Tags         Monitors
+// @Produce      json
+// @Param        namespace  path      string  true  "Monitor namespace"
+// @Param        name       path      string  true  "Monitor name"
+// @Success      200  {object}  object  "Monitor details (CRD format)"
+// @Failure      404  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /monitors/{namespace}/{name} [get]
 func (h *Handlers) GetMonitor(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -249,6 +280,15 @@ func (h *Handlers) GetMonitor(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListCronJobs handles GET /api/v1/cronjobs
+// @Summary      List CronJobs
+// @Description  Returns all monitored CronJobs with their status
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  query     string  false  "Filter by namespace"
+// @Param        status     query     string  false  "Filter by status (healthy, warning, critical)"
+// @Success      200  {object}  CronJobListResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs [get]
 func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := r.URL.Query().Get("namespace")
@@ -374,6 +414,16 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetCronJob handles GET /api/v1/cronjobs/:namespace/:name
+// @Summary      Get CronJob details
+// @Description  Returns detailed information about a specific CronJob
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  path      string  true  "CronJob namespace"
+// @Param        name       path      string  true  "CronJob name"
+// @Success      200  {object}  CronJobDetailResponse
+// @Failure      404  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs/{namespace}/{name} [get]
 func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -508,6 +558,19 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetExecutions handles GET /api/v1/cronjobs/:namespace/:name/executions
+// @Summary      Get execution history
+// @Description  Returns paginated execution history for a CronJob
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  path      string  true   "CronJob namespace"
+// @Param        name       path      string  true   "CronJob name"
+// @Param        limit      query     int     false  "Page size" default(50)
+// @Param        offset     query     int     false  "Page offset" default(0)
+// @Param        status     query     string  false  "Filter by status (success, failed)"
+// @Param        since      query     string  false  "Filter since timestamp (RFC3339)"
+// @Success      200  {object}  ExecutionListResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs/{namespace}/{name}/executions [get]
 func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -600,6 +663,17 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetLogs handles GET /api/v1/cronjobs/:namespace/:name/executions/:jobName/logs
+// @Summary      Get execution logs
+// @Description  Returns container logs from a job execution
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  path      string  true  "CronJob namespace"
+// @Param        name       path      string  true  "CronJob name"
+// @Param        jobName    path      string  true  "Job name"
+// @Success      200  {object}  LogsResponse
+// @Failure      404  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs/{namespace}/{name}/executions/{jobName}/logs [get]
 func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -669,6 +743,16 @@ func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // TriggerCronJob handles POST /api/v1/cronjobs/:namespace/:name/trigger
+// @Summary      Trigger CronJob
+// @Description  Manually triggers a CronJob to run immediately
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  path      string  true  "CronJob namespace"
+// @Param        name       path      string  true  "CronJob name"
+// @Success      200  {object}  TriggerResponse
+// @Failure      404  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs/{namespace}/{name}/trigger [post]
 func (h *Handlers) TriggerCronJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -716,6 +800,16 @@ func (h *Handlers) TriggerCronJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // SuspendCronJob handles POST /api/v1/cronjobs/:namespace/:name/suspend
+// @Summary      Suspend CronJob
+// @Description  Suspends a CronJob to prevent scheduled runs
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  path      string  true  "CronJob namespace"
+// @Param        name       path      string  true  "CronJob name"
+// @Success      200  {object}  SimpleResponse
+// @Failure      404  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs/{namespace}/{name}/suspend [post]
 func (h *Handlers) SuspendCronJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -744,6 +838,16 @@ func (h *Handlers) SuspendCronJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // ResumeCronJob handles POST /api/v1/cronjobs/:namespace/:name/resume
+// @Summary      Resume CronJob
+// @Description  Resumes a suspended CronJob to allow scheduled runs
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  path      string  true  "CronJob namespace"
+// @Param        name       path      string  true  "CronJob name"
+// @Success      200  {object}  SimpleResponse
+// @Failure      404  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs/{namespace}/{name}/resume [post]
 func (h *Handlers) ResumeCronJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -772,6 +876,17 @@ func (h *Handlers) ResumeCronJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListAlerts handles GET /api/v1/alerts
+// @Summary      List active alerts
+// @Description  Returns all active alerts across all monitored CronJobs
+// @Tags         Alerts
+// @Produce      json
+// @Param        severity   query     string  false  "Filter by severity (critical, warning)"
+// @Param        type       query     string  false  "Filter by alert type"
+// @Param        namespace  query     string  false  "Filter by CronJob namespace"
+// @Param        cronjob    query     string  false  "Filter by CronJob name"
+// @Success      200  {object}  AlertListResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /alerts [get]
 func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	severityFilter := r.URL.Query().Get("severity")
@@ -869,6 +984,17 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetAlertHistory handles GET /api/v1/alerts/history
+// @Summary      Get alert history
+// @Description  Returns paginated history of past alerts from the store
+// @Tags         Alerts
+// @Produce      json
+// @Param        limit     query     int     false  "Page size"          default(50)
+// @Param        offset    query     int     false  "Page offset"        default(0)
+// @Param        severity  query     string  false  "Filter by severity"
+// @Param        since     query     string  false  "Filter since timestamp (RFC3339)"
+// @Success      200  {object}  AlertHistoryResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /alerts/history [get]
 func (h *Handlers) GetAlertHistory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -954,6 +1080,13 @@ func (h *Handlers) GetAlertHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListChannels handles GET /api/v1/channels
+// @Summary      List alert channels
+// @Description  Returns all configured alert channels with their status and stats
+// @Tags         Channels
+// @Produce      json
+// @Success      200  {object}  ChannelListResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /channels [get]
 func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1046,6 +1179,15 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetChannel handles GET /api/v1/channels/:name
+// @Summary      Get channel details
+// @Description  Returns details for a specific alert channel
+// @Tags         Channels
+// @Produce      json
+// @Param        name  path      string  true  "Channel name"
+// @Success      200  {object}  guardianv1alpha1.AlertChannel
+// @Failure      404  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /channels/{name} [get]
 func (h *Handlers) GetChannel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	name := chi.URLParam(r, "name")
@@ -1065,6 +1207,14 @@ func (h *Handlers) GetChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 // TestChannel handles POST /api/v1/channels/:name/test
+// @Summary      Test alert channel
+// @Description  Sends a test alert to verify channel configuration
+// @Tags         Channels
+// @Produce      json
+// @Param        name  path      string  true  "Channel name"
+// @Success      200  {object}  SimpleResponse
+// @Failure      503  {object}  ErrorResponse
+// @Router       /channels/{name}/test [post]
 func (h *Handlers) TestChannel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	name := chi.URLParam(r, "name")
@@ -1109,6 +1259,12 @@ type ConfigResponse struct {
 }
 
 // GetConfig handles GET /api/v1/config
+// @Summary      Get operator configuration
+// @Description  Returns the current operator configuration (sensitive values redacted)
+// @Tags         Config
+// @Produce      json
+// @Success      200  {object}  ConfigResponse
+// @Router       /config [get]
 func (h *Handlers) GetConfig(w http.ResponseWriter, _ *http.Request) {
 	if h.config == nil {
 		writeJSON(w, http.StatusOK, ConfigResponse{})
@@ -1128,6 +1284,16 @@ func (h *Handlers) GetConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 // DeleteCronJobHistory handles DELETE /api/v1/cronjobs/:namespace/:name/history
+// @Summary      Delete CronJob history
+// @Description  Deletes all execution history for a specific CronJob
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  path      string  true  "CronJob namespace"
+// @Param        name       path      string  true  "CronJob name"
+// @Success      200  {object}  DeleteHistoryResponse
+// @Failure      503  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs/{namespace}/{name}/history [delete]
 func (h *Handlers) DeleteCronJobHistory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -1153,6 +1319,14 @@ func (h *Handlers) DeleteCronJobHistory(w http.ResponseWriter, r *http.Request) 
 }
 
 // GetStorageStats handles GET /api/v1/admin/storage-stats
+// @Summary      Get storage statistics
+// @Description  Returns storage backend statistics and health
+// @Tags         Admin
+// @Produce      json
+// @Success      200  {object}  StorageStatsResponse
+// @Failure      503  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /admin/storage-stats [get]
 func (h *Handlers) GetStorageStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1191,6 +1365,16 @@ type PruneRequest struct {
 }
 
 // TriggerPrune handles POST /api/v1/admin/prune
+// @Summary      Trigger history pruning
+// @Description  Manually triggers pruning of old execution records
+// @Tags         Admin
+// @Accept       json
+// @Produce      json
+// @Param        request  body      PruneRequest  false  "Prune options"
+// @Success      200  {object}  PruneResponse
+// @Failure      503  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /admin/prune [post]
 func (h *Handlers) TriggerPrune(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1256,8 +1440,19 @@ func (h *Handlers) TriggerPrune(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetExecutionWithLogs handles GET /api/v1/cronjobs/:namespace/:name/executions/:id
-// Returns execution details including stored logs if available
+// GetExecutionWithLogs handles GET /api/v1/cronjobs/:namespace/:name/executions/:jobName
+// @Summary      Get execution details with logs
+// @Description  Returns full execution details including stored logs and events
+// @Tags         CronJobs
+// @Produce      json
+// @Param        namespace  path      string  true  "CronJob namespace"
+// @Param        name       path      string  true  "CronJob name"
+// @Param        jobName    path      string  true  "Job name (execution ID)"
+// @Success      200  {object}  ExecutionDetailResponse
+// @Failure      404  {object}  ErrorResponse
+// @Failure      503  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /cronjobs/{namespace}/{name}/executions/{jobName} [get]
 func (h *Handlers) GetExecutionWithLogs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	namespace := chi.URLParam(r, "namespace")
@@ -1315,6 +1510,15 @@ func (h *Handlers) GetExecutionWithLogs(w http.ResponseWriter, r *http.Request) 
 }
 
 // TestPattern handles POST /api/v1/patterns/test
+// @Summary      Test suggested fix pattern
+// @Description  Tests a suggested fix pattern against sample data to verify matching
+// @Tags         Patterns
+// @Accept       json
+// @Produce      json
+// @Param        request  body      PatternTestRequest  true  "Pattern and test data"
+// @Success      200  {object}  PatternTestResponse
+// @Failure      400  {object}  ErrorResponse
+// @Router       /patterns/test [post]
 func (h *Handlers) TestPattern(w http.ResponseWriter, r *http.Request) {
 	var req PatternTestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
