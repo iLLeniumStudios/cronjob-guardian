@@ -44,7 +44,7 @@ type Execution struct {
 }
 
 // TableName specifies the table name for Execution
-func (Execution) TableName() string {
+func (*Execution) TableName() string {
 	return "executions"
 }
 
@@ -83,7 +83,7 @@ type AlertHistory struct {
 }
 
 // TableName specifies the table name for AlertHistory
-func (AlertHistory) TableName() string {
+func (*AlertHistory) TableName() string {
 	return "alert_history"
 }
 
@@ -107,7 +107,6 @@ type Metrics struct {
 	TotalRuns          int32
 	SuccessfulRuns     int32
 	FailedRuns         int32
-	MissedRuns         int32
 	AvgDurationSeconds float64
 	P50DurationSeconds float64
 	P95DurationSeconds float64
@@ -143,6 +142,6 @@ type ChannelStatsRecord struct {
 }
 
 // TableName specifies the table name for ChannelStatsRecord
-func (ChannelStatsRecord) TableName() string {
+func (*ChannelStatsRecord) TableName() string {
 	return "channel_stats"
 }

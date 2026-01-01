@@ -629,12 +629,3 @@ func (m *MockAnalyzer) Lock() {
 func (m *MockAnalyzer) Unlock() {
 	m.mu.Unlock()
 }
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-// PtrTo returns a pointer to the given value. Useful for creating pointers to literals.
-func PtrTo[T any](v T) *T {
-	return &v
-}

@@ -704,6 +704,9 @@ func (r *CronJobMonitorReconciler) handleCronJobRemoval(ctx context.Context, mon
 	default:
 		log.V(1).Info("unknown onCronJobDeletion value, defaulting to retain", "value", onDeletion)
 	}
+
+	// Always reset Prometheus metrics for removed CronJobs
+	prommetrics.ResetCronJobMetrics(namespace, name)
 }
 
 func (r *CronJobMonitorReconciler) determinePhase(summary *guardianv1alpha1.MonitorSummary) string {

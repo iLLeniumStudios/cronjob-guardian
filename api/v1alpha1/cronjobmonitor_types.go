@@ -129,10 +129,6 @@ type SLAConfig struct {
 	// +optional
 	MaxDuration *metav1.Duration `json:"maxDuration,omitempty"`
 
-	// DurationPercentiles to track (default: [50, 95, 99])
-	// +optional
-	DurationPercentiles []int32 `json:"durationPercentiles,omitempty"`
-
 	// DurationRegressionThreshold alerts if P95 increases by this percentage (default: 50)
 	// +optional
 	DurationRegressionThreshold *int32 `json:"durationRegressionThreshold,omitempty"`

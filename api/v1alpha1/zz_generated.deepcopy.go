@@ -868,11 +868,6 @@ func (in *SLAConfig) DeepCopyInto(out *SLAConfig) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
-	if in.DurationPercentiles != nil {
-		in, out := &in.DurationPercentiles, &out.DurationPercentiles
-		*out = make([]int32, len(*in))
-		copy(*out, *in)
-	}
 	if in.DurationRegressionThreshold != nil {
 		in, out := &in.DurationRegressionThreshold, &out.DurationRegressionThreshold
 		*out = new(int32)

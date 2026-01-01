@@ -449,13 +449,6 @@ spec:
                       (default: 14)'
                     format: int32
                     type: integer
-                  durationPercentiles:
-                    description: 'DurationPercentiles to track (default: [50, 95,
-                      99])'
-                    items:
-                      format: int32
-                      type: integer
-                    type: array
                   durationRegressionThreshold:
                     description: 'DurationRegressionThreshold alerts if P95 increases
                       by this percentage (default: 50)'

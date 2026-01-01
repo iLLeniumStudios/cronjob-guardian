@@ -3,28 +3,12 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { RelativeTime } from "@/components/relative-time";
 import type { CronJobMetrics } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, formatDuration } from "@/lib/utils";
 import { getSuccessRateColor } from "@/lib/constants";
 
 interface MetricsCardsProps {
   metrics: CronJobMetrics | null | undefined;
   nextRun: string | null;
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) {
-    // For sub-minute, show up to 2 decimal places
-    const rounded = Math.round(seconds * 100) / 100;
-    return `${rounded}s`;
-  }
-  if (seconds < 3600) {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.round(seconds % 60);
-    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  }
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
 export function MetricsCards({ metrics, nextRun }: MetricsCardsProps) {

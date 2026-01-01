@@ -54,10 +54,6 @@ spec:
     minSuccessRate: 95              # Minimum acceptable success rate percentage
     windowDays: 7                   # Rolling window for success rate calculation
     maxDuration: 30m                # Alert if any job exceeds this duration
-    durationPercentiles:            # Percentiles to track (default: [50, 95, 99])
-      - 50
-      - 95
-      - 99
     durationRegressionThreshold: 50 # Alert if P95 increases by this percentage
     durationBaselineWindowDays: 14  # Window for baseline calculation
 

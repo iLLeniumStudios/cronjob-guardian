@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	"github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 )
@@ -233,7 +234,7 @@ func TestSuggestedFix_Priority(t *testing.T) {
 		{
 			Name: "low-priority-match",
 			Match: v1alpha1.PatternMatch{
-				ExitCode: ptr(1),
+				ExitCode: ptr.To(int32(1)),
 			},
 			Suggestion: "Low priority suggestion",
 			Priority:   &lowPriority,
@@ -241,7 +242,7 @@ func TestSuggestedFix_Priority(t *testing.T) {
 		{
 			Name: "high-priority-match",
 			Match: v1alpha1.PatternMatch{
-				ExitCode: ptr(1),
+				ExitCode: ptr.To(int32(1)),
 			},
 			Suggestion: "High priority suggestion",
 			Priority:   &highPriority,
@@ -267,7 +268,7 @@ func TestSuggestedFix_TemplateVariables(t *testing.T) {
 		{
 			Name: "template-test",
 			Match: v1alpha1.PatternMatch{
-				ExitCode: ptr(42),
+				ExitCode: ptr.To(int32(42)),
 			},
 			Suggestion: "Job {{.JobName}} in namespace {{.Namespace}} failed with exit code {{.ExitCode}}",
 			Priority:   &priority,
@@ -388,7 +389,7 @@ func TestSuggestedFix_CombinedMatchers(t *testing.T) {
 		{
 			Name: "combined-match",
 			Match: v1alpha1.PatternMatch{
-				ExitCode:   ptr(1),
+				ExitCode:   ptr.To(int32(1)),
 				LogPattern: "connection refused",
 			},
 			Suggestion: "Both exit code and log pattern matched",
@@ -480,7 +481,7 @@ func TestSuggestedFix_TemplateError(t *testing.T) {
 		{
 			Name: "bad-template",
 			Match: v1alpha1.PatternMatch{
-				ExitCode: ptr(1),
+				ExitCode: ptr.To(int32(1)),
 			},
 			Suggestion: "Invalid template: {{.NonExistentField}}",
 			Priority:   &priority,
@@ -527,8 +528,4 @@ func TestSuggestedFix_MultipleEventsOneMatches(t *testing.T) {
 
 	suggestion := engine.GetBestSuggestion(ctx, customPatterns)
 	assert.Equal(t, "Resource quota exceeded", suggestion)
-}
-
-func ptr(i int32) *int32 {
-	return &i
 }

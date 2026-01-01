@@ -1,4 +1,5 @@
 import type { CronJobExecution } from "@/lib/api";
+import { formatDateTime } from "@/lib/utils";
 
 interface ExportColumn {
   key: string;
@@ -6,20 +7,20 @@ interface ExportColumn {
   format?: (value: unknown) => string;
 }
 
+function formatDateTimeOrEmpty(value: unknown): string {
+  if (!value) return "-";
+  return formatDateTime(value as string);
+}
+
 const DEFAULT_COLUMNS: ExportColumn[] = [
   { key: "jobName", label: "Job Name" },
   { key: "status", label: "Status" },
-  { key: "startTime", label: "Start Time", format: formatDateTime },
-  { key: "completionTime", label: "Completion Time", format: formatDateTime },
+  { key: "startTime", label: "Start Time", format: formatDateTimeOrEmpty },
+  { key: "completionTime", label: "Completion Time", format: formatDateTimeOrEmpty },
   { key: "duration", label: "Duration" },
   { key: "exitCode", label: "Exit Code" },
   { key: "reason", label: "Reason" },
 ];
-
-function formatDateTime(value: unknown): string {
-  if (!value) return "-";
-  return new Date(value as string).toLocaleString();
-}
 
 function escapeCSV(value: string): string {
   // Escape quotes and wrap in quotes if contains comma, quote, or newline

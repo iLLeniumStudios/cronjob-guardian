@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -620,7 +621,7 @@ func TestProcessCronJob_ChecksSLA(t *testing.T) {
 	monitor := newTestMonitor("test-monitor", "default")
 	monitor.Spec.SLA = &guardianv1alpha1.SLAConfig{
 		Enabled:        &enabled,
-		MinSuccessRate: ptrTo(float64(99)),
+		MinSuccessRate: ptr.To(float64(99)),
 	}
 	cronJob := newTestCronJob("test-cj", "default", nil)
 
@@ -914,11 +915,6 @@ func TestMatchExpression_OpDoesNotExist(t *testing.T) {
 
 	expr = metav1.LabelSelectorRequirement{Key: "key1", Operator: metav1.LabelSelectorOpDoesNotExist}
 	assert.False(t, MatchExpression(labels, expr))
-}
-
-// Helper function for creating pointers
-func ptrTo[T any](v T) *T {
-	return &v
 }
 
 // ============================================================================

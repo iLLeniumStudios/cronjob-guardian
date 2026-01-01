@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, AlertTriangle } from "lucide-react";
 import type { CronJobExecution } from "@/lib/api";
+import { formatDuration } from "@/lib/utils";
 
 interface DurationChartProps {
   executions: CronJobExecution[];
@@ -36,21 +37,6 @@ function parseDuration(duration: string): number {
   if (secsMatch) totalSeconds += parseInt(secsMatch[1]);
 
   return totalSeconds;
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) {
-    const rounded = Math.round(seconds * 100) / 100;
-    return `${rounded}s`;
-  }
-  if (seconds < 3600) {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.round(seconds % 60);
-    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  }
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
 const RANGE_OPTIONS = [

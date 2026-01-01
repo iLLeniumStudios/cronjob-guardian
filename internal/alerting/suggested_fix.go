@@ -22,6 +22,8 @@ import (
 	"strings"
 	"text/template"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 )
 
@@ -185,80 +187,78 @@ func (e *SuggestedFixEngine) renderSuggestion(suggestion string, ctx MatchContex
 
 // getBuiltinPatterns returns the default built-in patterns
 func getBuiltinPatterns() []v1alpha1.SuggestedFixPattern {
-	ptr := func(i int32) *int32 { return &i }
-
 	return []v1alpha1.SuggestedFixPattern{
 		{
 			Name:       "oom-killed",
 			Match:      v1alpha1.PatternMatch{Reason: "OOMKilled"},
 			Suggestion: "Container ran out of memory. Increase resources.limits.memory in the CronJob spec.",
-			Priority:   ptr(100),
+			Priority:   ptr.To(int32(100)),
 		},
 		{
 			Name:       "oom-signal",
-			Match:      v1alpha1.PatternMatch{ExitCode: ptr(137)},
+			Match:      v1alpha1.PatternMatch{ExitCode: ptr.To(int32(137))},
 			Suggestion: "Container killed by SIGKILL (exit 137), often due to OOM. Run: kubectl describe pod -n {{.Namespace}} -l job-name={{.JobName}} | grep -A5 'Last State'",
-			Priority:   ptr(95),
+			Priority:   ptr.To(int32(95)),
 		},
 		{
 			Name:       "sigterm",
-			Match:      v1alpha1.PatternMatch{ExitCode: ptr(143)},
+			Match:      v1alpha1.PatternMatch{ExitCode: ptr.To(int32(143))},
 			Suggestion: "Container received SIGTERM (exit 143). Job may have exceeded activeDeadlineSeconds or been evicted.",
-			Priority:   ptr(90),
+			Priority:   ptr.To(int32(90)),
 		},
 		{
 			Name:       "image-pull",
 			Match:      v1alpha1.PatternMatch{Reason: "ImagePullBackOff"},
 			Suggestion: "Failed to pull container image. Check image name/tag and registry credentials (imagePullSecrets).",
-			Priority:   ptr(85),
+			Priority:   ptr.To(int32(85)),
 		},
 		{
 			Name:       "crash-loop",
 			Match:      v1alpha1.PatternMatch{Reason: "CrashLoopBackOff"},
 			Suggestion: "Container keeps crashing on startup. Check application logs for initialization errors.",
-			Priority:   ptr(80),
+			Priority:   ptr.To(int32(80)),
 		},
 		{
 			Name:       "config-error",
 			Match:      v1alpha1.PatternMatch{Reason: "CreateContainerConfigError"},
 			Suggestion: "Container config error. Verify Secret/ConfigMap references exist and have correct keys.",
-			Priority:   ptr(75),
+			Priority:   ptr.To(int32(75)),
 		},
 		{
 			Name:       "deadline-exceeded",
 			Match:      v1alpha1.PatternMatch{Reason: "DeadlineExceeded"},
 			Suggestion: "Job exceeded activeDeadlineSeconds. Either increase the deadline or optimize job performance.",
-			Priority:   ptr(70),
+			Priority:   ptr.To(int32(70)),
 		},
 		{
 			Name:       "backoff-limit",
 			Match:      v1alpha1.PatternMatch{Reason: "BackoffLimitExceeded"},
 			Suggestion: "Job failed too many times (backoffLimit reached). Check logs from failed attempts for root cause.",
-			Priority:   ptr(65),
+			Priority:   ptr.To(int32(65)),
 		},
 		{
 			Name:       "evicted",
 			Match:      v1alpha1.PatternMatch{Reason: "Evicted"},
 			Suggestion: "Pod was evicted from node. Check node resource pressure and consider setting pod priority.",
-			Priority:   ptr(60),
+			Priority:   ptr.To(int32(60)),
 		},
 		{
 			Name:       "scheduling-failed",
 			Match:      v1alpha1.PatternMatch{EventPattern: "FailedScheduling"},
 			Suggestion: "Pod could not be scheduled. Check node resources, taints/tolerations, and affinity rules.",
-			Priority:   ptr(55),
+			Priority:   ptr.To(int32(55)),
 		},
 		{
 			Name:       "app-error-range",
 			Match:      v1alpha1.PatternMatch{ExitCodeRange: &v1alpha1.ExitCodeRange{Min: 1, Max: 125}},
 			Suggestion: "Application exited with error code {{.ExitCode}}. Check application logs: kubectl logs -n {{.Namespace}} -l job-name={{.JobName}} --tail=100",
-			Priority:   ptr(10),
+			Priority:   ptr.To(int32(10)),
 		},
 		{
 			Name:       "signal-range",
 			Match:      v1alpha1.PatternMatch{ExitCodeRange: &v1alpha1.ExitCodeRange{Min: 128, Max: 255}},
 			Suggestion: "Container terminated by signal (exit {{.ExitCode}} = signal {{.ExitCode}}-128). Check for resource limits or external termination.",
-			Priority:   ptr(5),
+			Priority:   ptr.To(int32(5)),
 		},
 	}
 }

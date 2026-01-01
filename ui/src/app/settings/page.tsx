@@ -32,17 +32,7 @@ import {
   type StatsResponse,
   type StorageStatsResponse,
 } from "@/lib/api";
-
-// Format nanoseconds duration to human readable string
-function formatDuration(nanoseconds: number | undefined): string {
-  if (!nanoseconds) return "-";
-  const seconds = nanoseconds / 1_000_000_000;
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = seconds / 60;
-  if (minutes < 60) return `${Math.round(minutes)}m`;
-  const hours = minutes / 60;
-  return `${Math.round(hours)}h`;
-}
+import { formatDurationNano } from "@/lib/utils";
 
 function StatusIcon({ ok }: { ok: boolean }) {
   return ok ? (
@@ -245,12 +235,12 @@ export default function SettingsPage() {
               <Separator />
               <SettingRow
                 label="Dead-man Switch Interval"
-                value={formatDuration(config?.scheduler?.deadManSwitchInterval)}
+                value={formatDurationNano(config?.scheduler?.deadManSwitchInterval)}
               />
               <Separator />
               <SettingRow
                 label="SLA Recalculation"
-                value={formatDuration(config?.scheduler?.slaRecalculationInterval)}
+                value={formatDurationNano(config?.scheduler?.slaRecalculationInterval)}
               />
               <Separator />
               <SettingRow

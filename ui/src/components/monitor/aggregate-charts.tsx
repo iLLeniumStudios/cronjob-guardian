@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { MonitorDetail } from "@/lib/api";
+import { formatDuration } from "@/lib/utils";
 
 interface AggregateChartsProps {
   monitor: MonitorDetail;
@@ -271,19 +272,4 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
       </Card>
     </div>
   );
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) {
-    const rounded = Math.round(seconds * 100) / 100;
-    return `${rounded}s`;
-  }
-  if (seconds < 3600) {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.round(seconds % 60);
-    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  }
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
