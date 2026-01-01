@@ -120,7 +120,6 @@ func (a *analyzer) CheckSLA(ctx context.Context, cronJob types.NamespacedName, c
 	windowDays := getOrDefaultInt32(config.WindowDays, 7)
 	minSuccessRate := getOrDefaultFloat64(config.MinSuccessRate, 95.0)
 
-	// Get current success rate
 	successRate, err := a.store.GetSuccessRate(ctx, cronJob, int(windowDays))
 	if err != nil {
 		return nil, err
@@ -132,7 +131,6 @@ func (a *analyzer) CheckSLA(ctx context.Context, cronJob types.NamespacedName, c
 		MinRequired: minSuccessRate,
 	}
 
-	// Check success rate
 	if successRate < minSuccessRate {
 		result.Passed = false
 		result.Violations = append(result.Violations, Violation{
@@ -143,7 +141,6 @@ func (a *analyzer) CheckSLA(ctx context.Context, cronJob types.NamespacedName, c
 		})
 	}
 
-	// Check max duration if configured
 	if config.MaxDuration != nil {
 		lastExec, err := a.store.GetLastExecution(ctx, cronJob)
 		if err == nil && lastExec != nil {
@@ -172,49 +169,38 @@ func (a *analyzer) CheckDeadManSwitch(ctx context.Context, cronJob *batchv1.Cron
 		Name:      cronJob.Name,
 	}
 
-	// Get last execution (success OR failure) - dead-man checks if ANY job ran
-	// This separates concerns: JobFailed alerts on failures, DeadManTriggered alerts on missed schedules
 	lastExec, err := a.store.GetLastExecution(ctx, cronJobNN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get last execution: %w", err)
 	}
 
-	// Also get last successful for the result (useful for UI display)
 	lastSuccess, _ := a.store.GetLastSuccessfulExecution(ctx, cronJobNN)
 
 	result := &DeadManResult{}
 
-	// Track last success for informational purposes
 	if lastSuccess != nil && !lastSuccess.CompletionTime.IsZero() {
 		result.LastSuccess = &lastSuccess.CompletionTime
 		result.TimeSinceSuccess = time.Since(lastSuccess.CompletionTime)
 	}
 
-	// But use last execution (any) for the dead-man check
-	// Use StartTime as fallback if CompletionTime is zero (job may still be running or data issue)
 	var timeSinceLastRun time.Duration
 	if lastExec != nil {
 		refTime := lastExec.CompletionTime
 		if refTime.IsZero() {
-			// CompletionTime not set - use StartTime instead
 			refTime = lastExec.StartTime
 		}
 		if !refTime.IsZero() {
 			timeSinceLastRun = time.Since(refTime)
 		} else {
-			// Both times are zero - treat as no valid execution
 			lastExec = nil
 		}
 	}
 
-	// Determine expected interval
 	var expectedInterval time.Duration
 
 	if config.MaxTimeSinceLastSuccess != nil {
-		// Explicit configuration
 		expectedInterval = config.MaxTimeSinceLastSuccess.Duration
 	} else if config.AutoFromSchedule != nil && config.AutoFromSchedule.Enabled {
-		// Auto-detect from schedule
 		interval, err := parseScheduleInterval(cronJob.Spec.Schedule)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse schedule: %w", err)
@@ -225,38 +211,31 @@ func (a *analyzer) CheckDeadManSwitch(ctx context.Context, cronJob *batchv1.Cron
 		}
 		expectedInterval = interval + buffer
 	} else {
-		// No dead-man's switch configured effectively
 		return &DeadManResult{Triggered: false}, nil
 	}
 
 	result.ExpectedInterval = expectedInterval
 
-	// Calculate missed schedule count and check threshold
-	// We use lastExec (any execution) not lastSuccess, so dead-man only fires for truly missed schedules
 	var missedCount int32
 	threshold := int32(1) // Default threshold
 
-	// Get threshold from config if using auto-from-schedule
 	if config.AutoFromSchedule != nil && config.AutoFromSchedule.MissedScheduleThreshold != nil {
 		threshold = *config.AutoFromSchedule.MissedScheduleThreshold
 	}
 
 	if lastExec == nil {
-		// Never ran at all - calculate from creation time
 		if cronJob.CreationTimestamp.Add(expectedInterval).Before(time.Now()) {
 			elapsed := time.Since(cronJob.CreationTimestamp.Time)
 			missedCount = int32(elapsed / expectedInterval)
 			result.ShouldIncrementCount = true
 		}
 	} else if timeSinceLastRun > expectedInterval {
-		// Calculate how many intervals have been missed since last run
 		missedCount = int32(timeSinceLastRun / expectedInterval)
 		result.ShouldIncrementCount = true
 	}
 
 	result.MissedScheduleCount = missedCount
 
-	// Only trigger if missed count >= threshold
 	if missedCount >= threshold {
 		result.Triggered = true
 		if lastExec == nil {
@@ -278,15 +257,13 @@ func (a *analyzer) CheckDurationRegression(ctx context.Context, cronJob types.Na
 
 	threshold := float64(getOrDefaultInt32(config.DurationRegressionThreshold, 50))
 	baselineWindowDays := int(getOrDefaultInt32(config.DurationBaselineWindowDays, 14))
-	recentWindowDays := 1 // Last 24 hours
+	recentWindowDays := 1
 
-	// Get baseline P95
 	baselineP95, err := a.store.GetDurationPercentile(ctx, cronJob, 95, baselineWindowDays)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get recent P95
 	currentP95, err := a.store.GetDurationPercentile(ctx, cronJob, 95, recentWindowDays)
 	if err != nil {
 		return nil, err
@@ -298,12 +275,10 @@ func (a *analyzer) CheckDurationRegression(ctx context.Context, cronJob types.Na
 		Threshold:   threshold,
 	}
 
-	// Can't detect regression without baseline
 	if baselineP95 == 0 {
 		return result, nil
 	}
 
-	// Calculate increase
 	if currentP95 > baselineP95 {
 		increase := (float64(currentP95) - float64(baselineP95)) / float64(baselineP95) * 100
 		result.PercentageIncrease = increase
@@ -321,7 +296,6 @@ func (a *analyzer) CheckDurationRegression(ctx context.Context, cronJob types.Na
 // parseScheduleInterval parses a cron schedule and returns the expected interval.
 // Uses a cache to avoid repeated parsing of the same schedule string.
 func parseScheduleInterval(schedule string) (time.Duration, error) {
-	// Check cache first
 	if cached, ok := scheduleCache.Load(schedule); ok {
 		sched := cached.(cron.Schedule)
 		now := time.Now()
@@ -330,17 +304,14 @@ func parseScheduleInterval(schedule string) (time.Duration, error) {
 		return nextNext.Sub(next), nil
 	}
 
-	// Parse schedule
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	sched, err := parser.Parse(schedule)
 	if err != nil {
 		return 0, err
 	}
 
-	// Cache for future use
 	scheduleCache.Store(schedule, sched)
 
-	// Calculate interval between two consecutive runs
 	now := time.Now()
 	next := sched.Next(now)
 	nextNext := sched.Next(next)

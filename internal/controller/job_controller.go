@@ -51,8 +51,8 @@ const (
 	kindCronJob     = "CronJob"
 )
 
-// JobHandler handles Job events for execution tracking
-type JobHandler struct {
+// JobReconciler reconciles Job events for execution tracking
+type JobReconciler struct {
 	client.Client
 	Log             logr.Logger // Required - must be injected
 	Scheme          *runtime.Scheme
@@ -68,7 +68,7 @@ type JobHandler struct {
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch
 
 // Reconcile handles Job completion/failure events
-func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (h *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := h.Log.WithValues("job", req.NamespacedName)
 	log.V(1).Info("reconciling job")
 
@@ -86,11 +86,13 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if job.Status.CompletionTime != nil {
 		completionTime = job.Status.CompletionTime.Format(time.RFC3339)
 	}
-	log.V(1).Info("job fetched",
+	log.V(1).Info(
+		"job fetched",
 		"succeeded", job.Status.Succeeded,
 		"failed", job.Status.Failed,
 		"active", job.Status.Active,
-		"completionTime", completionTime)
+		"completionTime", completionTime,
+	)
 
 	// Get parent CronJob
 	cronJobName := h.getCronJobOwner(job)
@@ -139,7 +141,8 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		exec.SuggestedFix = h.generateSuggestedFix(exec, monitors[0])
 	}
 
-	log.V(1).Info("built execution record",
+	log.V(1).Info(
+		"built execution record",
 		"succeeded", exec.Succeeded,
 		"duration", exec.Duration(),
 		"exitCode", exec.ExitCode,
@@ -147,18 +150,21 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		"cronJobUID", exec.CronJobUID,
 		"hasLogs", exec.Logs != nil && *exec.Logs != "",
 		"hasEvents", exec.Events != nil && *exec.Events != "",
-		"hasSuggestedFix", exec.SuggestedFix != "")
+		"hasSuggestedFix", exec.SuggestedFix != "",
+	)
 
 	if h.Store != nil {
 		log.V(1).Info("recording execution to store")
 		if err := h.Store.RecordExecution(ctx, exec); err != nil {
 			log.Error(err, "failed to record execution")
 		} else {
-			log.Info("execution recorded",
+			log.Info(
+				"execution recorded",
 				"cronJob", cronJobName,
 				"job", job.Name,
 				"succeeded", exec.Succeeded,
-				"duration", exec.Duration().Round(time.Millisecond))
+				"duration", exec.Duration().Round(time.Millisecond),
+			)
 
 			// Record Prometheus metrics
 			status := "failed"
@@ -189,7 +195,7 @@ func (h *JobHandler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{}, nil
 }
 
-func (h *JobHandler) getCronJobOwner(job *batchv1.Job) string {
+func (h *JobReconciler) getCronJobOwner(job *batchv1.Job) string {
 	for _, ref := range job.OwnerReferences {
 		if ref.Kind == kindCronJob {
 			return ref.Name
@@ -201,7 +207,7 @@ func (h *JobHandler) getCronJobOwner(job *batchv1.Job) string {
 // findMonitorsForCronJob finds ALL monitors whose selector matches the given CronJob.
 // This uses real-time selector evaluation (not cached status) to avoid race conditions.
 // It searches monitors in ALL namespaces since a monitor can watch CronJobs across namespaces.
-func (h *JobHandler) findMonitorsForCronJob(ctx context.Context, namespace, cronJobName string) []*guardianv1alpha1.CronJobMonitor {
+func (h *JobReconciler) findMonitorsForCronJob(ctx context.Context, namespace, cronJobName string) []*guardianv1alpha1.CronJobMonitor {
 	log := h.Log.V(1)
 
 	// Get the CronJob to check its labels
@@ -238,7 +244,7 @@ func (h *JobHandler) findMonitorsForCronJob(ctx context.Context, namespace, cron
 }
 
 // monitorWatchesNamespace checks if a monitor is configured to watch the given namespace
-func (h *JobHandler) monitorWatchesNamespace(monitor *guardianv1alpha1.CronJobMonitor, namespace string) bool {
+func (h *JobReconciler) monitorWatchesNamespace(monitor *guardianv1alpha1.CronJobMonitor, namespace string) bool {
 	if monitor.Spec.Selector == nil {
 		// No selector means watch monitor's own namespace only
 		return monitor.Namespace == namespace
@@ -271,7 +277,7 @@ func (h *JobHandler) monitorWatchesNamespace(monitor *guardianv1alpha1.CronJobMo
 	return monitor.Namespace == namespace
 }
 
-func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJobName, cronJobUID string, monitor *guardianv1alpha1.CronJobMonitor) store.Execution {
+func (h *JobReconciler) buildExecution(ctx context.Context, job *batchv1.Job, cronJobName, cronJobUID string, monitor *guardianv1alpha1.CronJobMonitor) store.Execution {
 	exec := store.Execution{
 		CronJobNamespace: job.Namespace,
 		CronJobName:      cronJobName,
@@ -327,7 +333,7 @@ func (h *JobHandler) buildExecution(ctx context.Context, job *batchv1.Job, cronJ
 	return exec
 }
 
-func (h *JobHandler) getJobPod(ctx context.Context, job *batchv1.Job) *corev1.Pod {
+func (h *JobReconciler) getJobPod(ctx context.Context, job *batchv1.Job) *corev1.Pod {
 	pods := &corev1.PodList{}
 	if err := h.List(ctx, pods, client.InNamespace(job.Namespace), client.MatchingLabels{"job-name": job.Name}); err != nil {
 		h.Log.V(1).Error(err, "failed to list pods for job", "job", job.Name)
@@ -343,7 +349,7 @@ func (h *JobHandler) getJobPod(ctx context.Context, job *batchv1.Job) *corev1.Po
 }
 
 // handleRecreationCheck checks if a CronJob was recreated (UID changed) and handles per config
-func (h *JobHandler) handleRecreationCheck(ctx context.Context, log logr.Logger, monitor *guardianv1alpha1.CronJobMonitor, cronJob types.NamespacedName, currentUID string) {
+func (h *JobReconciler) handleRecreationCheck(ctx context.Context, log logr.Logger, monitor *guardianv1alpha1.CronJobMonitor, cronJob types.NamespacedName, currentUID string) {
 	// Get existing UIDs for this CronJob
 	uids, err := h.Store.GetCronJobUIDs(ctx, cronJob)
 	if err != nil {
@@ -378,7 +384,7 @@ func (h *JobHandler) handleRecreationCheck(ctx context.Context, log logr.Logger,
 }
 
 // shouldStoreLogs determines if logs should be stored for this execution
-func (h *JobHandler) shouldStoreLogs(monitor *guardianv1alpha1.CronJobMonitor) bool {
+func (h *JobReconciler) shouldStoreLogs(monitor *guardianv1alpha1.CronJobMonitor) bool {
 	// Check monitor-level config first (takes priority)
 	if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.StoreLogs != nil {
 		return *monitor.Spec.DataRetention.StoreLogs
@@ -393,7 +399,7 @@ func (h *JobHandler) shouldStoreLogs(monitor *guardianv1alpha1.CronJobMonitor) b
 }
 
 // shouldStoreEvents determines if events should be stored for this execution
-func (h *JobHandler) shouldStoreEvents(monitor *guardianv1alpha1.CronJobMonitor) bool {
+func (h *JobReconciler) shouldStoreEvents(monitor *guardianv1alpha1.CronJobMonitor) bool {
 	// Check monitor-level config first (takes priority)
 	if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.StoreEvents != nil {
 		return *monitor.Spec.DataRetention.StoreEvents
@@ -408,7 +414,7 @@ func (h *JobHandler) shouldStoreEvents(monitor *guardianv1alpha1.CronJobMonitor)
 }
 
 // getMaxLogSizeKB returns the max log size in KB for this monitor
-func (h *JobHandler) getMaxLogSizeKB(monitor *guardianv1alpha1.CronJobMonitor) int {
+func (h *JobReconciler) getMaxLogSizeKB(monitor *guardianv1alpha1.CronJobMonitor) int {
 	// Check monitor-level config first
 	if monitor.Spec.DataRetention != nil && monitor.Spec.DataRetention.MaxLogSizeKB != nil {
 		return int(*monitor.Spec.DataRetention.MaxLogSizeKB)
@@ -423,7 +429,7 @@ func (h *JobHandler) getMaxLogSizeKB(monitor *guardianv1alpha1.CronJobMonitor) i
 }
 
 // collectAndTruncateLogs collects logs and truncates to max size
-func (h *JobHandler) collectAndTruncateLogs(ctx context.Context, pod *corev1.Pod, maxSizeKB int) string {
+func (h *JobReconciler) collectAndTruncateLogs(ctx context.Context, pod *corev1.Pod, maxSizeKB int) string {
 	if h.Clientset == nil || pod == nil {
 		return ""
 	}
@@ -465,7 +471,7 @@ func (h *JobHandler) collectAndTruncateLogs(ctx context.Context, pod *corev1.Pod
 	return logs
 }
 
-func (h *JobHandler) handleSuccess(ctx context.Context, log logr.Logger, _ *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
+func (h *JobReconciler) handleSuccess(ctx context.Context, log logr.Logger, _ *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string) {
 	if h.AlertDispatcher == nil {
 		return
 	}
@@ -475,9 +481,11 @@ func (h *JobHandler) handleSuccess(ctx context.Context, log logr.Logger, _ *guar
 	// after a previous failure, we cancel the pending alert.
 	cancelledCount := h.AlertDispatcher.CancelPendingAlertsForCronJob(job.Namespace, cronJobName)
 	if cancelledCount > 0 {
-		log.Info("cancelled pending failure alerts due to successful job",
+		log.Info(
+			"cancelled pending failure alerts due to successful job",
 			"cancelledCount", cancelledCount,
-			"cronJob", cronJobName)
+			"cronJob", cronJobName,
+		)
 	}
 
 	// Clear alert types that resolve immediately on success
@@ -506,7 +514,7 @@ func (h *JobHandler) handleSuccess(ctx context.Context, log logr.Logger, _ *guar
 	}
 }
 
-func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string, exec store.Execution) {
+func (h *JobReconciler) handleFailure(ctx context.Context, log logr.Logger, monitor *guardianv1alpha1.CronJobMonitor, job *batchv1.Job, cronJobName string, exec store.Execution) {
 	// Build alert context from the stored execution
 	alertCtx := alerting.AlertContext{
 		ExitCode: exec.ExitCode,
@@ -577,11 +585,13 @@ func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor
 
 	// Dispatch alert
 	if h.AlertDispatcher != nil {
-		log.Info("dispatching failure alert",
+		log.Info(
+			"dispatching failure alert",
 			"alertKey", alert.Key,
 			"severity", alert.Severity,
 			"exitCode", alertCtx.ExitCode,
-			"reason", alertCtx.Reason)
+			"reason", alertCtx.Reason,
+		)
 		if err := h.AlertDispatcher.Dispatch(ctx, alert, monitor.Spec.Alerting); err != nil {
 			log.Error(err, "failed to dispatch alert")
 		} else {
@@ -592,7 +602,7 @@ func (h *JobHandler) handleFailure(ctx context.Context, log logr.Logger, monitor
 	}
 }
 
-func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, alertCtx *guardianv1alpha1.AlertContext) string {
+func (h *JobReconciler) collectLogs(ctx context.Context, job *batchv1.Job, alertCtx *guardianv1alpha1.AlertContext) string {
 	if h.Clientset == nil {
 		h.Log.V(1).Info("clientset not configured, cannot collect logs")
 		return ""
@@ -621,10 +631,12 @@ func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, alertCtx
 		TailLines: ptr.To(tailLines),
 	}
 
-	h.Log.V(1).Info("fetching pod logs",
+	h.Log.V(1).Info(
+		"fetching pod logs",
 		"pod", pod.Name,
 		"container", containerName,
-		"tailLines", tailLines)
+		"tailLines", tailLines,
+	)
 
 	req := h.Clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, opts)
 	stream, err := req.Stream(ctx)
@@ -645,7 +657,7 @@ func (h *JobHandler) collectLogs(ctx context.Context, job *batchv1.Job, alertCtx
 	return buf.String()
 }
 
-func (h *JobHandler) collectEvents(ctx context.Context, job *batchv1.Job) []string {
+func (h *JobReconciler) collectEvents(ctx context.Context, job *batchv1.Job) []string {
 	events := &corev1.EventList{}
 	if err := h.List(ctx, events, client.InNamespace(job.Namespace)); err != nil {
 		h.Log.V(1).Error(err, "failed to list events", "namespace", job.Namespace)
@@ -665,7 +677,7 @@ func (h *JobHandler) collectEvents(ctx context.Context, job *batchv1.Job) []stri
 	return result
 }
 
-func (h *JobHandler) buildFailureMessage(job *batchv1.Job, ctx alerting.AlertContext) string {
+func (h *JobReconciler) buildFailureMessage(job *batchv1.Job, ctx alerting.AlertContext) string {
 	msg := fmt.Sprintf("Job %s failed", job.Name)
 	if ctx.Reason != "" {
 		msg += fmt.Sprintf(" with reason: %s", ctx.Reason)
@@ -680,7 +692,7 @@ func (h *JobHandler) buildFailureMessage(job *batchv1.Job, ctx alerting.AlertCon
 var suggestedFixEngine = alerting.NewSuggestedFixEngine()
 
 // generateSuggestedFix creates a suggested fix for a failed execution
-func (h *JobHandler) generateSuggestedFix(exec store.Execution, monitor *guardianv1alpha1.CronJobMonitor) string {
+func (h *JobReconciler) generateSuggestedFix(exec store.Execution, monitor *guardianv1alpha1.CronJobMonitor) string {
 	var events []string
 	if exec.Events != nil {
 		events = strings.Split(*exec.Events, "\n")
@@ -709,7 +721,7 @@ func (h *JobHandler) generateSuggestedFix(exec store.Execution, monitor *guardia
 	return suggestedFixEngine.GetBestSuggestion(matchCtx, customPatterns)
 }
 
-func (h *JobHandler) isOwnedByCronJob(obj client.Object) bool {
+func (h *JobReconciler) isOwnedByCronJob(obj client.Object) bool {
 	job, ok := obj.(*batchv1.Job)
 	if !ok {
 		return false
@@ -728,50 +740,56 @@ func isJobComplete(job *batchv1.Job) bool {
 }
 
 // SetupWithManager sets up the job handler with the Manager.
-func (h *JobHandler) SetupWithManager(mgr ctrl.Manager) error {
+func (h *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	h.Log.Info("setting up job handler controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1.Job{}).
-		WithEventFilter(predicate.Funcs{
-			CreateFunc: func(e event.CreateEvent) bool {
-				// Only process creates if job is already complete (rare but possible)
-				job, ok := e.Object.(*batchv1.Job)
-				if !ok || !h.isOwnedByCronJob(e.Object) {
-					return false
-				}
-				complete := isJobComplete(job)
-				h.Log.V(1).Info("job create event",
-					"job", e.Object.GetName(),
-					"namespace", e.Object.GetNamespace(),
-					"complete", complete)
-				return complete
+		WithEventFilter(
+			predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					// Only process creates if job is already complete (rare but possible)
+					job, ok := e.Object.(*batchv1.Job)
+					if !ok || !h.isOwnedByCronJob(e.Object) {
+						return false
+					}
+					complete := isJobComplete(job)
+					h.Log.V(1).Info(
+						"job create event",
+						"job", e.Object.GetName(),
+						"namespace", e.Object.GetNamespace(),
+						"complete", complete,
+					)
+					return complete
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					// Only process if job transitions to complete
+					if !h.isOwnedByCronJob(e.ObjectNew) {
+						return false
+					}
+					oldJob, ok1 := e.ObjectOld.(*batchv1.Job)
+					newJob, ok2 := e.ObjectNew.(*batchv1.Job)
+					if !ok1 || !ok2 {
+						return false
+					}
+					// Only reconcile when job transitions to complete
+					wasComplete := isJobComplete(oldJob)
+					nowComplete := isJobComplete(newJob)
+					shouldProcess := nowComplete && !wasComplete
+					h.Log.V(1).Info(
+						"job update event",
+						"job", e.ObjectNew.GetName(),
+						"namespace", e.ObjectNew.GetNamespace(),
+						"wasComplete", wasComplete,
+						"nowComplete", nowComplete,
+						"processing", shouldProcess,
+					)
+					return shouldProcess
+				},
+				DeleteFunc: func(_ event.DeleteEvent) bool {
+					return false // Don't process deletes
+				},
 			},
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				// Only process if job transitions to complete
-				if !h.isOwnedByCronJob(e.ObjectNew) {
-					return false
-				}
-				oldJob, ok1 := e.ObjectOld.(*batchv1.Job)
-				newJob, ok2 := e.ObjectNew.(*batchv1.Job)
-				if !ok1 || !ok2 {
-					return false
-				}
-				// Only reconcile when job transitions to complete
-				wasComplete := isJobComplete(oldJob)
-				nowComplete := isJobComplete(newJob)
-				shouldProcess := nowComplete && !wasComplete
-				h.Log.V(1).Info("job update event",
-					"job", e.ObjectNew.GetName(),
-					"namespace", e.ObjectNew.GetNamespace(),
-					"wasComplete", wasComplete,
-					"nowComplete", nowComplete,
-					"processing", shouldProcess)
-				return shouldProcess
-			},
-			DeleteFunc: func(_ event.DeleteEvent) bool {
-				return false // Don't process deletes
-			},
-		}).
+		).
 		Named("jobhandler").
 		Complete(h)
 }
