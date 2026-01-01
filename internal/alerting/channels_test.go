@@ -91,18 +91,20 @@ func createTestAlertForChannel() Alert {
 // ==================== Slack Channel Tests ====================
 
 func TestSlackChannel_Send_Success(t *testing.T) {
-	// Create mock server
 	var receivedBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		receivedBody = string(body)
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				receivedBody = string(body)
+				assert.Equal(t, "POST", r.Method)
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
-	// Create fake client with secret
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	secret := createTestSecret("default", "slack-webhook", "url", server.URL)
@@ -126,15 +128,18 @@ func TestSlackChannel_Send_Success(t *testing.T) {
 	err = ch.Send(ctx, alert)
 	require.NoError(t, err)
 
-	// Verify payload
 	assert.Contains(t, receivedBody, "Job Failed")
 	assert.Contains(t, receivedBody, "critical")
 }
 
 func TestSlackChannel_Send_HTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -165,7 +170,7 @@ func TestSlackChannel_Send_HTTPError(t *testing.T) {
 func TestSlackChannel_Send_MissingSecret(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build() // No secret
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	ac := createTestAlertChannel("slack-test", "slack")
 	ac.Spec.Slack = &v1alpha1.SlackConfig{
@@ -189,11 +194,15 @@ func TestSlackChannel_Send_MissingSecret(t *testing.T) {
 
 func TestSlackChannel_CustomTemplate(t *testing.T) {
 	var receivedBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		receivedBody = string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				receivedBody = string(body)
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -225,11 +234,15 @@ func TestSlackChannel_CustomTemplate(t *testing.T) {
 
 func TestSlackChannel_DefaultTemplate(t *testing.T) {
 	var receivedBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		receivedBody = string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				receivedBody = string(body)
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -244,7 +257,6 @@ func TestSlackChannel_DefaultTemplate(t *testing.T) {
 			Name:      "slack-webhook",
 			Key:       "url",
 		},
-		// No custom template - use default
 	}
 
 	ch, err := NewSlackChannel(fakeClient, ac)
@@ -256,17 +268,20 @@ func TestSlackChannel_DefaultTemplate(t *testing.T) {
 	err = ch.Send(ctx, alert)
 	require.NoError(t, err)
 
-	// Default template should include red_circle for critical
 	assert.Contains(t, receivedBody, "red_circle")
 	assert.Contains(t, receivedBody, "Suggested Fix")
 }
 
 func TestSlackChannel_Test(t *testing.T) {
 	called := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, _ *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -294,11 +309,15 @@ func TestSlackChannel_Test(t *testing.T) {
 
 func TestSlackChannel_WithChannel(t *testing.T) {
 	var payload map[string]interface{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &payload)
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				_ = json.Unmarshal(body, &payload)
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -355,7 +374,6 @@ func TestSlackChannel_MissingConfig(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	ac := createTestAlertChannel("slack-test", "slack")
-	// No Slack config
 
 	_, err := NewSlackChannel(fakeClient, ac)
 	assert.Error(t, err)
@@ -374,7 +392,7 @@ func TestSlackChannel_InvalidTemplate(t *testing.T) {
 			Name:      "slack-webhook",
 			Key:       "url",
 		},
-		MessageTemplate: "{{ .Invalid", // Clearly invalid template - unclosed action
+		MessageTemplate: "{{ .Invalid",
 	}
 
 	_, err := NewSlackChannel(fakeClient, ac)
@@ -387,12 +405,16 @@ func TestSlackChannel_InvalidTemplate(t *testing.T) {
 func TestWebhookChannel_Send_POST(t *testing.T) {
 	var receivedMethod string
 	var receivedBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedMethod = r.Method
-		body, _ := io.ReadAll(r.Body)
-		receivedBody = string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				receivedMethod = r.Method
+				body, _ := io.ReadAll(r.Body)
+				receivedBody = string(body)
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -425,10 +447,14 @@ func TestWebhookChannel_Send_POST(t *testing.T) {
 
 func TestWebhookChannel_Send_PUT(t *testing.T) {
 	var receivedMethod string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedMethod = r.Method
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				receivedMethod = r.Method
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -460,10 +486,14 @@ func TestWebhookChannel_Send_PUT(t *testing.T) {
 
 func TestWebhookChannel_Send_DefaultMethod(t *testing.T) {
 	var receivedMethod string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedMethod = r.Method
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				receivedMethod = r.Method
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -478,7 +508,6 @@ func TestWebhookChannel_Send_DefaultMethod(t *testing.T) {
 			Name:      "webhook-url",
 			Key:       "url",
 		},
-		// No method specified - should default to POST
 	}
 
 	ch, err := NewWebhookChannel(fakeClient, ac)
@@ -495,10 +524,14 @@ func TestWebhookChannel_Send_DefaultMethod(t *testing.T) {
 
 func TestWebhookChannel_CustomHeaders(t *testing.T) {
 	var receivedHeaders http.Header
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedHeaders = r.Header
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders = r.Header
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -535,11 +568,15 @@ func TestWebhookChannel_CustomHeaders(t *testing.T) {
 
 func TestWebhookChannel_CustomPayload(t *testing.T) {
 	var receivedBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		receivedBody = string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				receivedBody = string(body)
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -566,7 +603,6 @@ func TestWebhookChannel_CustomPayload(t *testing.T) {
 	err = ch.Send(ctx, alert)
 	require.NoError(t, err)
 
-	// Parse and verify custom payload
 	var payload map[string]string
 	err = json.Unmarshal([]byte(receivedBody), &payload)
 	require.NoError(t, err)
@@ -576,9 +612,13 @@ func TestWebhookChannel_CustomPayload(t *testing.T) {
 }
 
 func TestWebhookChannel_HTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -608,35 +648,41 @@ func TestWebhookChannel_HTTPError(t *testing.T) {
 
 func TestWebhookChannel_AcceptsMultipleSuccessCodes(t *testing.T) {
 	for _, code := range []int{200, 201, 202, 204} {
-		t.Run(string(rune(code)), func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(code)
-			}))
-			defer server.Close()
+		t.Run(
+			string(rune(code)), func(t *testing.T) {
+				server := httptest.NewServer(
+					http.HandlerFunc(
+						func(w http.ResponseWriter, _ *http.Request) {
+							w.WriteHeader(code)
+						},
+					),
+				)
+				defer server.Close()
 
-			scheme := runtime.NewScheme()
-			_ = corev1.AddToScheme(scheme)
-			secret := createTestSecret("default", "webhook-url", "url", server.URL)
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+				scheme := runtime.NewScheme()
+				_ = corev1.AddToScheme(scheme)
+				secret := createTestSecret("default", "webhook-url", "url", server.URL)
+				fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
 
-			ac := createTestAlertChannel("webhook-test", "webhook")
-			ac.Spec.Webhook = &v1alpha1.WebhookConfig{
-				URLSecretRef: v1alpha1.NamespacedSecretKeyRef{
-					Namespace: "default",
-					Name:      "webhook-url",
-					Key:       "url",
-				},
-			}
+				ac := createTestAlertChannel("webhook-test", "webhook")
+				ac.Spec.Webhook = &v1alpha1.WebhookConfig{
+					URLSecretRef: v1alpha1.NamespacedSecretKeyRef{
+						Namespace: "default",
+						Name:      "webhook-url",
+						Key:       "url",
+					},
+				}
 
-			ch, err := NewWebhookChannel(fakeClient, ac)
-			require.NoError(t, err)
+				ch, err := NewWebhookChannel(fakeClient, ac)
+				require.NoError(t, err)
 
-			ctx := context.Background()
-			alert := createTestAlertForChannel()
+				ctx := context.Background()
+				alert := createTestAlertForChannel()
 
-			err = ch.Send(ctx, alert)
-			assert.NoError(t, err)
-		})
+				err = ch.Send(ctx, alert)
+				assert.NoError(t, err)
+			},
+		)
 	}
 }
 
@@ -667,7 +713,6 @@ func TestWebhookChannel_MissingConfig(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	ac := createTestAlertChannel("webhook-test", "webhook")
-	// No Webhook config
 
 	_, err := NewWebhookChannel(fakeClient, ac)
 	assert.Error(t, err)
@@ -676,10 +721,14 @@ func TestWebhookChannel_MissingConfig(t *testing.T) {
 
 func TestWebhookChannel_Test(t *testing.T) {
 	called := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, _ *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -706,13 +755,11 @@ func TestWebhookChannel_Test(t *testing.T) {
 }
 
 // ==================== PagerDuty Channel Tests ====================
-// Note: PagerDuty tests are limited because pagerDutyEventsURL is a const.
-// Full integration tests would require running a mock server on that URL.
 
 func TestPagerDutyChannel_MissingSecret(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build() // No secret
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	ac := createTestAlertChannel("pagerduty-test", "pagerduty")
 	ac.Spec.PagerDuty = &v1alpha1.PagerDutyConfig{
@@ -761,7 +808,6 @@ func TestPagerDutyChannel_MissingConfig(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	ac := createTestAlertChannel("pagerduty-test", "pagerduty")
-	// No PagerDuty config
 
 	_, err := NewPagerDutyChannel(fakeClient, ac)
 	assert.Error(t, err)
@@ -772,10 +818,14 @@ func TestPagerDutyChannel_MissingConfig(t *testing.T) {
 
 func TestChannelRateLimiting(t *testing.T) {
 	requestCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requestCount++
-		w.WriteHeader(http.StatusOK)
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, _ *http.Request) {
+				requestCount++
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
 	defer server.Close()
 
 	scheme := runtime.NewScheme()
@@ -783,7 +833,6 @@ func TestChannelRateLimiting(t *testing.T) {
 	secret := createTestSecret("default", "slack-webhook", "url", server.URL)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
 
-	// Create channel with strict rate limiting
 	ac := createTestAlertChannel("slack-test", "slack")
 	ac.Spec.Slack = &v1alpha1.SlackConfig{
 		WebhookSecretRef: v1alpha1.NamespacedSecretKeyRef{
@@ -805,28 +854,23 @@ func TestChannelRateLimiting(t *testing.T) {
 	ctx := context.Background()
 	alert := createTestAlertForChannel()
 
-	// First request should succeed
 	err = ch.Send(ctx, alert)
 	require.NoError(t, err)
 
-	// Second request should be rate limited
 	err = ch.Send(ctx, alert)
 	assert.Error(t, err)
 	assert.Contains(t, strings.ToLower(err.Error()), "rate limit")
 
-	// Only first request should have gone through
 	assert.Equal(t, 1, requestCount)
 }
 
 // ==================== Helper Function Tests ====================
 
 func TestNewRateLimiter(t *testing.T) {
-	// Test with nil config
 	limiter := NewRateLimiter(nil)
 	assert.NotNil(t, limiter)
-	assert.True(t, limiter.Allow()) // Should allow (default limits)
+	assert.True(t, limiter.Allow())
 
-	// Test with custom config
 	maxAlertsPerHour := int32(100)
 	burstLimit := int32(5)
 	config := &v1alpha1.RateLimitConfig{

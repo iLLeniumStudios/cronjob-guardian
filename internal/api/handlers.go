@@ -92,12 +92,14 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 
 // writeError writes an error response
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, ErrorResponse{
-		Error: ErrorDetail{
-			Code:    code,
-			Message: message,
+	writeJSON(
+		w, status, ErrorResponse{
+			Error: ErrorDetail{
+				Code:    code,
+				Message: message,
+			},
 		},
-	})
+	)
 }
 
 // GetHealth handles GET /api/v1/health
@@ -121,8 +123,7 @@ func (h *Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 	uptime := time.Since(h.startTime)
 
-	// Check leader election status
-	isLeader := true // Default to true if leader election is disabled
+	isLeader := true
 	if h.leaderElectionCheck != nil {
 		isLeader = h.leaderElectionCheck()
 	}
@@ -151,7 +152,6 @@ func (h *Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Get all monitors
 	monitors := &guardianv1alpha1.CronJobMonitorList{}
 	if err := h.client.List(ctx, monitors); err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
@@ -174,7 +174,6 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Count executions from store in last 24h
 	executionsRecorded24h := int64(0)
 	if h.store != nil {
 		since := time.Now().Add(-24 * time.Hour)
@@ -275,7 +274,6 @@ func (h *Handlers) GetMonitor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the full monitor
 	writeJSON(w, http.StatusOK, monitor)
 }
 
@@ -295,7 +293,6 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 	statusFilter := r.URL.Query().Get("status")
 	search := r.URL.Query().Get("search")
 
-	// Get all monitors to find monitored CronJobs
 	monitors := &guardianv1alpha1.CronJobMonitorList{}
 	opts := []client.ListOption{}
 	if namespace != "" {
@@ -307,23 +304,18 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use a map to deduplicate CronJobs (same CronJob may appear in multiple monitors)
-	// Key: "namespace/name"
 	seen := make(map[string]struct{})
 	items := make([]CronJobListItem, 0)
 	summary := SummaryStats{}
 
 	for _, m := range monitors.Items {
 		for _, cjStatus := range m.Status.CronJobs {
-			// Create unique key for deduplication
 			key := cjStatus.Namespace + "/" + cjStatus.Name
 			if _, exists := seen[key]; exists {
-				// Already processed this CronJob from another monitor, skip
 				continue
 			}
 			seen[key] = struct{}{}
 
-			// Apply filters
 			if statusFilter != "" && cjStatus.Status != statusFilter {
 				continue
 			}
@@ -331,7 +323,6 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Get the actual CronJob for schedule info
 			cj := &batchv1.CronJob{}
 			err := h.client.Get(ctx, types.NamespacedName{Namespace: cjStatus.Namespace, Name: cjStatus.Name}, cj)
 
@@ -369,7 +360,6 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 				item.NextRun = &t
 			}
 
-			// Convert active jobs
 			if len(cjStatus.ActiveJobs) > 0 {
 				item.ActiveJobs = make([]ActiveJobItem, 0, len(cjStatus.ActiveJobs))
 				for _, aj := range cjStatus.ActiveJobs {
@@ -389,7 +379,6 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 
 			items = append(items, item)
 
-			// Update summary
 			switch cjStatus.Status {
 			case "healthy":
 				summary.Healthy++
@@ -407,10 +396,12 @@ func (h *Handlers) ListCronJobs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, CronJobListResponse{
-		Items:   items,
-		Summary: summary,
-	})
+	writeJSON(
+		w, http.StatusOK, CronJobListResponse{
+			Items:   items,
+			Summary: summary,
+		},
+	)
 }
 
 // GetCronJob handles GET /api/v1/cronjobs/:namespace/:name
@@ -429,7 +420,6 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
 
-	// Get the CronJob
 	cj := &batchv1.CronJob{}
 	if err := h.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, cj); err != nil {
 		if client.IgnoreNotFound(err) == nil {
@@ -452,9 +442,6 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 		resp.Timezone = *cj.Spec.TimeZone
 	}
 
-	// Find monitor for this CronJob - search ALL namespaces since monitors can
-	// monitor CronJobs across namespaces (e.g., monitor in "monitoring" namespace
-	// can watch CronJobs in "default" namespace)
 	monitors := &guardianv1alpha1.CronJobMonitorList{}
 	if err := h.client.List(ctx, monitors); err == nil {
 		for _, m := range monitors.Items {
@@ -481,7 +468,6 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 						resp.NextRun = &t
 					}
 
-					// Convert active jobs
 					if len(cjStatus.ActiveJobs) > 0 {
 						resp.ActiveJobs = make([]ActiveJobItem, 0, len(cjStatus.ActiveJobs))
 						for _, aj := range cjStatus.ActiveJobs {
@@ -499,7 +485,6 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 
-					// Convert active alerts
 					resp.ActiveAlerts = make([]AlertItem, 0, len(cjStatus.ActiveAlerts))
 					for _, a := range cjStatus.ActiveAlerts {
 						item := AlertItem{
@@ -508,7 +493,6 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 							Message:  a.Message,
 							Since:    a.Since.Time,
 						}
-						// Include context if available (for JobFailed alerts)
 						if a.ExitCode != 0 || a.Reason != "" || a.SuggestedFix != "" {
 							item.Context = &AlertContextResponse{
 								ExitCode:     a.ExitCode,
@@ -525,7 +509,6 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get last execution from store
 	if h.store != nil {
 		cronJobNN := types.NamespacedName{Namespace: namespace, Name: name}
 		if lastExec, err := h.store.GetLastExecution(ctx, cronJobNN); err == nil && lastExec != nil {
@@ -546,7 +529,6 @@ func (h *Handlers) GetCronJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get 30-day metrics
 	if h.store != nil && resp.Metrics != nil {
 		cronJobNN := types.NamespacedName{Namespace: namespace, Name: name}
 		if metrics30d, err := h.store.GetMetrics(ctx, cronJobNN, 30); err == nil && metrics30d != nil {
@@ -598,19 +580,20 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.store == nil {
-		writeJSON(w, http.StatusOK, ExecutionListResponse{
-			Items: []ExecutionItem{},
-			Pagination: Pagination{
-				Total:   0,
-				Limit:   limit,
-				Offset:  offset,
-				HasMore: false,
+		writeJSON(
+			w, http.StatusOK, ExecutionListResponse{
+				Items: []ExecutionItem{},
+				Pagination: Pagination{
+					Total:   0,
+					Limit:   limit,
+					Offset:  offset,
+					HasMore: false,
+				},
 			},
-		})
+		)
 		return
 	}
 
-	// Default to last 30 days if no since
 	if since.IsZero() {
 		since = time.Now().AddDate(0, 0, -30)
 	}
@@ -621,7 +604,6 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 	var paged []store.Execution
 	var total int64
 
-	// Use database-level pagination with optional status filter
 	var err error
 	paged, total, err = h.store.GetExecutionsFiltered(ctx, cronJobNN, since, statusFilter, limit, offset)
 	if err != nil {
@@ -651,15 +633,17 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 
-	writeJSON(w, http.StatusOK, ExecutionListResponse{
-		Items: items,
-		Pagination: Pagination{
-			Total:   total,
-			Limit:   limit,
-			Offset:  offset,
-			HasMore: int64(offset+limit) < total,
+	writeJSON(
+		w, http.StatusOK, ExecutionListResponse{
+			Items: items,
+			Pagination: Pagination{
+				Total:   total,
+				Limit:   limit,
+				Offset:  offset,
+				HasMore: int64(offset+limit) < total,
+			},
 		},
-	})
+	)
 }
 
 // GetLogs handles GET /api/v1/cronjobs/:namespace/:name/executions/:jobName/logs
@@ -692,7 +676,6 @@ func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find pod for job
 	pods := &corev1.PodList{}
 	if err := h.client.List(ctx, pods, client.InNamespace(namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
@@ -706,12 +689,10 @@ func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
 
 	pod := &pods.Items[0]
 
-	// Determine container
 	if container == "" && len(pod.Spec.Containers) > 0 {
 		container = pod.Spec.Containers[0].Name
 	}
 
-	// Get logs
 	opts := &corev1.PodLogOptions{
 		Container: container,
 		TailLines: ptr.To(tailLines),
@@ -734,12 +715,14 @@ func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, LogsResponse{
-		JobName:   jobName,
-		Container: container,
-		Logs:      buf.String(),
-		Truncated: false,
-	})
+	writeJSON(
+		w, http.StatusOK, LogsResponse{
+			JobName:   jobName,
+			Container: container,
+			Logs:      buf.String(),
+			Truncated: false,
+		},
+	)
 }
 
 // TriggerCronJob handles POST /api/v1/cronjobs/:namespace/:name/trigger
@@ -758,7 +741,6 @@ func (h *Handlers) TriggerCronJob(w http.ResponseWriter, r *http.Request) {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
 
-	// Get the CronJob
 	cj := &batchv1.CronJob{}
 	if err := h.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, cj); err != nil {
 		if client.IgnoreNotFound(err) == nil {
@@ -769,7 +751,6 @@ func (h *Handlers) TriggerCronJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create a manual job
 	jobName := fmt.Sprintf("%s-manual-%d", name, time.Now().Unix())
 	if len(jobName) > 63 {
 		jobName = jobName[:63]
@@ -792,11 +773,13 @@ func (h *Handlers) TriggerCronJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, TriggerResponse{
-		Success: true,
-		JobName: jobName,
-		Message: "Job created successfully",
-	})
+	writeJSON(
+		w, http.StatusOK, TriggerResponse{
+			Success: true,
+			JobName: jobName,
+			Message: "Job created successfully",
+		},
+	)
 }
 
 // SuspendCronJob handles POST /api/v1/cronjobs/:namespace/:name/suspend
@@ -831,10 +814,12 @@ func (h *Handlers) SuspendCronJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, SimpleResponse{
-		Success: true,
-		Message: "CronJob suspended",
-	})
+	writeJSON(
+		w, http.StatusOK, SimpleResponse{
+			Success: true,
+			Message: "CronJob suspended",
+		},
+	)
 }
 
 // ResumeCronJob handles POST /api/v1/cronjobs/:namespace/:name/resume
@@ -869,10 +854,12 @@ func (h *Handlers) ResumeCronJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, SimpleResponse{
-		Success: true,
-		Message: "CronJob resumed",
-	})
+	writeJSON(
+		w, http.StatusOK, SimpleResponse{
+			Success: true,
+			Message: "CronJob resumed",
+		},
+	)
 }
 
 // ListAlerts handles GET /api/v1/alerts
@@ -894,21 +881,17 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 	namespaceFilter := r.URL.Query().Get("namespace")
 	cronjobFilter := r.URL.Query().Get("cronjob")
 
-	// Get all monitors and collect active alerts
 	monitors := &guardianv1alpha1.CronJobMonitorList{}
 	if err := h.client.List(ctx, monitors); err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
 
-	// Deduplicate alerts by CronJob+Type, keeping the most severe
-	// This handles cases where multiple monitors watch the same CronJob
 	alertMap := make(map[string]AlertItem)
 	severityOrder := map[string]int{"critical": 2, "warning": 1, "info": 0}
 
 	for _, m := range monitors.Items {
 		for _, cjStatus := range m.Status.CronJobs {
-			// Apply filters
 			if namespaceFilter != "" && cjStatus.Namespace != namespaceFilter {
 				continue
 			}
@@ -937,7 +920,6 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 					t := a.LastNotified.Time
 					item.LastNotified = &t
 				}
-				// Include context if available (for JobFailed alerts)
 				if a.ExitCode != 0 || a.Reason != "" || a.SuggestedFix != "" {
 					item.Context = &AlertContextResponse{
 						ExitCode:     a.ExitCode,
@@ -946,12 +928,10 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
-				// Keep alert with highest severity, or earliest timestamp if same severity
 				if existing, exists := alertMap[alertID]; exists {
 					if severityOrder[a.Severity] > severityOrder[existing.Severity] {
 						alertMap[alertID] = item
 					} else if severityOrder[a.Severity] == severityOrder[existing.Severity] && a.Since.Time.Before(existing.Since) {
-						// Same severity - keep the one with earlier timestamp
 						alertMap[alertID] = item
 					}
 				} else {
@@ -961,7 +941,6 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Convert map to slice and apply severity filter
 	items := make([]AlertItem, 0, len(alertMap))
 	bySeverity := map[string]int{
 		"critical": 0,
@@ -976,11 +955,13 @@ func (h *Handlers) ListAlerts(w http.ResponseWriter, r *http.Request) {
 		bySeverity[item.Severity]++
 	}
 
-	writeJSON(w, http.StatusOK, AlertListResponse{
-		Items:      items,
-		Total:      len(items),
-		BySeverity: bySeverity,
-	})
+	writeJSON(
+		w, http.StatusOK, AlertListResponse{
+			Items:      items,
+			Total:      len(items),
+			BySeverity: bySeverity,
+		},
+	)
 }
 
 // GetAlertHistory handles GET /api/v1/alerts/history
@@ -999,15 +980,17 @@ func (h *Handlers) GetAlertHistory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if h.store == nil {
-		writeJSON(w, http.StatusOK, AlertHistoryResponse{
-			Items: []AlertHistoryItem{},
-			Pagination: Pagination{
-				Total:   0,
-				Limit:   50,
-				Offset:  0,
-				HasMore: false,
+		writeJSON(
+			w, http.StatusOK, AlertHistoryResponse{
+				Items: []AlertHistoryItem{},
+				Pagination: Pagination{
+					Total:   0,
+					Limit:   50,
+					Offset:  0,
+					HasMore: false,
+				},
 			},
-		})
+		)
 		return
 	}
 
@@ -1054,10 +1037,9 @@ func (h *Handlers) GetAlertHistory(w http.ResponseWriter, r *http.Request) {
 			OccurredAt:       a.OccurredAt,
 			ResolvedAt:       a.ResolvedAt,
 			ChannelsNotified: a.GetChannelsNotified(),
-			// Context fields for failure alerts
-			ExitCode:     a.ExitCode,
-			Reason:       a.Reason,
-			SuggestedFix: a.SuggestedFix,
+			ExitCode:         a.ExitCode,
+			Reason:           a.Reason,
+			SuggestedFix:     a.SuggestedFix,
 		}
 		if a.CronJobNamespace != "" || a.CronJobName != "" {
 			item.CronJob = &NamespacedRef{
@@ -1068,15 +1050,17 @@ func (h *Handlers) GetAlertHistory(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 
-	writeJSON(w, http.StatusOK, AlertHistoryResponse{
-		Items: items,
-		Pagination: Pagination{
-			Total:   total,
-			Limit:   limit,
-			Offset:  offset,
-			HasMore: int64(offset+limit) < total,
+	writeJSON(
+		w, http.StatusOK, AlertHistoryResponse{
+			Items: items,
+			Pagination: Pagination{
+				Total:   total,
+				Limit:   limit,
+				Offset:  offset,
+				HasMore: int64(offset+limit) < total,
+			},
 		},
-	})
+	)
 }
 
 // ListChannels handles GET /api/v1/channels
@@ -1096,13 +1080,11 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch channel alert stats from store
 	var channelStats map[string]store.ChannelAlertStats
 	if h.store != nil {
 		var err error
 		channelStats, err = h.store.GetChannelAlertStats(ctx)
 		if err != nil {
-			// Non-fatal, just log and continue with empty stats
 			channelStats = make(map[string]store.ChannelAlertStats)
 		}
 	}
@@ -1117,7 +1099,6 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 			stats.AlertsSentTotal = s.AlertsSentTotal
 		}
 
-		// Populate failure stats from CRD status
 		stats.AlertsFailedTotal = ch.Status.AlertsFailedTotal
 		stats.ConsecutiveFailures = ch.Status.ConsecutiveFailures
 		if ch.Status.LastAlertTime != nil {
@@ -1139,7 +1120,6 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 			Stats: stats,
 		}
 
-		// Build config summary (without sensitive data)
 		item.Config = make(map[string]any)
 		switch ch.Spec.Type {
 		case "slack":
@@ -1168,14 +1148,16 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, ChannelListResponse{
-		Items: items,
-		Summary: ChannelSummary{
-			Total:    len(channels.Items),
-			Ready:    ready,
-			NotReady: notReady,
+	writeJSON(
+		w, http.StatusOK, ChannelListResponse{
+			Items: items,
+			Summary: ChannelSummary{
+				Total:    len(channels.Items),
+				Ready:    ready,
+				NotReady: notReady,
+			},
 		},
-	})
+	)
 }
 
 // GetChannel handles GET /api/v1/channels/:name
@@ -1202,7 +1184,6 @@ func (h *Handlers) GetChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the full channel (secrets redacted by Kubernetes)
 	writeJSON(w, http.StatusOK, channel)
 }
 
@@ -1235,17 +1216,21 @@ func (h *Handlers) TestChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.alertDispatcher.SendToChannel(ctx, name, testAlert); err != nil {
-		writeJSON(w, http.StatusOK, SimpleResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		writeJSON(
+			w, http.StatusOK, SimpleResponse{
+				Success: false,
+				Error:   err.Error(),
+			},
+		)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, SimpleResponse{
-		Success: true,
-		Message: "Test alert sent successfully",
-	})
+	writeJSON(
+		w, http.StatusOK, SimpleResponse{
+			Success: true,
+			Message: "Test alert sent successfully",
+		},
+	)
 }
 
 // ConfigResponse represents the operator configuration for the API
@@ -1311,11 +1296,13 @@ func (h *Handlers) DeleteCronJobHistory(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, DeleteHistoryResponse{
-		Success:        true,
-		RecordsDeleted: deleted,
-		Message:        fmt.Sprintf("Deleted %d execution records for %s/%s", deleted, namespace, name),
-	})
+	writeJSON(
+		w, http.StatusOK, DeleteHistoryResponse{
+			Success:        true,
+			RecordsDeleted: deleted,
+			Message:        fmt.Sprintf("Deleted %d execution records for %s/%s", deleted, namespace, name),
+		},
+	)
 }
 
 // GetStorageStats handles GET /api/v1/admin/storage-stats
@@ -1348,13 +1335,15 @@ func (h *Handlers) GetStorageStats(w http.ResponseWriter, r *http.Request) {
 
 	healthy := h.store.Health(ctx) == nil
 
-	writeJSON(w, http.StatusOK, StorageStatsResponse{
-		ExecutionCount:    count,
-		StorageType:       storageType,
-		Healthy:           healthy,
-		RetentionDays:     h.config.HistoryRetention.DefaultDays,
-		LogStorageEnabled: h.config.Storage.LogStorageEnabled,
-	})
+	writeJSON(
+		w, http.StatusOK, StorageStatsResponse{
+			ExecutionCount:    count,
+			StorageType:       storageType,
+			Healthy:           healthy,
+			RetentionDays:     h.config.HistoryRetention.DefaultDays,
+			LogStorageEnabled: h.config.Storage.LogStorageEnabled,
+		},
+	)
 }
 
 // PruneRequest represents a prune request body
@@ -1383,10 +1372,8 @@ func (h *Handlers) TriggerPrune(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request body
 	var req PruneRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// Default to retention config
 		if h.config != nil {
 			req.OlderThanDays = h.config.HistoryRetention.DefaultDays
 		} else {
@@ -1401,14 +1388,16 @@ func (h *Handlers) TriggerPrune(w http.ResponseWriter, r *http.Request) {
 	cutoff := time.Now().AddDate(0, 0, -req.OlderThanDays)
 
 	if req.DryRun {
-		writeJSON(w, http.StatusOK, PruneResponse{
-			Success:       true,
-			RecordsPruned: 0,
-			DryRun:        true,
-			Cutoff:        cutoff,
-			OlderThanDays: req.OlderThanDays,
-			Message:       "Dry run - no records deleted",
-		})
+		writeJSON(
+			w, http.StatusOK, PruneResponse{
+				Success:       true,
+				RecordsPruned: 0,
+				DryRun:        true,
+				Cutoff:        cutoff,
+				OlderThanDays: req.OlderThanDays,
+				Message:       "Dry run - no records deleted",
+			},
+		)
 		return
 	}
 
@@ -1430,14 +1419,16 @@ func (h *Handlers) TriggerPrune(w http.ResponseWriter, r *http.Request) {
 		message = fmt.Sprintf("Pruned logs from %d execution records older than %d days", count, req.OlderThanDays)
 	}
 
-	writeJSON(w, http.StatusOK, PruneResponse{
-		Success:       true,
-		RecordsPruned: count,
-		DryRun:        false,
-		Cutoff:        cutoff,
-		OlderThanDays: req.OlderThanDays,
-		Message:       message,
-	})
+	writeJSON(
+		w, http.StatusOK, PruneResponse{
+			Success:       true,
+			RecordsPruned: count,
+			DryRun:        false,
+			Cutoff:        cutoff,
+			OlderThanDays: req.OlderThanDays,
+			Message:       message,
+		},
+	)
 }
 
 // GetExecutionWithLogs handles GET /api/v1/cronjobs/:namespace/:name/executions/:jobName
@@ -1464,7 +1455,6 @@ func (h *Handlers) GetExecutionWithLogs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Get executions and find the matching one
 	cronJobNN := types.NamespacedName{Namespace: namespace, Name: name}
 	since := time.Now().AddDate(0, 0, -90) // Look back 90 days
 	executions, err := h.store.GetExecutions(ctx, cronJobNN, since)
@@ -1473,7 +1463,6 @@ func (h *Handlers) GetExecutionWithLogs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Find the execution by job name
 	for _, e := range executions {
 		if e.JobName == jobName {
 			status := statusFailed
@@ -1526,16 +1515,16 @@ func (h *Handlers) TestPattern(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate pattern has required fields
 	if req.Pattern.Name == "" || req.Pattern.Suggestion == "" {
-		writeJSON(w, http.StatusOK, PatternTestResponse{
-			Matched: false,
-			Error:   "pattern name and suggestion are required",
-		})
+		writeJSON(
+			w, http.StatusOK, PatternTestResponse{
+				Matched: false,
+				Error:   "pattern name and suggestion are required",
+			},
+		)
 		return
 	}
 
-	// Convert API input to CRD type
 	pattern := guardianv1alpha1.SuggestedFixPattern{
 		Name:       req.Pattern.Name,
 		Suggestion: req.Pattern.Suggestion,
@@ -1555,7 +1544,6 @@ func (h *Handlers) TestPattern(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create match context from test data
 	matchCtx := alerting.MatchContext{
 		Namespace: req.TestData.Namespace,
 		Name:      req.TestData.Name,
@@ -1566,16 +1554,13 @@ func (h *Handlers) TestPattern(w http.ResponseWriter, r *http.Request) {
 		Events:    req.TestData.Events,
 	}
 
-	// Use the engine to test the pattern
 	engine := alerting.NewSuggestedFixEngine()
 
-	// Test just this one pattern with high priority to ensure it matches first
 	priority := int32(1000)
 	pattern.Priority = &priority
 	patterns := []guardianv1alpha1.SuggestedFixPattern{pattern}
 	suggestion := engine.GetBestSuggestion(matchCtx, patterns)
 
-	// Check if our pattern matched (not the fallback)
 	fallback := "Check job logs and events for details."
 	matched := suggestion != fallback
 

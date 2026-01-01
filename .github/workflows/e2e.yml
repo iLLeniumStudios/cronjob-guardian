@@ -1,0 +1,153 @@
+name: E2E Tests
+
+on:
+  # Manual trigger from Actions tab
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to test (branch, tag, or SHA)'
+        required: false
+        default: ''
+
+  # Trigger on PR comment with /e2e
+  issue_comment:
+    types: [created]
+
+env:
+  KIND_VERSION: v0.31.0
+
+jobs:
+  check-trigger:
+    name: Check Trigger
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      ref: ${{ steps.check.outputs.ref }}
+    steps:
+      - name: Check if should run
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const eventName = context.eventName;
+
+            if (eventName === 'workflow_dispatch') {
+              const ref = '${{ github.event.inputs.ref }}' || context.ref;
+              core.setOutput('should_run', 'true');
+              core.setOutput('ref', ref);
+              return;
+            }
+
+            if (eventName === 'issue_comment') {
+              const comment = context.payload.comment.body.trim();
+              const isPR = !!context.payload.issue.pull_request;
+
+              if (!isPR) {
+                core.setOutput('should_run', 'false');
+                console.log('Not a PR comment, skipping');
+                return;
+              }
+
+              if (comment === '/e2e' || comment.startsWith('/e2e ')) {
+                // Get PR details to find the head ref
+                const { data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.issue.number
+                });
+
+                core.setOutput('should_run', 'true');
+                core.setOutput('ref', pr.head.sha);
+
+                // Add reaction to acknowledge
+                await github.rest.reactions.createForIssueComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: context.payload.comment.id,
+                  content: 'rocket'
+                });
+                return;
+              }
+
+              core.setOutput('should_run', 'false');
+              console.log('Comment does not match /e2e trigger');
+              return;
+            }
+
+            core.setOutput('should_run', 'false');
+
+  test-e2e:
+    name: E2E Tests
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-trigger.outputs.ref }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache Go tools
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: go-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: go-tools-${{ runner.os }}-
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ui/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('ui/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Cache kind binary
+        uses: actions/cache@v4
+        id: kind-cache
+        with:
+          path: /usr/local/bin/kind
+          key: kind-${{ runner.os }}-${{ env.KIND_VERSION }}
+
+      - name: Install kind
+        if: steps.kind-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Verify kind installation
+        run: kind version
+
+      - name: Run E2E tests
+        env:
+          CERT_MANAGER_INSTALL_SKIP: "true"
+        run: make test-e2e
+
+      - name: Report status on PR
+        if: always() && github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const emoji = status === 'success' ? '✅' : '❌';
+            const message = `${emoji} E2E tests ${status}\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: message
+            });

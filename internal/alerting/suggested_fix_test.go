@@ -157,7 +157,7 @@ func TestSuggestedFix_Evicted(t *testing.T) {
 func TestSuggestedFix_CustomPattern(t *testing.T) {
 	engine := NewSuggestedFixEngine()
 
-	priority := int32(200) // Higher than builtin patterns
+	priority := int32(200)
 	customPatterns := []v1alpha1.SuggestedFixPattern{
 		{
 			Name: "custom-db-error",
@@ -255,7 +255,6 @@ func TestSuggestedFix_Priority(t *testing.T) {
 		ExitCode:  1,
 	}
 
-	// Higher priority should win
 	suggestion := engine.GetBestSuggestion(ctx, customPatterns)
 	assert.Equal(t, "High priority suggestion", suggestion)
 }
@@ -289,7 +288,6 @@ func TestSuggestedFix_TemplateVariables(t *testing.T) {
 func TestSuggestedFix_ExitCodeRange(t *testing.T) {
 	engine := NewSuggestedFixEngine()
 
-	// Exit code 50 should match the app-error-range pattern (1-125)
 	ctx := MatchContext{
 		Namespace: "default",
 		Name:      "test-cron",
@@ -305,7 +303,6 @@ func TestSuggestedFix_ExitCodeRange(t *testing.T) {
 func TestSuggestedFix_SignalRange(t *testing.T) {
 	engine := NewSuggestedFixEngine()
 
-	// Exit code 130 (128 + SIGINT) should match signal-range
 	ctx := MatchContext{
 		Namespace: "default",
 		Name:      "test-cron",
@@ -320,12 +317,11 @@ func TestSuggestedFix_SignalRange(t *testing.T) {
 func TestSuggestedFix_NoMatch_ReturnsDefault(t *testing.T) {
 	engine := NewSuggestedFixEngine()
 
-	// Exit code 0 is success, shouldn't match any failure pattern
 	ctx := MatchContext{
 		Namespace: "default",
 		Name:      "test-cron",
 		JobName:   "test-cron-12345",
-		ExitCode:  0, // Success - no pattern matches
+		ExitCode:  0,
 	}
 
 	suggestion := engine.GetBestSuggestion(ctx, nil)
@@ -338,7 +334,7 @@ func TestSuggestedFix_CustomOverridesBuiltin(t *testing.T) {
 	priority := int32(200)
 	customPatterns := []v1alpha1.SuggestedFixPattern{
 		{
-			Name: "oom-killed", // Same name as builtin
+			Name: "oom-killed",
 			Match: v1alpha1.PatternMatch{
 				Reason: "OOMKilled",
 			},
@@ -400,7 +396,6 @@ func TestSuggestedFix_CombinedMatchers(t *testing.T) {
 		},
 	}
 
-	// Should match - both conditions met
 	ctx := MatchContext{
 		Namespace: "default",
 		Name:      "test-cron",
@@ -412,7 +407,6 @@ func TestSuggestedFix_CombinedMatchers(t *testing.T) {
 	suggestion := engine.GetBestSuggestion(ctx, customPatterns)
 	assert.Equal(t, "Both exit code and log pattern matched", suggestion)
 
-	// Should NOT match - only exit code matches
 	ctx2 := MatchContext{
 		Namespace: "default",
 		Name:      "test-cron",
@@ -433,7 +427,7 @@ func TestSuggestedFix_InvalidRegex(t *testing.T) {
 		{
 			Name: "invalid-regex",
 			Match: v1alpha1.PatternMatch{
-				LogPattern: "[invalid(regex", // Invalid regex
+				LogPattern: "[invalid(regex",
 			},
 			Suggestion: "Should not match",
 			Priority:   &priority,
@@ -447,7 +441,6 @@ func TestSuggestedFix_InvalidRegex(t *testing.T) {
 		Logs:      "[invalid(regex",
 	}
 
-	// Invalid regex should not match, falls back to default
 	suggestion := engine.GetBestSuggestion(ctx, customPatterns)
 	assert.Equal(t, "Check job logs and events for details.", suggestion)
 }
@@ -459,7 +452,6 @@ func TestSuggestedFix_EmptyContext(t *testing.T) {
 		Namespace: "default",
 		Name:      "test-cron",
 		JobName:   "test-cron-12345",
-		// All fields empty/zero
 	}
 
 	suggestion := engine.GetBestSuggestion(ctx, nil)
@@ -469,12 +461,11 @@ func TestSuggestedFix_EmptyContext(t *testing.T) {
 func TestSuggestedFix_CaseInsensitiveReason(t *testing.T) {
 	engine := NewSuggestedFixEngine()
 
-	// Test case insensitivity for reason matching
 	ctx := MatchContext{
 		Namespace: "default",
 		Name:      "test-cron",
 		JobName:   "test-cron-12345",
-		Reason:    "oomkilled", // lowercase
+		Reason:    "oomkilled",
 	}
 
 	suggestion := engine.GetBestSuggestion(ctx, nil)
@@ -503,9 +494,7 @@ func TestSuggestedFix_TemplateError(t *testing.T) {
 		ExitCode:  1,
 	}
 
-	// Should not panic, should return original suggestion or partial result
 	suggestion := engine.GetBestSuggestion(ctx, customPatterns)
-	// Either returns the template string as-is or with <no value> placeholder
 	assert.NotEmpty(t, suggestion)
 }
 
@@ -540,7 +529,6 @@ func TestSuggestedFix_MultipleEventsOneMatches(t *testing.T) {
 	assert.Equal(t, "Resource quota exceeded", suggestion)
 }
 
-// Helper function to create pointer to int32
 func ptr(i int32) *int32 {
 	return &i
 }

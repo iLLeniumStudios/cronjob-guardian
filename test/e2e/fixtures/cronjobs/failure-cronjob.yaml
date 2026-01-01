@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: test-failure-cron
+  namespace: cronjob-guardian-e2e
+  labels:
+    app: test-cronjob
+    type: failure
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo 'Job failed'; exit 1"]
+          restartPolicy: Never

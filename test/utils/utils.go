@@ -171,6 +171,36 @@ func LoadImageToKindClusterWithName(name string) error {
 	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
 		cluster = v
 	}
+
+	// Check if using podman (CONTAINER_TOOL env var or detect podman)
+	containerTool := os.Getenv("CONTAINER_TOOL")
+	if containerTool == "podman" {
+		// With podman, we need to save the image to a tar and load via image-archive
+		// Sanitize image name for use as filename (replace / and : with -)
+		sanitizedName := strings.ReplaceAll(name, "/", "-")
+		sanitizedName = strings.ReplaceAll(sanitizedName, ":", "-")
+		tarFile := "/tmp/kind-image-" + sanitizedName + ".tar"
+
+		// Save image to tar
+		saveCmd := exec.Command("podman", "save", "-o", tarFile, name)
+		if _, err := Run(saveCmd); err != nil {
+			return fmt.Errorf("failed to save image with podman: %w", err)
+		}
+
+		// Load via kind image-archive
+		loadCmd := exec.Command("kind", "load", "image-archive", tarFile, "--name", cluster)
+		if _, err := Run(loadCmd); err != nil {
+			// Clean up tar file
+			_ = os.Remove(tarFile)
+			return fmt.Errorf("failed to load image archive to kind: %w", err)
+		}
+
+		// Clean up tar file
+		_ = os.Remove(tarFile)
+		return nil
+	}
+
+	// Default: use docker-image load (works with docker)
 	kindOptions := []string{"load", "docker-image", name, "--name", cluster}
 	cmd := exec.Command("kind", kindOptions...)
 	_, err := Run(cmd)

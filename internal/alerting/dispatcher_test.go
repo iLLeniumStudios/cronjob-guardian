@@ -108,7 +108,9 @@ func (m *mockStore) GetExecutions(_ context.Context, _ types.NamespacedName, _ t
 func (m *mockStore) GetExecutionsPaginated(_ context.Context, _ types.NamespacedName, _ time.Time, _, _ int) ([]store.Execution, int64, error) {
 	return nil, 0, nil
 }
-func (m *mockStore) GetExecutionsFiltered(_ context.Context, _ types.NamespacedName, _ time.Time, _ string, _, _ int) ([]store.Execution, int64, error) {
+func (m *mockStore) GetExecutionsFiltered(_ context.Context, _ types.NamespacedName, _ time.Time, _ string, _, _ int) (
+	[]store.Execution, int64, error,
+) {
 	return nil, 0, nil
 }
 func (m *mockStore) GetLastExecution(_ context.Context, _ types.NamespacedName) (*store.Execution, error) {
@@ -198,10 +200,10 @@ func testDispatcher(s store.Store) *dispatcher {
 		sentAlerts:         make(map[string]time.Time),
 		activeAlerts:       make(map[string]Alert),
 		pendingAlerts:      make(map[string]*PendingAlert),
-		globalLimiter:      rate.NewLimiter(rate.Inf, 100), // Unlimited for most tests
+		globalLimiter:      rate.NewLimiter(rate.Inf, 100),
 		cleanupDone:        make(chan struct{}),
 		startupGracePeriod: 0,
-		readyAt:            time.Now().Add(-time.Second), // Already past grace period
+		readyAt:            time.Now().Add(-time.Second),
 		store:              s,
 	}
 	return d
@@ -289,7 +291,6 @@ func TestDispatcher_Dispatch_ChannelNotFound(t *testing.T) {
 	alert := testAlert("default", "test-cron", "JobFailed", "critical")
 	cfg := testAlertingConfig("non-existent-channel")
 
-	// Should not error, just skip the missing channel
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 }
@@ -310,11 +311,9 @@ func TestDispatcher_Dispatch_PartialFailure(t *testing.T) {
 	cfg := testAlertingConfig("slack-main", "pagerduty-broken")
 
 	err := d.Dispatch(ctx, alert, cfg)
-	// Should report partial failure
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to send to 1 channels")
 
-	// Successful channel should still have received the alert
 	assert.Len(t, successCh.GetSentAlerts(), 1)
 }
 
@@ -328,7 +327,6 @@ func TestDispatcher_Dispatch_DisabledAlerting(t *testing.T) {
 	ctx := context.Background()
 	alert := testAlert("default", "test-cron", "JobFailed", "critical")
 
-	// Disabled config
 	disabled := false
 	cfg := &v1alpha1.AlertingConfig{
 		Enabled:     &disabled,
@@ -338,7 +336,6 @@ func TestDispatcher_Dispatch_DisabledAlerting(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// No alerts should be sent
 	assert.Len(t, ch.GetSentAlerts(), 0)
 }
 
@@ -349,7 +346,6 @@ func TestDispatcher_Dispatch_NilConfig(t *testing.T) {
 	ctx := context.Background()
 	alert := testAlert("default", "test-cron", "JobFailed", "critical")
 
-	// Nil config should be handled gracefully
 	err := d.Dispatch(ctx, alert, nil)
 	require.NoError(t, err)
 }
@@ -363,7 +359,7 @@ func TestDispatcher_Dispatch_GeneratesKey(t *testing.T) {
 
 	ctx := context.Background()
 	alert := Alert{
-		Key:      "", // Empty key should be auto-generated
+		Key:      "",
 		Type:     "JobFailed",
 		Severity: "critical",
 		CronJob:  types.NamespacedName{Namespace: "prod", Name: "daily-backup"},
@@ -373,7 +369,6 @@ func TestDispatcher_Dispatch_GeneratesKey(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// Check the alert was tracked with generated key
 	d.alertMu.RLock()
 	_, exists := d.sentAlerts["prod/daily-backup/JobFailed"]
 	d.alertMu.RUnlock()
@@ -387,7 +382,6 @@ func TestDispatcher_IsSuppressed_DuplicateWithinWindow(t *testing.T) {
 
 	alert := testAlert("default", "test-cron", "JobFailed", "critical")
 
-	// Pre-populate sent alerts
 	d.alertMu.Lock()
 	d.sentAlerts[alert.Key] = time.Now()
 	d.activeAlerts[alert.Key] = alert
@@ -406,7 +400,6 @@ func TestDispatcher_IsSuppressed_DifferentAlerts(t *testing.T) {
 	alert1 := testAlert("default", "cron-a", "JobFailed", "critical")
 	alert2 := testAlert("default", "cron-b", "JobFailed", "critical")
 
-	// Pre-populate with alert1
 	d.alertMu.Lock()
 	d.sentAlerts[alert1.Key] = time.Now()
 	d.activeAlerts[alert1.Key] = alert1
@@ -415,7 +408,6 @@ func TestDispatcher_IsSuppressed_DifferentAlerts(t *testing.T) {
 	cfg := testAlertingConfig("slack-main")
 	suppressed, _ := d.IsSuppressed(alert2, cfg)
 
-	// Different alert should not be suppressed
 	assert.False(t, suppressed)
 }
 
@@ -424,17 +416,14 @@ func TestDispatcher_IsSuppressed_AfterSuppressionWindow(t *testing.T) {
 
 	alert := testAlert("default", "test-cron", "JobFailed", "critical")
 
-	// Pre-populate with old timestamp (2 hours ago)
 	d.alertMu.Lock()
 	d.sentAlerts[alert.Key] = time.Now().Add(-2 * time.Hour)
 	d.activeAlerts[alert.Key] = alert
 	d.alertMu.Unlock()
 
-	// Default suppression is 1 hour
 	cfg := testAlertingConfig("slack-main")
 	suppressed, _ := d.IsSuppressed(alert, cfg)
 
-	// Should not be suppressed after window
 	assert.False(t, suppressed)
 }
 
@@ -443,13 +432,11 @@ func TestDispatcher_IsSuppressed_CustomWindow(t *testing.T) {
 
 	alert := testAlert("default", "test-cron", "JobFailed", "critical")
 
-	// Pre-populate with 30 min ago
 	d.alertMu.Lock()
 	d.sentAlerts[alert.Key] = time.Now().Add(-30 * time.Minute)
 	d.activeAlerts[alert.Key] = alert
 	d.alertMu.Unlock()
 
-	// Custom 2 hour suppression window
 	cfg := testAlertingConfig("slack-main")
 	cfg.SuppressDuplicatesFor = &metav1.Duration{Duration: 2 * time.Hour}
 
@@ -461,12 +448,11 @@ func TestDispatcher_IsSuppressed_ErrorSignatureChanged(t *testing.T) {
 	d := testDispatcher(nil)
 
 	oldAlert := testAlert("default", "test-cron", "JobFailed", "critical")
-	oldAlert.Context.ExitCode = 137 // OOM
+	oldAlert.Context.ExitCode = 137
 
 	newAlert := testAlert("default", "test-cron", "JobFailed", "critical")
-	newAlert.Context.ExitCode = 1 // App error
+	newAlert.Context.ExitCode = 1
 
-	// Pre-populate with old alert
 	d.alertMu.Lock()
 	d.sentAlerts[oldAlert.Key] = time.Now()
 	d.activeAlerts[oldAlert.Key] = oldAlert
@@ -475,7 +461,6 @@ func TestDispatcher_IsSuppressed_ErrorSignatureChanged(t *testing.T) {
 	cfg := testAlertingConfig("slack-main")
 	suppressed, _ := d.IsSuppressed(newAlert, cfg)
 
-	// Different error signature should bypass suppression
 	assert.False(t, suppressed)
 }
 
@@ -488,7 +473,6 @@ func TestDispatcher_IsSuppressed_SameErrorSignature(t *testing.T) {
 	newAlert := testAlert("default", "test-cron", "JobFailed", "critical")
 	newAlert.Context.ExitCode = 2 // Still in same "app-error" category
 
-	// Pre-populate with old alert
 	d.alertMu.Lock()
 	d.sentAlerts[oldAlert.Key] = time.Now()
 	d.activeAlerts[oldAlert.Key] = oldAlert
@@ -497,7 +481,6 @@ func TestDispatcher_IsSuppressed_SameErrorSignature(t *testing.T) {
 	cfg := testAlertingConfig("slack-main")
 	suppressed, _ := d.IsSuppressed(newAlert, cfg)
 
-	// Same error category should still be suppressed
 	assert.True(t, suppressed)
 }
 
@@ -508,7 +491,6 @@ func TestDispatcher_ClearAlert_RemovesFromActive(t *testing.T) {
 
 	alert := testAlert("default", "test-cron", "JobFailed", "critical")
 
-	// Pre-populate
 	d.alertMu.Lock()
 	d.sentAlerts[alert.Key] = time.Now()
 	d.activeAlerts[alert.Key] = alert
@@ -530,7 +512,6 @@ func TestDispatcher_ClearAlert_RemovesFromActive(t *testing.T) {
 func TestDispatcher_ClearAlertsForMonitor_Bulk(t *testing.T) {
 	d := testDispatcher(nil)
 
-	// Add multiple alerts for same CronJob
 	keys := []string{
 		"default/test-cron/JobFailed",
 		"default/test-cron/SLABreached",
@@ -550,12 +531,10 @@ func TestDispatcher_ClearAlertsForMonitor_Bulk(t *testing.T) {
 	d.alertMu.RLock()
 	defer d.alertMu.RUnlock()
 
-	// test-cron alerts should be cleared
 	assert.NotContains(t, d.activeAlerts, "default/test-cron/JobFailed")
 	assert.NotContains(t, d.activeAlerts, "default/test-cron/SLABreached")
 	assert.NotContains(t, d.activeAlerts, "default/test-cron/DeadManTriggered")
 
-	// other-cron should remain
 	assert.Contains(t, d.activeAlerts, "default/other-cron/JobFailed")
 }
 
@@ -577,19 +556,15 @@ func TestDispatcher_PendingAlert_DelayedDispatch(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// Should not be sent immediately
 	assert.Len(t, ch.GetSentAlerts(), 0)
 
-	// Check it's pending
 	d.pendingMu.RLock()
 	_, pending := d.pendingAlerts[alert.Key]
 	d.pendingMu.RUnlock()
 	assert.True(t, pending)
 
-	// Wait for delay to expire
 	time.Sleep(200 * time.Millisecond)
 
-	// Should now be sent
 	assert.Len(t, ch.GetSentAlerts(), 1)
 }
 
@@ -603,12 +578,10 @@ func TestDispatcher_PendingAlert_ImmediateNoDelay(t *testing.T) {
 	ctx := context.Background()
 	alert := testAlert("default", "test-cron", "JobFailed", "critical")
 	cfg := testAlertingConfig("slack-main")
-	// No AlertDelay set
 
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// Should be sent immediately
 	assert.Len(t, ch.GetSentAlerts(), 1)
 }
 
@@ -628,21 +601,17 @@ func TestDispatcher_CancelPendingAlert_BeforeSend(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// Cancel before delay expires
 	cancelled := d.CancelPendingAlert(alert.Key)
 	assert.True(t, cancelled)
 
-	// Wait for original delay to pass
 	time.Sleep(600 * time.Millisecond)
 
-	// Should NOT have been sent
 	assert.Len(t, ch.GetSentAlerts(), 0)
 }
 
 func TestDispatcher_CancelPendingAlertsForCronJob(t *testing.T) {
 	d := testDispatcher(nil)
 
-	// Add multiple pending alerts
 	d.pendingMu.Lock()
 	d.pendingAlerts["default/test-cron/JobFailed"] = &PendingAlert{Cancel: make(chan struct{})}
 	d.pendingAlerts["default/test-cron/SLABreached"] = &PendingAlert{Cancel: make(chan struct{})}
@@ -672,10 +641,11 @@ func TestRateLimiter_UnderLimit(t *testing.T) {
 	mockStore := newMockStore()
 	d := testDispatcher(mockStore)
 
-	// Set up a generous rate limiter (100/min)
-	d.SetGlobalRateLimits(config.RateLimitsConfig{
-		MaxAlertsPerMinute: 100,
-	})
+	d.SetGlobalRateLimits(
+		config.RateLimitsConfig{
+			MaxAlertsPerMinute: 100,
+		},
+	)
 
 	ch := newMockChannel("slack-main", "slack")
 	d.channels["slack-main"] = ch
@@ -683,7 +653,6 @@ func TestRateLimiter_UnderLimit(t *testing.T) {
 	ctx := context.Background()
 	cfg := testAlertingConfig("slack-main")
 
-	// Multiple alerts should succeed when under limit
 	for i := 0; i < 5; i++ {
 		alert := testAlert("default", "cron-"+string(rune('a'+i)), "JobFailed", "critical")
 		err := d.Dispatch(ctx, alert, cfg)
@@ -697,7 +666,6 @@ func TestRateLimiter_ExceedsLimit(t *testing.T) {
 	mockStore := newMockStore()
 	d := testDispatcher(mockStore)
 
-	// Set up a very restrictive rate limiter with no burst
 	d.globalLimiter = rate.NewLimiter(rate.Limit(1.0/60.0), 1) // 1/min, burst 1
 
 	ch := newMockChannel("slack-main", "slack")
@@ -706,12 +674,10 @@ func TestRateLimiter_ExceedsLimit(t *testing.T) {
 	ctx := context.Background()
 	cfg := testAlertingConfig("slack-main")
 
-	// First alert should succeed (uses burst)
 	alert1 := testAlert("default", "cron-a", "JobFailed", "critical")
 	err := d.Dispatch(ctx, alert1, cfg)
 	require.NoError(t, err)
 
-	// Second alert should be rate limited
 	alert2 := testAlert("default", "cron-b", "JobFailed", "critical")
 	err = d.Dispatch(ctx, alert2, cfg)
 	assert.Error(t, err)
@@ -722,7 +688,6 @@ func TestRateLimiter_BurstHandling(t *testing.T) {
 	mockStore := newMockStore()
 	d := testDispatcher(mockStore)
 
-	// Set rate limiter with burst of 5
 	d.globalLimiter = rate.NewLimiter(rate.Limit(1.0/60.0), 5) // 1/min, burst 5
 
 	ch := newMockChannel("slack-main", "slack")
@@ -731,14 +696,12 @@ func TestRateLimiter_BurstHandling(t *testing.T) {
 	ctx := context.Background()
 	cfg := testAlertingConfig("slack-main")
 
-	// First 5 alerts should succeed (uses burst)
 	for i := 0; i < 5; i++ {
 		alert := testAlert("default", "cron-"+string(rune('a'+i)), "JobFailed", "critical")
 		err := d.Dispatch(ctx, alert, cfg)
 		require.NoError(t, err)
 	}
 
-	// 6th alert should be rate limited
 	alert6 := testAlert("default", "cron-f", "JobFailed", "critical")
 	err := d.Dispatch(ctx, alert6, cfg)
 	assert.Error(t, err)
@@ -750,10 +713,11 @@ func TestRateLimiter_BurstHandling(t *testing.T) {
 func TestSetGlobalRateLimits(t *testing.T) {
 	d := testDispatcher(nil)
 
-	// Set with specific value
-	d.SetGlobalRateLimits(config.RateLimitsConfig{
-		MaxAlertsPerMinute: 30,
-	})
+	d.SetGlobalRateLimits(
+		config.RateLimitsConfig{
+			MaxAlertsPerMinute: 30,
+		},
+	)
 
 	assert.NotNil(t, d.globalLimiter)
 }
@@ -761,10 +725,11 @@ func TestSetGlobalRateLimits(t *testing.T) {
 func TestSetGlobalRateLimits_DefaultValue(t *testing.T) {
 	d := testDispatcher(nil)
 
-	// Set with zero value should use default (50/min)
-	d.SetGlobalRateLimits(config.RateLimitsConfig{
-		MaxAlertsPerMinute: 0,
-	})
+	d.SetGlobalRateLimits(
+		config.RateLimitsConfig{
+			MaxAlertsPerMinute: 0,
+		},
+	)
 
 	assert.NotNil(t, d.globalLimiter)
 }
@@ -794,10 +759,8 @@ func TestStartupGrace_SuppressesDuringPeriod(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// Alert should NOT be sent during grace period
 	assert.Len(t, ch.GetSentAlerts(), 0)
 
-	// But should be tracked for deduplication
 	d.alertMu.RLock()
 	_, exists := d.sentAlerts[alert.Key]
 	d.alertMu.RUnlock()
@@ -827,7 +790,6 @@ func TestStartupGrace_AllowsAfterPeriod(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// Alert should be sent after grace period
 	assert.Len(t, ch.GetSentAlerts(), 1)
 }
 
@@ -847,7 +809,6 @@ func TestDispatcher_ChannelStats_RecordsSuccess(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// Wait for async persist
 	time.Sleep(50 * time.Millisecond)
 
 	stats := d.GetChannelStats("slack-main")
@@ -871,7 +832,6 @@ func TestDispatcher_ChannelStats_RecordsFailure(t *testing.T) {
 
 	_ = d.Dispatch(ctx, alert, cfg)
 
-	// Wait for async persist
 	time.Sleep(50 * time.Millisecond)
 
 	stats := d.GetChannelStats("slack-broken")
@@ -893,13 +853,11 @@ func TestDispatcher_ChannelStats_ConsecutiveFailures(t *testing.T) {
 	ctx := context.Background()
 	cfg := testAlertingConfig("slack-flaky")
 
-	// Send multiple failing alerts
 	for i := 0; i < 3; i++ {
 		alert := testAlert("default", "cron-"+string(rune('a'+i)), "JobFailed", "critical")
 		_ = d.Dispatch(ctx, alert, cfg)
 	}
 
-	// Wait for async persist
 	time.Sleep(100 * time.Millisecond)
 
 	stats := d.GetChannelStats("slack-flaky")
@@ -914,7 +872,6 @@ func TestDispatcher_ChannelStats_ResetsOnSuccess(t *testing.T) {
 	ch := newMockChannel("slack-main", "slack")
 	d.channels["slack-main"] = ch
 
-	// Pre-populate with failures
 	d.statsMu.Lock()
 	d.channelStats["slack-main"] = &ChannelStats{
 		AlertsFailedTotal:   5,
@@ -929,7 +886,6 @@ func TestDispatcher_ChannelStats_ResetsOnSuccess(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
-	// Wait for async persist
 	time.Sleep(50 * time.Millisecond)
 
 	stats := d.GetChannelStats("slack-main")
@@ -1016,7 +972,6 @@ func TestDispatcher_SeverityRouting(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Critical alert should go to pagerduty only
 	critAlert := testAlert("default", "cron-a", "JobFailed", "critical")
 	err := d.Dispatch(ctx, critAlert, cfg)
 	require.NoError(t, err)
@@ -1027,7 +982,6 @@ func TestDispatcher_SeverityRouting(t *testing.T) {
 	criticalCh.Reset()
 	warningCh.Reset()
 
-	// Warning alert should go to slack only
 	warnAlert := testAlert("default", "cron-b", "SLABreached", "warning")
 	err = d.Dispatch(ctx, warnAlert, cfg)
 	require.NoError(t, err)
@@ -1047,13 +1001,12 @@ func TestDispatcher_SeverityRouting_NoFilterMeansAll(t *testing.T) {
 	cfg := &v1alpha1.AlertingConfig{
 		Enabled: &enabled,
 		ChannelRefs: []v1alpha1.ChannelRef{
-			{Name: "slack"}, // No Severities = all severities
+			{Name: "slack"},
 		},
 	}
 
 	ctx := context.Background()
 
-	// All severities should be routed
 	for i, sev := range []string{"critical", "warning", "info"} {
 		alert := testAlert("default", "cron-"+string(rune('a'+i)), "JobFailed", sev)
 		err := d.Dispatch(ctx, alert, cfg)
@@ -1080,10 +1033,12 @@ func TestExitCodeCategory(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(fmt.Sprintf("%d", tc.code), func(t *testing.T) {
-			result := exitCodeCategory(tc.code)
-			assert.Equal(t, tc.expected, result)
-		})
+		t.Run(
+			fmt.Sprintf("%d", tc.code), func(t *testing.T) {
+				result := exitCodeCategory(tc.code)
+				assert.Equal(t, tc.expected, result)
+			},
+		)
 	}
 }
 
@@ -1122,15 +1077,17 @@ func TestErrorSignatureChanged(t *testing.T) {
 			name:     "empty to filled reason",
 			old:      AlertContext{Reason: ""},
 			new:      AlertContext{Reason: "Error"},
-			expected: false, // Empty doesn't trigger change
+			expected: false,
 		},
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := errorSignatureChanged(tc.old, tc.new)
-			assert.Equal(t, tc.expected, result)
-		})
+		t.Run(
+			tc.name, func(t *testing.T) {
+				result := errorSignatureChanged(tc.old, tc.new)
+				assert.Equal(t, tc.expected, result)
+			},
+		)
 	}
 }
 
@@ -1247,6 +1204,5 @@ func TestDispatcher_DoesNotStoreOnAllFailures(t *testing.T) {
 	mockStore.mu.Lock()
 	defer mockStore.mu.Unlock()
 
-	// Should not store if all channels fail
 	assert.Len(t, mockStore.alerts, 0)
 }

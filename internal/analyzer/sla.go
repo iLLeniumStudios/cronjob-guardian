@@ -71,8 +71,8 @@ type DeadManResult struct {
 	ExpectedInterval     time.Duration
 	TimeSinceSuccess     time.Duration
 	Message              string
-	MissedScheduleCount  int32 // Number of missed schedules based on expected interval
-	ShouldIncrementCount bool  // Whether to increment the count in status
+	MissedScheduleCount  int32
+	ShouldIncrementCount bool
 }
 
 // RegressionResult contains regression check results
@@ -217,7 +217,7 @@ func (a *analyzer) CheckDeadManSwitch(ctx context.Context, cronJob *batchv1.Cron
 	result.ExpectedInterval = expectedInterval
 
 	var missedCount int32
-	threshold := int32(1) // Default threshold
+	threshold := int32(1)
 
 	if config.AutoFromSchedule != nil && config.AutoFromSchedule.MissedScheduleThreshold != nil {
 		threshold = *config.AutoFromSchedule.MissedScheduleThreshold
@@ -322,7 +322,7 @@ func parseScheduleInterval(schedule string) (time.Duration, error) {
 // Helper functions
 
 func isEnabled(b *bool) bool {
-	return b == nil || *b // Default to true if not set
+	return b == nil || *b
 }
 
 func getOrDefaultInt32(val *int32, def int32) int32 {

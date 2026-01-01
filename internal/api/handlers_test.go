@@ -135,31 +135,35 @@ func TestHealthHandler_StorageInfo(t *testing.T) {
 }
 
 func TestHealthHandler_LeaderStatus(t *testing.T) {
-	t.Run("leader", func(t *testing.T) {
-		h := NewHandlers(newTestAPIClient(), nil, nil, nil, nil, time.Now(), func() bool { return true })
+	t.Run(
+		"leader", func(t *testing.T) {
+			h := NewHandlers(newTestAPIClient(), nil, nil, nil, nil, time.Now(), func() bool { return true })
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
-		w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+			w := httptest.NewRecorder()
 
-		h.GetHealth(w, req)
+			h.GetHealth(w, req)
 
-		var result HealthResponse
-		_ = json.NewDecoder(w.Body).Decode(&result)
-		assert.True(t, result.Leader)
-	})
+			var result HealthResponse
+			_ = json.NewDecoder(w.Body).Decode(&result)
+			assert.True(t, result.Leader)
+		},
+	)
 
-	t.Run("not leader", func(t *testing.T) {
-		h := NewHandlers(newTestAPIClient(), nil, nil, nil, nil, time.Now(), func() bool { return false })
+	t.Run(
+		"not leader", func(t *testing.T) {
+			h := NewHandlers(newTestAPIClient(), nil, nil, nil, nil, time.Now(), func() bool { return false })
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
-		w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+			w := httptest.NewRecorder()
 
-		h.GetHealth(w, req)
+			h.GetHealth(w, req)
 
-		var result HealthResponse
-		_ = json.NewDecoder(w.Body).Decode(&result)
-		assert.False(t, result.Leader)
-	})
+			var result HealthResponse
+			_ = json.NewDecoder(w.Body).Decode(&result)
+			assert.False(t, result.Leader)
+		},
+	)
 }
 
 // ============================================================================
@@ -254,7 +258,6 @@ func TestStatsHandler_Summary(t *testing.T) {
 // ============================================================================
 
 func TestMonitorListHandler_Pagination(t *testing.T) {
-	// Create multiple monitors
 	monitors := make([]client.Object, 10)
 	for i := 0; i < 10; i++ {
 		monitors[i] = &guardianv1alpha1.CronJobMonitor{
@@ -278,7 +281,6 @@ func TestMonitorListHandler_Pagination(t *testing.T) {
 	var result MonitorListResponse
 	_ = json.NewDecoder(w.Body).Decode(&result)
 
-	// Should return all monitors (no pagination in this handler)
 	assert.Len(t, result.Items, 10)
 }
 
@@ -321,10 +323,12 @@ func TestMonitorDetailHandler_Found(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(monitor), nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/monitors/default/test-monitor", nil)
-	handler := chiRouterWithParams(h.GetMonitor, map[string]string{
-		"namespace": "default",
-		"name":      "test-monitor",
-	})
+	handler := chiRouterWithParams(
+		h.GetMonitor, map[string]string{
+			"namespace": "default",
+			"name":      "test-monitor",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -346,10 +350,12 @@ func TestMonitorDetailHandler_NotFound(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(), nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/monitors/default/nonexistent", nil)
-	handler := chiRouterWithParams(h.GetMonitor, map[string]string{
-		"namespace": "default",
-		"name":      "nonexistent",
-	})
+	handler := chiRouterWithParams(
+		h.GetMonitor, map[string]string{
+			"namespace": "default",
+			"name":      "nonexistent",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -459,10 +465,12 @@ func TestCronJobDetailHandler_Found(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(cronJob, monitor), nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cronjobs/default/test-cron", nil)
-	handler := chiRouterWithParams(h.GetCronJob, map[string]string{
-		"namespace": "default",
-		"name":      "test-cron",
-	})
+	handler := chiRouterWithParams(
+		h.GetCronJob, map[string]string{
+			"namespace": "default",
+			"name":      "test-cron",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -526,10 +534,12 @@ func TestCronJobDetailHandler_WithMetrics(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(cronJob, monitor), mockStore, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cronjobs/default/test-cron", nil)
-	handler := chiRouterWithParams(h.GetCronJob, map[string]string{
-		"namespace": "default",
-		"name":      "test-cron",
-	})
+	handler := chiRouterWithParams(
+		h.GetCronJob, map[string]string{
+			"namespace": "default",
+			"name":      "test-cron",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -677,9 +687,11 @@ func TestTestAlertHandler_Success(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(), nil, nil, mockDispatcher)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/channels/slack-channel/test", nil)
-	handler := chiRouterWithParams(h.TestChannel, map[string]string{
-		"name": "slack-channel",
-	})
+	handler := chiRouterWithParams(
+		h.TestChannel, map[string]string{
+			"name": "slack-channel",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -697,9 +709,11 @@ func TestTestAlertHandler_InvalidChannel(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(), nil, nil, mockDispatcher)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/channels/nonexistent/test", nil)
-	handler := chiRouterWithParams(h.TestChannel, map[string]string{
-		"name": "nonexistent",
-	})
+	handler := chiRouterWithParams(
+		h.TestChannel, map[string]string{
+			"name": "nonexistent",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -727,10 +741,12 @@ func TestGetExecutions_Pagination(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(), mockStore, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cronjobs/default/test-cron/executions?limit=10&offset=20", nil)
-	handler := chiRouterWithParams(h.GetExecutions, map[string]string{
-		"namespace": "default",
-		"name":      "test-cron",
-	})
+	handler := chiRouterWithParams(
+		h.GetExecutions, map[string]string{
+			"namespace": "default",
+			"name":      "test-cron",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -748,10 +764,12 @@ func TestGetExecutions_NoStore(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(), nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cronjobs/default/test-cron/executions", nil)
-	handler := chiRouterWithParams(h.GetExecutions, map[string]string{
-		"namespace": "default",
-		"name":      "test-cron",
-	})
+	handler := chiRouterWithParams(
+		h.GetExecutions, map[string]string{
+			"namespace": "default",
+			"name":      "test-cron",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -934,10 +952,12 @@ func TestDeleteCronJobHistory(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(), mockStore, nil, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/cronjobs/default/test-cron/history", nil)
-	handler := chiRouterWithParams(h.DeleteCronJobHistory, map[string]string{
-		"namespace": "default",
-		"name":      "test-cron",
-	})
+	handler := chiRouterWithParams(
+		h.DeleteCronJobHistory, map[string]string{
+			"namespace": "default",
+			"name":      "test-cron",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -985,7 +1005,6 @@ func TestTestPattern_Match(t *testing.T) {
 func TestTestPattern_NoMatch(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(), nil, nil, nil)
 
-	// Use a reason that doesn't match any built-in pattern or our test pattern
 	body := `{
 		"pattern": {
 			"name": "oom-test",
@@ -1045,10 +1064,12 @@ func TestTriggerCronJob(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(cronJob), nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/cronjobs/default/test-cron/trigger", nil)
-	handler := chiRouterWithParams(h.TriggerCronJob, map[string]string{
-		"namespace": "default",
-		"name":      "test-cron",
-	})
+	handler := chiRouterWithParams(
+		h.TriggerCronJob, map[string]string{
+			"namespace": "default",
+			"name":      "test-cron",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -1064,10 +1085,12 @@ func TestTriggerCronJob_NotFound(t *testing.T) {
 	h := newTestHandlers(newTestAPIClient(), nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/cronjobs/default/nonexistent/trigger", nil)
-	handler := chiRouterWithParams(h.TriggerCronJob, map[string]string{
-		"namespace": "default",
-		"name":      "nonexistent",
-	})
+	handler := chiRouterWithParams(
+		h.TriggerCronJob, map[string]string{
+			"namespace": "default",
+			"name":      "nonexistent",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -1099,10 +1122,12 @@ func TestSuspendCronJob(t *testing.T) {
 	h := newTestHandlers(fakeClient, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/cronjobs/default/test-cron/suspend", nil)
-	handler := chiRouterWithParams(h.SuspendCronJob, map[string]string{
-		"namespace": "default",
-		"name":      "test-cron",
-	})
+	handler := chiRouterWithParams(
+		h.SuspendCronJob, map[string]string{
+			"namespace": "default",
+			"name":      "test-cron",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -1113,7 +1138,6 @@ func TestSuspendCronJob(t *testing.T) {
 	assert.True(t, result.Success)
 	assert.Equal(t, "CronJob suspended", result.Message)
 
-	// Verify CronJob is now suspended
 	var updated batchv1.CronJob
 	_ = fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "test-cron"}, &updated)
 	assert.True(t, *updated.Spec.Suspend)
@@ -1136,10 +1160,12 @@ func TestResumeCronJob(t *testing.T) {
 	h := newTestHandlers(fakeClient, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/cronjobs/default/test-cron/resume", nil)
-	handler := chiRouterWithParams(h.ResumeCronJob, map[string]string{
-		"namespace": "default",
-		"name":      "test-cron",
-	})
+	handler := chiRouterWithParams(
+		h.ResumeCronJob, map[string]string{
+			"namespace": "default",
+			"name":      "test-cron",
+		},
+	)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -1150,7 +1176,6 @@ func TestResumeCronJob(t *testing.T) {
 	assert.True(t, result.Success)
 	assert.Equal(t, "CronJob resumed", result.Message)
 
-	// Verify CronJob is now not suspended
 	var updated batchv1.CronJob
 	_ = fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "test-cron"}, &updated)
 	assert.False(t, *updated.Spec.Suspend)

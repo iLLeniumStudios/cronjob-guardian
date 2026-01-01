@@ -1,5 +1,5 @@
 # Build the UI
-FROM oven/bun:1-alpine AS ui-builder
+FROM docker.io/oven/bun:1-alpine AS ui-builder
 WORKDIR /ui
 
 # Copy UI package files
@@ -15,7 +15,7 @@ COPY ui/ ./
 RUN bun run build
 
 # Build the manager binary
-FROM golang:1.25 AS builder
+FROM docker.io/library/golang:1.25 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 

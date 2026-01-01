@@ -686,7 +686,7 @@ func (d *dispatcher) GetChannelStats(channelName string) *ChannelStats {
 // Helper functions
 
 func isEnabled(b *bool) bool {
-	return b == nil || *b // Default to true if not set
+	return b == nil || *b
 }
 
 func contains(slice []string, item string) bool {
@@ -698,7 +698,6 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-// Template functions for alert message formatting
 var templateFuncs = template.FuncMap{
 	"formatTime": func(t time.Time, layout string) string {
 		if layout == "RFC3339" {

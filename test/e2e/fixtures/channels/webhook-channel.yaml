@@ -1,0 +1,11 @@
+apiVersion: guardian.illenium.net/v1alpha1
+kind: AlertChannel
+metadata:
+  name: test-webhook
+spec:
+  type: webhook
+  webhook:
+    url: "http://mock-receiver:8080/webhook"
+    method: POST
+    headers:
+      Content-Type: application/json

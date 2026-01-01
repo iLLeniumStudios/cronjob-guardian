@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -156,7 +157,14 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		"suspended", summary.Suspended)
 
 	// 8. Update status with retry to handle optimistic locking conflicts
-	if err := r.updateStatusWithRetry(ctx, req.NamespacedName, summary, cronJobStatuses); err != nil {
+	// Pass the generation we observed at the start of reconcile to detect mid-reconcile spec changes
+	if err := r.updateStatusWithRetry(ctx, req.NamespacedName, summary, cronJobStatuses, monitor.Generation); err != nil {
+		if errors.Is(err, errGenerationChanged) {
+			// The monitor's spec changed while we were reconciling.
+			// The status we computed is stale - requeue immediately to recompute.
+			log.V(1).Info("requeuing due to generation change during reconcile")
+			return ctrl.Result{Requeue: true}, nil
+		}
 		log.Error(err, "failed to update status")
 		return ctrl.Result{}, err
 	}
@@ -169,14 +177,29 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
+// errGenerationChanged is returned when the monitor's generation changed mid-reconcile.
+// This signals that the status computed during this reconcile is stale and a new reconcile is needed.
+var errGenerationChanged = fmt.Errorf("monitor generation changed during reconcile")
+
 // updateStatusWithRetry updates the monitor status with retry logic to handle optimistic locking conflicts.
 // This re-fetches the monitor on conflict and applies the new status values.
-func (r *CronJobMonitorReconciler) updateStatusWithRetry(ctx context.Context, nn types.NamespacedName, summary *guardianv1alpha1.MonitorSummary, cronJobStatuses []guardianv1alpha1.CronJobStatus) error {
+// The expectedGeneration parameter is used to detect if the monitor spec changed mid-reconcile.
+func (r *CronJobMonitorReconciler) updateStatusWithRetry(ctx context.Context, nn types.NamespacedName, summary *guardianv1alpha1.MonitorSummary, cronJobStatuses []guardianv1alpha1.CronJobStatus, expectedGeneration int64) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Re-fetch the latest version
 		monitor := &guardianv1alpha1.CronJobMonitor{}
 		if err := r.Get(ctx, nn, monitor); err != nil {
 			return err
+		}
+
+		// Check if the monitor's generation changed since we started the reconcile.
+		// If so, the status we computed (cronJobStatuses) is based on stale selector data.
+		// Return a sentinel error to signal a requeue is needed.
+		if monitor.Generation != expectedGeneration {
+			r.Log.V(1).Info("monitor generation changed during reconcile, will requeue",
+				"expectedGeneration", expectedGeneration,
+				"currentGeneration", monitor.Generation)
+			return errGenerationChanged
 		}
 
 		// Apply status updates

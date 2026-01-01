@@ -1,0 +1,11 @@
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: label-selector-monitor
+  namespace: cronjob-guardian-e2e
+spec:
+  selector:
+    matchLabels:
+      type: success
+  alertChannels:
+    - name: test-webhook

@@ -171,8 +171,12 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		It("should ensure the metrics endpoint is serving metrics", func() {
-			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
-			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
+			By("ensuring ClusterRoleBinding for metrics access exists")
+			// Delete if exists (ignore errors)
+			cmd := exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+			// Create new binding
+			cmd = exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
 				"--clusterrole=cronjob-guardian-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
@@ -257,15 +261,782 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput := getMetricsOutput()
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+	// ============================================================================
+	// CronJobMonitor Lifecycle Tests
+	// ============================================================================
+	Context("CronJobMonitor", func() {
+		const testNS = "cronjob-guardian-e2e"
+
+		BeforeAll(func() {
+			By("creating test namespace")
+			cmd := exec.Command("kubectl", "create", "ns", testNS)
+			_, _ = utils.Run(cmd) // Ignore error if exists
+		})
+
+		AfterAll(func() {
+			By("cleaning up test namespace")
+			cmd := exec.Command("kubectl", "delete", "ns", testNS, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should create a CronJobMonitor and reach Active phase", func() {
+			By("creating a test CronJob")
+			cronJobYAML := `
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: e2e-test-cron
+  namespace: ` + testNS + `
+  labels:
+    app: e2e-test
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo hello"]
+          restartPolicy: Never
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", cronJobYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating a CronJobMonitor")
+			monitorYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-test-monitor
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchLabels:
+      app: e2e-test
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitorYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for monitor to reach Active phase")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-test-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.phase}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 60*time.Second, time.Second).Should(Equal("Active"))
+
+			By("verifying monitor tracks the CronJob")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-test-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.summary.totalCronJobs}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("1"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "cronjobmonitor", "e2e-test-monitor", "-n", testNS)
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "cronjob", "e2e-test-cron", "-n", testNS)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should update monitor when selector changes", func() {
+			By("creating two test CronJobs with different labels")
+			cronJob1YAML := `
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: e2e-cron-alpha
+  namespace: ` + testNS + `
+  labels:
+    team: alpha
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo alpha"]
+          restartPolicy: Never
+`
+			cronJob2YAML := `
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: e2e-cron-beta
+  namespace: ` + testNS + `
+  labels:
+    team: beta
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo beta"]
+          restartPolicy: Never
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", cronJob1YAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", cronJob2YAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating monitor that selects team=alpha")
+			monitorYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-selector-monitor
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchLabels:
+      team: alpha
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitorYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying monitor tracks only alpha CronJob")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-selector-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.summary.totalCronJobs}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("1"))
+
+			By("updating monitor to select team=beta")
+			updatedMonitorYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-selector-monitor
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchLabels:
+      team: beta
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", updatedMonitorYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying monitor now tracks beta CronJob")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-selector-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.cronJobs[0].name}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("e2e-cron-beta"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "cronjobmonitor", "e2e-selector-monitor", "-n", testNS)
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "cronjob", "e2e-cron-alpha", "e2e-cron-beta", "-n", testNS)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should delete monitor and clean up resources", func() {
+			By("creating a CronJob and Monitor")
+			cronJobYAML := `
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: e2e-delete-cron
+  namespace: ` + testNS + `
+  labels:
+    test: delete
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo delete test"]
+          restartPolicy: Never
+`
+			monitorYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-delete-monitor
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchLabels:
+      test: delete
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", cronJobYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitorYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for monitor to be ready")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-delete-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.phase}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("Active"))
+
+			By("deleting the monitor")
+			cmd = exec.Command("kubectl", "delete", "cronjobmonitor", "e2e-delete-monitor", "-n", testNS)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying monitor is deleted")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-delete-monitor", "-n", testNS)
+				_, err := utils.Run(cmd)
+				return err != nil // Should error because resource doesn't exist
+			}, 30*time.Second, time.Second).Should(BeTrue())
+
+			By("cleaning up CronJob")
+			cmd = exec.Command("kubectl", "delete", "cronjob", "e2e-delete-cron", "-n", testNS)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should match CronJobs by label selector", func() {
+			By("creating CronJobs with different labels")
+			for _, team := range []string{"frontend", "backend", "data"} {
+				yaml := fmt.Sprintf(`
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: e2e-label-%s
+  namespace: %s
+  labels:
+    department: engineering
+    team: %s
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo %s"]
+          restartPolicy: Never
+`, team, testNS, team, team)
+				cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", yaml))
+				_, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			By("creating monitor that selects all engineering CronJobs")
+			monitorYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-label-monitor
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchLabels:
+      department: engineering
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitorYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying monitor tracks all 3 CronJobs")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-label-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.summary.totalCronJobs}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("3"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "cronjobmonitor", "e2e-label-monitor", "-n", testNS)
+			_, _ = utils.Run(cmd)
+			for _, team := range []string{"frontend", "backend", "data"} {
+				cmd = exec.Command("kubectl", "delete", "cronjob", fmt.Sprintf("e2e-label-%s", team), "-n", testNS)
+				_, _ = utils.Run(cmd)
+			}
+		})
+
+		It("should match CronJobs by name selector", func() {
+			By("creating named CronJobs")
+			for _, name := range []string{"cron-one", "cron-two", "cron-three"} {
+				yaml := fmt.Sprintf(`
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo %s"]
+          restartPolicy: Never
+`, name, testNS, name)
+				cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", yaml))
+				_, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			By("creating monitor that selects only cron-one and cron-two by name")
+			monitorYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-name-monitor
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchNames:
+      - cron-one
+      - cron-two
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitorYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying monitor tracks only 2 CronJobs")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-name-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.summary.totalCronJobs}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("2"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "cronjobmonitor", "e2e-name-monitor", "-n", testNS)
+			_, _ = utils.Run(cmd)
+			for _, name := range []string{"cron-one", "cron-two", "cron-three"} {
+				cmd = exec.Command("kubectl", "delete", "cronjob", name, "-n", testNS)
+				_, _ = utils.Run(cmd)
+			}
+		})
+
+		It("should handle same CronJob matched by multiple monitors", func() {
+			By("creating a CronJob with multiple labels")
+			cronJobYAML := `
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: e2e-multi-cron
+  namespace: ` + testNS + `
+  labels:
+    app: multi-test
+    tier: backend
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo multi"]
+          restartPolicy: Never
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", cronJobYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating first monitor that selects app=multi-test")
+			monitor1YAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-multi-monitor-1
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchLabels:
+      app: multi-test
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitor1YAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating second monitor that selects tier=backend")
+			monitor2YAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-multi-monitor-2
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchLabels:
+      tier: backend
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitor2YAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying both monitors track the same CronJob")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-multi-monitor-1",
+					"-n", testNS, "-o", "jsonpath={.status.summary.totalCronJobs}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("1"))
+
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-multi-monitor-2",
+					"-n", testNS, "-o", "jsonpath={.status.summary.totalCronJobs}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("1"))
+
+			By("verifying both monitors are Active")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-multi-monitor-1",
+					"-n", testNS, "-o", "jsonpath={.status.phase}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("Active"))
+
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-multi-monitor-2",
+					"-n", testNS, "-o", "jsonpath={.status.phase}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("Active"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "cronjobmonitor", "e2e-multi-monitor-1", "e2e-multi-monitor-2", "-n", testNS)
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "cronjob", "e2e-multi-cron", "-n", testNS)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should transition through status phases", func() {
+			By("creating a monitor without any matching CronJobs")
+			monitorYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: e2e-phase-monitor
+  namespace: ` + testNS + `
+spec:
+  selector:
+    matchLabels:
+      phase-test: "true"
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitorYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying monitor shows 0 CronJobs initially")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-phase-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.summary.totalCronJobs}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("0"))
+
+			By("creating a CronJob that matches the selector")
+			cronJobYAML := `
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: e2e-phase-cron
+  namespace: ` + testNS + `
+  labels:
+    phase-test: "true"
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo phase"]
+          restartPolicy: Never
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", cronJobYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying monitor transitions to Active with CronJob tracked")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-phase-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.phase}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 60*time.Second, time.Second).Should(Equal("Active"))
+
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "cronjobmonitor", "e2e-phase-monitor",
+					"-n", testNS, "-o", "jsonpath={.status.summary.totalCronJobs}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("1"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "cronjobmonitor", "e2e-phase-monitor", "-n", testNS)
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "cronjob", "e2e-phase-cron", "-n", testNS)
+			_, _ = utils.Run(cmd)
+		})
+	})
+
+	// ============================================================================
+	// AlertChannel Lifecycle Tests
+	// ============================================================================
+	Context("AlertChannel", func() {
+		const channelSecretNS = "cronjob-guardian-system"
+
+		It("should create a webhook AlertChannel and reach Ready status", func() {
+			By("creating a secret containing the webhook URL")
+			secretYAML := `
+apiVersion: v1
+kind: Secret
+metadata:
+  name: e2e-webhook-url
+  namespace: cronjob-guardian-system
+type: Opaque
+stringData:
+  url: "http://mock-receiver.default.svc:8080/webhook"
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", secretYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating a webhook AlertChannel")
+			channelYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: AlertChannel
+metadata:
+  name: e2e-webhook-channel
+spec:
+  type: webhook
+  webhook:
+    urlSecretRef:
+      name: e2e-webhook-url
+      namespace: cronjob-guardian-system
+      key: url
+    method: POST
+    headers:
+      Content-Type: application/json
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", channelYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for channel to reach Ready status")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "alertchannel", "e2e-webhook-channel",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 60*time.Second, time.Second).Should(Equal("True"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "alertchannel", "e2e-webhook-channel")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "secret", "e2e-webhook-url", "-n", channelSecretNS)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should update AlertChannel configuration", func() {
+			By("creating a secret for the initial URL")
+			secretYAML := `
+apiVersion: v1
+kind: Secret
+metadata:
+  name: e2e-update-url
+  namespace: cronjob-guardian-system
+type: Opaque
+stringData:
+  url: "http://initial-receiver:8080/webhook"
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", secretYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating initial webhook AlertChannel")
+			channelYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: AlertChannel
+metadata:
+  name: e2e-update-channel
+spec:
+  type: webhook
+  webhook:
+    urlSecretRef:
+      name: e2e-update-url
+      namespace: cronjob-guardian-system
+      key: url
+    method: POST
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", channelYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for channel to be ready")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "alertchannel", "e2e-update-channel",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("True"))
+
+			By("updating the secret with new URL")
+			updatedSecretYAML := `
+apiVersion: v1
+kind: Secret
+metadata:
+  name: e2e-update-url
+  namespace: cronjob-guardian-system
+type: Opaque
+stringData:
+  url: "http://updated-receiver:8080/webhook"
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", updatedSecretYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying secret was updated")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "secret", "e2e-update-url", "-n", channelSecretNS,
+					"-o", "jsonpath={.data.url}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("aHR0cDovL3VwZGF0ZWQtcmVjZWl2ZXI6ODA4MC93ZWJob29r")) // base64 encoded
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "alertchannel", "e2e-update-channel")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "secret", "e2e-update-url", "-n", channelSecretNS)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should delete AlertChannel and remove from dispatcher", func() {
+			By("creating a secret for the delete test")
+			secretYAML := `
+apiVersion: v1
+kind: Secret
+metadata:
+  name: e2e-delete-url
+  namespace: cronjob-guardian-system
+type: Opaque
+stringData:
+  url: "http://delete-test:8080/webhook"
+`
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", secretYAML))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating an AlertChannel")
+			channelYAML := `
+apiVersion: guardian.illenium.net/v1alpha1
+kind: AlertChannel
+metadata:
+  name: e2e-delete-channel
+spec:
+  type: webhook
+  webhook:
+    urlSecretRef:
+      name: e2e-delete-url
+      namespace: cronjob-guardian-system
+      key: url
+    method: POST
+`
+			cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", channelYAML))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for channel to be ready")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "alertchannel", "e2e-delete-channel",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, time.Second).Should(Equal("True"))
+
+			By("deleting the channel")
+			cmd = exec.Command("kubectl", "delete", "alertchannel", "e2e-delete-channel")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying channel is deleted")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "alertchannel", "e2e-delete-channel")
+				_, err := utils.Run(cmd)
+				return err != nil
+			}, 30*time.Second, time.Second).Should(BeTrue())
+
+			By("cleaning up secret")
+			cmd = exec.Command("kubectl", "delete", "secret", "e2e-delete-url", "-n", channelSecretNS)
+			_, _ = utils.Run(cmd)
+		})
+	})
+
+	// ============================================================================
+	// Job Execution Recording Tests
+	// ============================================================================
+	Context("Job Execution", func() {
+		const testNS = "cronjob-guardian-e2e"
+
+		BeforeAll(func() {
+			By("creating test namespace")
+			cmd := exec.Command("kubectl", "create", "ns", testNS)
+			_, _ = utils.Run(cmd)
+		})
+
+		AfterAll(func() {
+			By("cleaning up test namespace")
+			cmd := exec.Command("kubectl", "delete", "ns", testNS, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should record successful job execution", func() {
+			cronName := "e2e-success-cron"
+			monitorName := "e2e-success-monitor"
+			labelValue := "success"
+			exitCode := 0
+			backoffLimit := 1
+
+			testJobExecution(testNS, cronName, monitorName, labelValue, exitCode, backoffLimit, true)
+		})
+
+		It("should record failed job execution with exit code", func() {
+			cronName := "e2e-fail-cron"
+			monitorName := "e2e-fail-monitor"
+			labelValue := "failure"
+			exitCode := 1
+			backoffLimit := 0
+
+			testJobExecution(testNS, cronName, monitorName, labelValue, exitCode, backoffLimit, false)
+		})
 	})
 })
 
@@ -326,4 +1097,112 @@ type tokenRequest struct {
 	Status struct {
 		Token string `json:"token"`
 	} `json:"status"`
+}
+
+// testJobExecution is a helper function that creates a CronJob, monitor, triggers a job,
+// and verifies the execution is recorded. It handles both success and failure cases.
+//
+//nolint:unparam // backoffLimit varies between test cases
+func testJobExecution(
+	testNS, cronName, monitorName, labelValue string,
+	exitCode, backoffLimit int,
+	expectSuccess bool,
+) {
+	By(fmt.Sprintf("creating a CronJob that %s", map[bool]string{true: "succeeds", false: "fails"}[expectSuccess]))
+
+	cronJobYAML := fmt.Sprintf(`
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    job-test: %s
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: %d
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo 'Job execution'; exit %d"]
+          restartPolicy: Never
+`, cronName, testNS, labelValue, backoffLimit, exitCode)
+
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", cronJobYAML))
+	_, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("creating a monitor for the CronJob")
+	monitorYAML := fmt.Sprintf(`
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  selector:
+    matchLabels:
+      job-test: %s
+`, monitorName, testNS, labelValue)
+
+	cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | kubectl apply -f -", monitorYAML))
+	_, err = utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("manually triggering the CronJob")
+	jobName := fmt.Sprintf("%s-manual-%d", cronName, time.Now().Unix())
+	cmd = exec.Command("kubectl", "create", "job", jobName,
+		"--from", fmt.Sprintf("cronjob/%s", cronName), "-n", testNS)
+	_, err = utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred())
+
+	if expectSuccess {
+		By("waiting for job to complete successfully")
+		Eventually(func() string {
+			cmd := exec.Command("kubectl", "get", "job", jobName,
+				"-n", testNS, "-o", "jsonpath={.status.succeeded}")
+			output, _ := utils.Run(cmd)
+			return output
+		}, 2*time.Minute, time.Second).Should(Equal("1"))
+
+		By("verifying monitor status shows execution")
+		Eventually(func() int {
+			cmd := exec.Command("kubectl", "get", "cronjobmonitor", monitorName,
+				"-n", testNS, "-o", "jsonpath={.status.cronJobs[0].metrics.totalRuns}")
+			output, _ := utils.Run(cmd)
+			var count int
+			_, _ = fmt.Sscanf(output, "%d", &count)
+			return count
+		}, 60*time.Second, time.Second).Should(BeNumerically(">=", 1))
+	} else {
+		By("waiting for job to fail")
+		Eventually(func() string {
+			cmd := exec.Command("kubectl", "get", "job", jobName,
+				"-n", testNS, "-o", "jsonpath={.status.failed}")
+			output, _ := utils.Run(cmd)
+			return output
+		}, 2*time.Minute, time.Second).Should(Equal("1"))
+
+		By("verifying monitor tracks the failed execution")
+		Eventually(func() int {
+			cmd := exec.Command("kubectl", "get", "cronjobmonitor", monitorName,
+				"-n", testNS, "-o", "jsonpath={.status.cronJobs[0].metrics.failedRuns}")
+			output, _ := utils.Run(cmd)
+			var count int
+			_, _ = fmt.Sscanf(output, "%d", &count)
+			return count
+		}, 60*time.Second, time.Second).Should(BeNumerically(">=", 1))
+	}
+
+	By("cleaning up")
+	cmd = exec.Command("kubectl", "delete", "cronjobmonitor", monitorName, "-n", testNS)
+	_, _ = utils.Run(cmd)
+	cmd = exec.Command("kubectl", "delete", "cronjob", cronName, "-n", testNS)
+	_, _ = utils.Run(cmd)
+	cmd = exec.Command("kubectl", "delete", "job", jobName, "-n", testNS)
+	_, _ = utils.Run(cmd)
 }

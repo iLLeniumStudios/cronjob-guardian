@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: test-success-cron
+  namespace: cronjob-guardian-e2e
+  labels:
+    app: test-cronjob
+    type: success
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: main
+            image: busybox:latest
+            command: ["/bin/sh", "-c", "echo 'Job completed successfully'; exit 0"]
+          restartPolicy: Never

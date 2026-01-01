@@ -9,9 +9,6 @@ on:
       - 'chart-v*'
   pull_request:
 
-env:
-  KIND_VERSION: v0.31.0
-
 jobs:
   # =============================================================================
   # UI Chain: build-ui => lint-ui
@@ -190,62 +187,3 @@ jobs:
           echo "Binary size:"
           ls -lh bin/manager
 
-  # =============================================================================
-  # E2E Tests - runs after full build passes
-  # =============================================================================
-  test-e2e:
-    name: E2E Tests
-    needs: build-full
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone the code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Cache Go tools
-        uses: actions/cache@v4
-        with:
-          path: bin
-          key: go-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
-          restore-keys: go-tools-${{ runner.os }}-
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Cache Bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.bun/install/cache
-            ui/node_modules
-          key: bun-${{ runner.os }}-${{ hashFiles('ui/bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
-
-      - name: Cache kind binary
-        uses: actions/cache@v4
-        id: kind-cache
-        with:
-          path: /usr/local/bin/kind
-          key: kind-${{ runner.os }}-${{ env.KIND_VERSION }}
-
-      - name: Install kind
-        if: steps.kind-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-
-      - name: Verify kind installation
-        run: kind version
-
-      - name: Run E2E tests
-        env:
-          CERT_MANAGER_INSTALL_SKIP: "true"
-        run: make test-e2e
