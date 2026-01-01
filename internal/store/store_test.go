@@ -981,6 +981,45 @@ func (s *StoreTestSuite) TestListAlertHistory_FilterBySeverity() {
 	}
 }
 
+func (s *StoreTestSuite) TestListAlertHistory_FilterByType() {
+	// Create alerts with different types
+	alertTypes := []string{"JobFailed", "SLABreached", "DeadManTriggered"}
+	for i, alertType := range alertTypes {
+		for j := 0; j < 3; j++ {
+			alert := AlertHistory{
+				Type:             alertType,
+				Severity:         "warning",
+				Title:            "Alert",
+				Message:          "Test",
+				CronJobNamespace: "default",
+				CronJobName:      "test-cron",
+				OccurredAt:       time.Now().Add(time.Duration(-i*3-j) * time.Minute),
+			}
+			require.NoError(s.T(), s.store.StoreAlert(s.ctx, alert))
+		}
+	}
+
+	// Filter by JobFailed
+	query := AlertHistoryQuery{Type: "JobFailed", Limit: 100}
+	alerts, total, err := s.store.ListAlertHistory(s.ctx, query)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(3), total)
+	assert.Len(s.T(), alerts, 3)
+	for _, a := range alerts {
+		assert.Equal(s.T(), "JobFailed", a.Type)
+	}
+
+	// Filter by SLABreached
+	query = AlertHistoryQuery{Type: "SLABreached", Limit: 100}
+	alerts, total, err = s.store.ListAlertHistory(s.ctx, query)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(3), total)
+	assert.Len(s.T(), alerts, 3)
+	for _, a := range alerts {
+		assert.Equal(s.T(), "SLABreached", a.Type)
+	}
+}
+
 func (s *StoreTestSuite) TestResolveAlert() {
 	cronJob := types.NamespacedName{Namespace: "default", Name: "resolve-cron"}
 

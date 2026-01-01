@@ -128,8 +128,9 @@ func TestReconcile_NewMonitor(t *testing.T) {
 	result, err := r.Reconcile(context.Background(), req)
 	require.NoError(t, err)
 
-	// Should requeue for finalizer addition
-	assert.True(t, result.RequeueAfter > 0)
+	// Should requeue for finalizer addition (either immediate or delayed)
+	//nolint:staticcheck // result.Requeue is used by the controller, test must check both modes
+	assert.True(t, result.Requeue || result.RequeueAfter > 0)
 
 	// Verify monitor still exists
 	var updated guardianv1alpha1.CronJobMonitor

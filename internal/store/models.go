@@ -120,6 +120,7 @@ type AlertHistoryQuery struct {
 	Offset   int
 	Since    *time.Time
 	Severity string
+	Type     string // Filter by alert type (e.g., "JobFailed", "SLABreached")
 }
 
 // ChannelAlertStats contains alert statistics for a channel (query result)

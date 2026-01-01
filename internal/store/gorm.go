@@ -427,6 +427,9 @@ func (s *GormStore) ListAlertHistory(ctx context.Context, query AlertHistoryQuer
 	if query.Severity != "" {
 		db = db.Where("severity = ?", query.Severity)
 	}
+	if query.Type != "" {
+		db = db.Where("alert_type = ?", query.Type)
+	}
 
 	// Get count first (before pagination)
 	if err := db.Count(&total).Error; err != nil {
