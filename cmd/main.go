@@ -331,7 +331,7 @@ func main() {
 	}
 
 	// Job handler watches for Job completions to record executions
-	if err := (&controller.JobHandler{
+	if err := (&controller.JobReconciler{
 		Client:          mgr.GetClient(),
 		Log:             ctrl.Log.WithName("controllers").WithName("JobHandler"),
 		Scheme:          mgr.GetScheme(),

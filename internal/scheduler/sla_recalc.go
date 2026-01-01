@@ -165,6 +165,16 @@ func (s *SLARecalcScheduler) recalculate(ctx context.Context) {
 						logger.Error(err, "failed to dispatch SLA alert")
 					}
 				}
+			} else {
+				// SLA passed - clear any previous SLA alerts
+				for _, violationType := range []string{"SuccessRate", "MaxDuration"} {
+					alertKey := fmt.Sprintf("%s/%s/SLA/%s", cjStatus.Namespace, cjStatus.Name, violationType)
+					_ = s.dispatcher.ClearAlert(ctx, alertKey)
+				}
+				// Resolve in store
+				if s.store != nil {
+					_ = s.store.ResolveAlert(ctx, "SLABreached", cjStatus.Namespace, cjStatus.Name)
+				}
 			}
 
 			// Check duration regression
@@ -188,6 +198,14 @@ func (s *SLARecalcScheduler) recalculate(ctx context.Context) {
 
 				if err := s.dispatcher.Dispatch(ctx, alert, monitor.Spec.Alerting); err != nil {
 					logger.Error(err, "failed to dispatch regression alert")
+				}
+			} else if err == nil {
+				// Regression not detected - clear any previous regression alert
+				alertKey := fmt.Sprintf("%s/%s/DurationRegression", cjStatus.Namespace, cjStatus.Name)
+				_ = s.dispatcher.ClearAlert(ctx, alertKey)
+				// Resolve in store
+				if s.store != nil {
+					_ = s.store.ResolveAlert(ctx, "DurationRegression", cjStatus.Namespace, cjStatus.Name)
 				}
 			}
 		}
