@@ -53,6 +53,11 @@ jobs:
       - name: Build UI
         run: make ui-build
 
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 

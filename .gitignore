@@ -41,3 +41,4 @@ config.yaml
 
 config/samples/testing
 /data
+/dist

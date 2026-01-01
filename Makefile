@@ -24,12 +24,12 @@ BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
 endif
 BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
-# IMAGE_TAG_BASE defines the docker.io namespace and part of the image name for remote images.
+# IMAGE_TAG_BASE defines the container registry namespace and part of the image name for remote images.
 # This variable is used to construct full image tags for bundle and catalog images.
 #
 # For example, running 'make bundle-build bundle-push catalog-build catalog-push' will build and push both
-# illenium.net/cronjob-guardian-bundle:$VERSION and illenium.net/cronjob-guardian-catalog:$VERSION.
-IMAGE_TAG_BASE ?= illenium.net/cronjob-guardian
+# ghcr.io/illeniumstudios/cronjob-guardian-bundle:$VERSION and ghcr.io/illeniumstudios/cronjob-guardian-catalog:$VERSION.
+IMAGE_TAG_BASE ?= ghcr.io/illeniumstudios/cronjob-guardian
 
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
@@ -50,7 +50,7 @@ endif
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
 OPERATOR_SDK_VERSION ?= v1.41.1
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= $(IMAGE_TAG_BASE):latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -170,6 +170,33 @@ swagger-serve: swagger ## Serve Swagger UI locally for testing.
 	@echo "Swagger docs available at http://localhost:8080/swagger/index.html"
 	@echo "Run the operator to view the Swagger UI"
 
+##@ Helm
+
+HELM_CHART_DIR := deploy/helm/cronjob-guardian
+
+.PHONY: helm-schema
+helm-schema: $(HELM_TOOL) ## Generate JSON schema for Helm values.yaml.
+	$(HELM_TOOL) schema -i $(HELM_CHART_DIR)/values.yaml | jq '.' > $(HELM_CHART_DIR)/values.schema.json
+	@echo "Generated $(HELM_CHART_DIR)/values.schema.json"
+
+.PHONY: helm-readme
+helm-readme: $(HELM_TOOL) ## Generate Helm chart README from values.yaml comments.
+	@# Generate values documentation with tables
+	$(HELM_TOOL) render -i $(HELM_CHART_DIR)/values.yaml -t markdown-table > $(HELM_CHART_DIR)/.values-docs.md
+	@# Inject into README between "## Values" and "## Example"
+	@awk '/^## Values$$/{print; print ""; system("cat $(HELM_CHART_DIR)/.values-docs.md"); found=1; next} /^## Example/ && found{found=0} !found' $(HELM_CHART_DIR)/README.md > $(HELM_CHART_DIR)/.README.tmp
+	@mv $(HELM_CHART_DIR)/.README.tmp $(HELM_CHART_DIR)/README.md
+	@rm -f $(HELM_CHART_DIR)/.values-docs.md
+	@echo "Updated $(HELM_CHART_DIR)/README.md"
+
+.PHONY: helm-docs
+helm-docs: helm-schema helm-readme ## Generate all Helm documentation (schema + README).
+
+.PHONY: helm-sync-crds
+helm-sync-crds: manifests ## Sync CRDs from config/crd/bases to Helm chart.
+	cp config/crd/bases/*.yaml $(HELM_CHART_DIR)/crds/
+	@echo "Synced CRDs to $(HELM_CHART_DIR)/crds/"
+
 ##@ UI
 
 .PHONY: ui-install
@@ -247,10 +274,22 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	rm Dockerfile.cross
 
 .PHONY: build-installer
-build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+build-installer: manifests generate ## Generate a consolidated YAML with CRDs and deployment from Helm chart.
+	mkdir -p dist
+	@# Render Helm chart with default values and specified image
+	helm template cronjob-guardian deploy/helm/cronjob-guardian \
+		--namespace cronjob-guardian \
+		--set image.repository=$(shell echo ${IMG} | sed 's/:.*//') \
+		--set image.tag=$(shell echo ${IMG} | sed 's/.*://') \
+		--include-crds \
+		> dist/install.yaml
+	@echo "Generated dist/install.yaml from Helm chart"
+
+.PHONY: build-installer-kustomize
+build-installer-kustomize: manifests generate kustomize ## Generate install.yaml using kustomize (legacy).
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default > dist/install.yaml
+	$(KUSTOMIZE) build config/default > dist/install-kustomize.yaml
 
 ##@ Deployment
 
@@ -290,9 +329,11 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 SWAG ?= $(LOCALBIN)/swag
+HELM_TOOL ?= $(LOCALBIN)/helm-tool
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.6.0
+HELM_TOOL_VERSION ?= v0.5.3
 CONTROLLER_TOOLS_VERSION ?= v0.18.0
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
@@ -333,6 +374,11 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 swag: $(SWAG) ## Download swag locally if necessary.
 $(SWAG): $(LOCALBIN)
 	$(call go-install-tool,$(SWAG),github.com/swaggo/swag/cmd/swag,$(SWAG_VERSION))
+
+.PHONY: helm-tool
+helm-tool: $(HELM_TOOL) ## Download helm-tool locally if necessary.
+$(HELM_TOOL): $(LOCALBIN)
+	$(call go-install-tool,$(HELM_TOOL),github.com/cert-manager/helm-tool,$(HELM_TOOL_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary

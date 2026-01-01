@@ -1,0 +1,1183 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/$defs/helm-values",
+  "$defs": {
+    "helm-values": {
+      "type": "object",
+      "properties": {
+        "affinity": {
+          "$ref": "#/$defs/helm-values.affinity"
+        },
+        "config": {
+          "$ref": "#/$defs/helm-values.config"
+        },
+        "extraEnv": {
+          "$ref": "#/$defs/helm-values.extraEnv"
+        },
+        "extraVolumeMounts": {
+          "$ref": "#/$defs/helm-values.extraVolumeMounts"
+        },
+        "extraVolumes": {
+          "$ref": "#/$defs/helm-values.extraVolumes"
+        },
+        "fullnameOverride": {
+          "$ref": "#/$defs/helm-values.fullnameOverride"
+        },
+        "global": {
+          "$ref": "#/$defs/helm-values.global"
+        },
+        "image": {
+          "$ref": "#/$defs/helm-values.image"
+        },
+        "imagePullSecrets": {
+          "$ref": "#/$defs/helm-values.imagePullSecrets"
+        },
+        "leaderElection": {
+          "$ref": "#/$defs/helm-values.leaderElection"
+        },
+        "livenessProbe": {
+          "$ref": "#/$defs/helm-values.livenessProbe"
+        },
+        "metrics": {
+          "$ref": "#/$defs/helm-values.metrics"
+        },
+        "nameOverride": {
+          "$ref": "#/$defs/helm-values.nameOverride"
+        },
+        "nodeSelector": {
+          "$ref": "#/$defs/helm-values.nodeSelector"
+        },
+        "persistence": {
+          "$ref": "#/$defs/helm-values.persistence"
+        },
+        "podAnnotations": {
+          "$ref": "#/$defs/helm-values.podAnnotations"
+        },
+        "podLabels": {
+          "$ref": "#/$defs/helm-values.podLabels"
+        },
+        "podSecurityContext": {
+          "$ref": "#/$defs/helm-values.podSecurityContext"
+        },
+        "probes": {
+          "$ref": "#/$defs/helm-values.probes"
+        },
+        "rbac": {
+          "$ref": "#/$defs/helm-values.rbac"
+        },
+        "readinessProbe": {
+          "$ref": "#/$defs/helm-values.readinessProbe"
+        },
+        "replicaCount": {
+          "$ref": "#/$defs/helm-values.replicaCount"
+        },
+        "resources": {
+          "$ref": "#/$defs/helm-values.resources"
+        },
+        "securityContext": {
+          "$ref": "#/$defs/helm-values.securityContext"
+        },
+        "serviceAccount": {
+          "$ref": "#/$defs/helm-values.serviceAccount"
+        },
+        "serviceMonitor": {
+          "$ref": "#/$defs/helm-values.serviceMonitor"
+        },
+        "terminationGracePeriodSeconds": {
+          "$ref": "#/$defs/helm-values.terminationGracePeriodSeconds"
+        },
+        "tolerations": {
+          "$ref": "#/$defs/helm-values.tolerations"
+        },
+        "ui": {
+          "$ref": "#/$defs/helm-values.ui"
+        },
+        "webhook": {
+          "$ref": "#/$defs/helm-values.webhook"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.affinity": {
+      "description": "Affinity rules",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.config": {
+      "type": "object",
+      "properties": {
+        "historyRetention": {
+          "$ref": "#/$defs/helm-values.config.historyRetention"
+        },
+        "logLevel": {
+          "$ref": "#/$defs/helm-values.config.logLevel"
+        },
+        "rateLimits": {
+          "$ref": "#/$defs/helm-values.config.rateLimits"
+        },
+        "scheduler": {
+          "$ref": "#/$defs/helm-values.config.scheduler"
+        },
+        "storage": {
+          "$ref": "#/$defs/helm-values.config.storage"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.historyRetention": {
+      "type": "object",
+      "properties": {
+        "defaultDays": {
+          "$ref": "#/$defs/helm-values.config.historyRetention.defaultDays"
+        },
+        "maxDays": {
+          "$ref": "#/$defs/helm-values.config.historyRetention.maxDays"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.historyRetention.defaultDays": {
+      "description": "Default retention period in days",
+      "type": "number",
+      "default": 30
+    },
+    "helm-values.config.historyRetention.maxDays": {
+      "description": "Maximum retention period in days",
+      "type": "number",
+      "default": 90
+    },
+    "helm-values.config.logLevel": {
+      "description": "Log level (debug, info, warn, error)",
+      "type": "string",
+      "default": "info"
+    },
+    "helm-values.config.rateLimits": {
+      "type": "object",
+      "properties": {
+        "maxAlertsPerMinute": {
+          "$ref": "#/$defs/helm-values.config.rateLimits.maxAlertsPerMinute"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.rateLimits.maxAlertsPerMinute": {
+      "description": "Maximum alerts per minute across all channels",
+      "type": "number",
+      "default": 50
+    },
+    "helm-values.config.scheduler": {
+      "type": "object",
+      "properties": {
+        "deadManSwitchInterval": {
+          "$ref": "#/$defs/helm-values.config.scheduler.deadManSwitchInterval"
+        },
+        "pruneInterval": {
+          "$ref": "#/$defs/helm-values.config.scheduler.pruneInterval"
+        },
+        "slaRecalculationInterval": {
+          "$ref": "#/$defs/helm-values.config.scheduler.slaRecalculationInterval"
+        },
+        "startupGracePeriod": {
+          "$ref": "#/$defs/helm-values.config.scheduler.startupGracePeriod"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.scheduler.deadManSwitchInterval": {
+      "description": "Dead-man's switch check interval",
+      "type": "string",
+      "default": "1m"
+    },
+    "helm-values.config.scheduler.pruneInterval": {
+      "description": "History prune interval",
+      "type": "string",
+      "default": "1h"
+    },
+    "helm-values.config.scheduler.slaRecalculationInterval": {
+      "description": "SLA recalculation interval",
+      "type": "string",
+      "default": "5m"
+    },
+    "helm-values.config.scheduler.startupGracePeriod": {
+      "description": "Grace period after startup before sending alerts (prevents alert floods on restart)",
+      "type": "string",
+      "default": "30s"
+    },
+    "helm-values.config.storage": {
+      "type": "object",
+      "properties": {
+        "eventStorageEnabled": {
+          "$ref": "#/$defs/helm-values.config.storage.eventStorageEnabled"
+        },
+        "logRetentionDays": {
+          "$ref": "#/$defs/helm-values.config.storage.logRetentionDays"
+        },
+        "logStorageEnabled": {
+          "$ref": "#/$defs/helm-values.config.storage.logStorageEnabled"
+        },
+        "maxLogSizeKB": {
+          "$ref": "#/$defs/helm-values.config.storage.maxLogSizeKB"
+        },
+        "mysql": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql"
+        },
+        "postgres": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres"
+        },
+        "sqlite": {
+          "$ref": "#/$defs/helm-values.config.storage.sqlite"
+        },
+        "type": {
+          "$ref": "#/$defs/helm-values.config.storage.type"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.storage.eventStorageEnabled": {
+      "description": "Enable storing K8s events in database",
+      "type": "boolean",
+      "default": false
+    },
+    "helm-values.config.storage.logRetentionDays": {
+      "description": "Log retention days (0 = use history-retention.default-days)",
+      "type": "number",
+      "default": 0
+    },
+    "helm-values.config.storage.logStorageEnabled": {
+      "description": "Enable storing job logs in database",
+      "type": "boolean",
+      "default": false
+    },
+    "helm-values.config.storage.maxLogSizeKB": {
+      "description": "Maximum log size to store per execution (KB)",
+      "type": "number",
+      "default": 100
+    },
+    "helm-values.config.storage.mysql": {
+      "type": "object",
+      "properties": {
+        "database": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.database"
+        },
+        "existingSecret": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.existingSecret"
+        },
+        "existingSecretKey": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.existingSecretKey"
+        },
+        "host": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.host"
+        },
+        "password": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.password"
+        },
+        "port": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.port"
+        },
+        "username": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.username"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.storage.mysql.database": {
+      "description": "MySQL database name",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.mysql.existingSecret": {
+      "description": "Use existing secret for password",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.mysql.existingSecretKey": {
+      "description": "Key in existing secret containing password",
+      "type": "string",
+      "default": "password"
+    },
+    "helm-values.config.storage.mysql.host": {
+      "description": "MySQL host",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.mysql.password": {
+      "description": "MySQL password (ignored if existingSecret is set)",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.mysql.port": {
+      "description": "MySQL port",
+      "type": "number",
+      "default": 3306
+    },
+    "helm-values.config.storage.mysql.username": {
+      "description": "MySQL username",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.postgres": {
+      "type": "object",
+      "properties": {
+        "database": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.database"
+        },
+        "existingSecret": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.existingSecret"
+        },
+        "existingSecretKey": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.existingSecretKey"
+        },
+        "host": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.host"
+        },
+        "password": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.password"
+        },
+        "port": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.port"
+        },
+        "sslMode": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.sslMode"
+        },
+        "username": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.username"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.storage.postgres.database": {
+      "description": "PostgreSQL database name",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.postgres.existingSecret": {
+      "description": "Use existing secret for password",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.postgres.existingSecretKey": {
+      "description": "Key in existing secret containing password",
+      "type": "string",
+      "default": "password"
+    },
+    "helm-values.config.storage.postgres.host": {
+      "description": "PostgreSQL host",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.postgres.password": {
+      "description": "PostgreSQL password (ignored if existingSecret is set)",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.postgres.port": {
+      "description": "PostgreSQL port",
+      "type": "number",
+      "default": 5432
+    },
+    "helm-values.config.storage.postgres.sslMode": {
+      "description": "PostgreSQL SSL mode",
+      "type": "string",
+      "default": "require"
+    },
+    "helm-values.config.storage.postgres.username": {
+      "description": "PostgreSQL username",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.config.storage.sqlite": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/helm-values.config.storage.sqlite.path"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.storage.sqlite.path": {
+      "description": "Path to SQLite database file",
+      "type": "string",
+      "default": "/data/guardian.db"
+    },
+    "helm-values.config.storage.type": {
+      "description": "Storage type: sqlite, postgres, or mysql",
+      "type": "string",
+      "default": "sqlite"
+    },
+    "helm-values.extraEnv": {
+      "description": "Additional environment variables",
+      "type": "array",
+      "default": [],
+      "items": {}
+    },
+    "helm-values.extraVolumeMounts": {
+      "description": "Additional volume mounts",
+      "type": "array",
+      "default": [],
+      "items": {}
+    },
+    "helm-values.extraVolumes": {
+      "description": "Additional volumes",
+      "type": "array",
+      "default": [],
+      "items": {}
+    },
+    "helm-values.fullnameOverride": {
+      "description": "Override the full name of the chart",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.global": {
+      "description": "Global values shared across all (sub)charts"
+    },
+    "helm-values.image": {
+      "type": "object",
+      "properties": {
+        "pullPolicy": {
+          "$ref": "#/$defs/helm-values.image.pullPolicy"
+        },
+        "registry": {
+          "$ref": "#/$defs/helm-values.image.registry"
+        },
+        "repository": {
+          "$ref": "#/$defs/helm-values.image.repository"
+        },
+        "tag": {
+          "$ref": "#/$defs/helm-values.image.tag"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.image.pullPolicy": {
+      "description": "Image pull policy",
+      "type": "string",
+      "default": "IfNotPresent"
+    },
+    "helm-values.image.registry": {
+      "description": "Image registry (optional, prepended to repository if set)",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.image.repository": {
+      "description": "Image repository",
+      "type": "string",
+      "default": "ghcr.io/illeniumstudios/cronjob-guardian"
+    },
+    "helm-values.image.tag": {
+      "description": "Image tag (defaults to appVersion)",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.imagePullSecrets": {
+      "description": "Image pull secrets for private registries",
+      "type": "array",
+      "default": [],
+      "items": {}
+    },
+    "helm-values.leaderElection": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/helm-values.leaderElection.enabled"
+        },
+        "leaseDuration": {
+          "$ref": "#/$defs/helm-values.leaderElection.leaseDuration"
+        },
+        "renewDeadline": {
+          "$ref": "#/$defs/helm-values.leaderElection.renewDeadline"
+        },
+        "retryPeriod": {
+          "$ref": "#/$defs/helm-values.leaderElection.retryPeriod"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.leaderElection.enabled": {
+      "description": "Enable leader election (required for multiple replicas)",
+      "type": "boolean",
+      "default": false
+    },
+    "helm-values.leaderElection.leaseDuration": {
+      "description": "Leader lease duration",
+      "type": "string",
+      "default": "15s"
+    },
+    "helm-values.leaderElection.renewDeadline": {
+      "description": "Leader renew deadline",
+      "type": "string",
+      "default": "10s"
+    },
+    "helm-values.leaderElection.retryPeriod": {
+      "description": "Leader retry period",
+      "type": "string",
+      "default": "2s"
+    },
+    "helm-values.livenessProbe": {
+      "type": "object",
+      "properties": {
+        "failureThreshold": {
+          "$ref": "#/$defs/helm-values.livenessProbe.failureThreshold"
+        },
+        "initialDelaySeconds": {
+          "$ref": "#/$defs/helm-values.livenessProbe.initialDelaySeconds"
+        },
+        "periodSeconds": {
+          "$ref": "#/$defs/helm-values.livenessProbe.periodSeconds"
+        },
+        "timeoutSeconds": {
+          "$ref": "#/$defs/helm-values.livenessProbe.timeoutSeconds"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.livenessProbe.failureThreshold": {
+      "type": "number",
+      "default": 3
+    },
+    "helm-values.livenessProbe.initialDelaySeconds": {
+      "type": "number",
+      "default": 15
+    },
+    "helm-values.livenessProbe.periodSeconds": {
+      "type": "number",
+      "default": 20
+    },
+    "helm-values.livenessProbe.timeoutSeconds": {
+      "type": "number",
+      "default": 1
+    },
+    "helm-values.metrics": {
+      "type": "object",
+      "properties": {
+        "bindAddress": {
+          "$ref": "#/$defs/helm-values.metrics.bindAddress"
+        },
+        "certKey": {
+          "$ref": "#/$defs/helm-values.metrics.certKey"
+        },
+        "certName": {
+          "$ref": "#/$defs/helm-values.metrics.certName"
+        },
+        "certPath": {
+          "$ref": "#/$defs/helm-values.metrics.certPath"
+        },
+        "enabled": {
+          "$ref": "#/$defs/helm-values.metrics.enabled"
+        },
+        "secure": {
+          "$ref": "#/$defs/helm-values.metrics.secure"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.metrics.bindAddress": {
+      "description": "Metrics bind address (port only, e.g., \":8443\")",
+      "type": "string",
+      "default": ":8443"
+    },
+    "helm-values.metrics.certKey": {
+      "description": "TLS key file name",
+      "type": "string",
+      "default": "tls.key"
+    },
+    "helm-values.metrics.certName": {
+      "description": "TLS certificate file name",
+      "type": "string",
+      "default": "tls.crt"
+    },
+    "helm-values.metrics.certPath": {
+      "description": "Path to TLS certificate directory",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.metrics.enabled": {
+      "description": "Enable metrics endpoint",
+      "type": "boolean",
+      "default": true
+    },
+    "helm-values.metrics.secure": {
+      "description": "Enable HTTPS for metrics",
+      "type": "boolean",
+      "default": true
+    },
+    "helm-values.nameOverride": {
+      "description": "Override the name of the chart",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.nodeSelector": {
+      "description": "Node selector",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.persistence": {
+      "type": "object",
+      "properties": {
+        "accessModes": {
+          "$ref": "#/$defs/helm-values.persistence.accessModes"
+        },
+        "annotations": {
+          "$ref": "#/$defs/helm-values.persistence.annotations"
+        },
+        "enabled": {
+          "$ref": "#/$defs/helm-values.persistence.enabled"
+        },
+        "selector": {
+          "$ref": "#/$defs/helm-values.persistence.selector"
+        },
+        "size": {
+          "$ref": "#/$defs/helm-values.persistence.size"
+        },
+        "storageClass": {
+          "$ref": "#/$defs/helm-values.persistence.storageClass"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.persistence.accessModes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/helm-values.persistence.accessModes[0]"
+      }
+    },
+    "helm-values.persistence.accessModes[0]": {
+      "type": "string",
+      "default": "ReadWriteOnce"
+    },
+    "helm-values.persistence.annotations": {
+      "description": "PVC annotations",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.persistence.enabled": {
+      "description": "Enable persistence (required for SQLite)",
+      "type": "boolean",
+      "default": true
+    },
+    "helm-values.persistence.selector": {
+      "description": "PVC selector",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.persistence.size": {
+      "description": "Storage size",
+      "type": "string",
+      "default": "1Gi"
+    },
+    "helm-values.persistence.storageClass": {
+      "description": "Storage class (use \"-\" for default, or specify a class name)",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.podAnnotations": {
+      "description": "Pod annotations",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.podLabels": {
+      "description": "Pod labels",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.podSecurityContext": {
+      "description": "Pod security context",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.probes": {
+      "type": "object",
+      "properties": {
+        "bindAddress": {
+          "$ref": "#/$defs/helm-values.probes.bindAddress"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.probes.bindAddress": {
+      "description": "Probes bind address",
+      "type": "string",
+      "default": ":8081"
+    },
+    "helm-values.rbac": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "$ref": "#/$defs/helm-values.rbac.create"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.rbac.create": {
+      "description": "Create ClusterRole and ClusterRoleBinding",
+      "type": "boolean",
+      "default": true
+    },
+    "helm-values.readinessProbe": {
+      "type": "object",
+      "properties": {
+        "failureThreshold": {
+          "$ref": "#/$defs/helm-values.readinessProbe.failureThreshold"
+        },
+        "initialDelaySeconds": {
+          "$ref": "#/$defs/helm-values.readinessProbe.initialDelaySeconds"
+        },
+        "periodSeconds": {
+          "$ref": "#/$defs/helm-values.readinessProbe.periodSeconds"
+        },
+        "timeoutSeconds": {
+          "$ref": "#/$defs/helm-values.readinessProbe.timeoutSeconds"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.readinessProbe.failureThreshold": {
+      "type": "number",
+      "default": 3
+    },
+    "helm-values.readinessProbe.initialDelaySeconds": {
+      "type": "number",
+      "default": 5
+    },
+    "helm-values.readinessProbe.periodSeconds": {
+      "type": "number",
+      "default": 10
+    },
+    "helm-values.readinessProbe.timeoutSeconds": {
+      "type": "number",
+      "default": 1
+    },
+    "helm-values.replicaCount": {
+      "description": "Number of replicas. Use 1 for leader election, or increase with leaderElection.enabled=true",
+      "type": "number",
+      "default": 1
+    },
+    "helm-values.resources": {
+      "type": "object",
+      "properties": {
+        "limits": {
+          "$ref": "#/$defs/helm-values.resources.limits"
+        },
+        "requests": {
+          "$ref": "#/$defs/helm-values.resources.requests"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.resources.limits": {
+      "type": "object",
+      "properties": {
+        "cpu": {
+          "$ref": "#/$defs/helm-values.resources.limits.cpu"
+        },
+        "memory": {
+          "$ref": "#/$defs/helm-values.resources.limits.memory"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.resources.limits.cpu": {
+      "type": "string",
+      "default": "500m"
+    },
+    "helm-values.resources.limits.memory": {
+      "type": "string",
+      "default": "256Mi"
+    },
+    "helm-values.resources.requests": {
+      "type": "object",
+      "properties": {
+        "cpu": {
+          "$ref": "#/$defs/helm-values.resources.requests.cpu"
+        },
+        "memory": {
+          "$ref": "#/$defs/helm-values.resources.requests.memory"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.resources.requests.cpu": {
+      "type": "string",
+      "default": "10m"
+    },
+    "helm-values.resources.requests.memory": {
+      "type": "string",
+      "default": "64Mi"
+    },
+    "helm-values.securityContext": {
+      "description": "Container security context",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.serviceAccount": {
+      "type": "object",
+      "properties": {
+        "annotations": {
+          "$ref": "#/$defs/helm-values.serviceAccount.annotations"
+        },
+        "automount": {
+          "$ref": "#/$defs/helm-values.serviceAccount.automount"
+        },
+        "create": {
+          "$ref": "#/$defs/helm-values.serviceAccount.create"
+        },
+        "name": {
+          "$ref": "#/$defs/helm-values.serviceAccount.name"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.serviceAccount.annotations": {
+      "description": "ServiceAccount annotations",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.serviceAccount.automount": {
+      "description": "Automatically mount ServiceAccount token",
+      "type": "boolean",
+      "default": true
+    },
+    "helm-values.serviceAccount.create": {
+      "description": "Create a ServiceAccount",
+      "type": "boolean",
+      "default": true
+    },
+    "helm-values.serviceAccount.name": {
+      "description": "ServiceAccount name (auto-generated if not set)",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.serviceMonitor": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/helm-values.serviceMonitor.enabled"
+        },
+        "interval": {
+          "$ref": "#/$defs/helm-values.serviceMonitor.interval"
+        },
+        "labels": {
+          "$ref": "#/$defs/helm-values.serviceMonitor.labels"
+        },
+        "metricRelabelings": {
+          "$ref": "#/$defs/helm-values.serviceMonitor.metricRelabelings"
+        },
+        "relabelings": {
+          "$ref": "#/$defs/helm-values.serviceMonitor.relabelings"
+        },
+        "scrapeTimeout": {
+          "$ref": "#/$defs/helm-values.serviceMonitor.scrapeTimeout"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.serviceMonitor.enabled": {
+      "description": "Enable ServiceMonitor",
+      "type": "boolean",
+      "default": false
+    },
+    "helm-values.serviceMonitor.interval": {
+      "description": "Scrape interval",
+      "type": "string",
+      "default": "30s"
+    },
+    "helm-values.serviceMonitor.labels": {
+      "description": "ServiceMonitor labels",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.serviceMonitor.metricRelabelings": {
+      "description": "Metric relabelings",
+      "type": "array",
+      "default": [],
+      "items": {}
+    },
+    "helm-values.serviceMonitor.relabelings": {
+      "description": "Relabelings",
+      "type": "array",
+      "default": [],
+      "items": {}
+    },
+    "helm-values.serviceMonitor.scrapeTimeout": {
+      "description": "Scrape timeout",
+      "type": "string",
+      "default": "10s"
+    },
+    "helm-values.terminationGracePeriodSeconds": {
+      "description": "Termination grace period in seconds",
+      "type": "number",
+      "default": 10
+    },
+    "helm-values.tolerations": {
+      "description": "Tolerations",
+      "type": "array",
+      "default": [],
+      "items": {}
+    },
+    "helm-values.ui": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/helm-values.ui.enabled"
+        },
+        "ingress": {
+          "$ref": "#/$defs/helm-values.ui.ingress"
+        },
+        "port": {
+          "$ref": "#/$defs/helm-values.ui.port"
+        },
+        "route": {
+          "$ref": "#/$defs/helm-values.ui.route"
+        },
+        "service": {
+          "$ref": "#/$defs/helm-values.ui.service"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.ui.enabled": {
+      "description": "Enable UI server",
+      "type": "boolean",
+      "default": true
+    },
+    "helm-values.ui.ingress": {
+      "type": "object",
+      "properties": {
+        "annotations": {
+          "$ref": "#/$defs/helm-values.ui.ingress.annotations"
+        },
+        "className": {
+          "$ref": "#/$defs/helm-values.ui.ingress.className"
+        },
+        "enabled": {
+          "$ref": "#/$defs/helm-values.ui.ingress.enabled"
+        },
+        "hosts": {
+          "$ref": "#/$defs/helm-values.ui.ingress.hosts"
+        },
+        "tls": {
+          "$ref": "#/$defs/helm-values.ui.ingress.tls"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.ui.ingress.annotations": {
+      "description": "Ingress annotations",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.ui.ingress.className": {
+      "description": "Ingress class name",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.ui.ingress.enabled": {
+      "description": "Enable ingress",
+      "type": "boolean",
+      "default": false
+    },
+    "helm-values.ui.ingress.hosts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/helm-values.ui.ingress.hosts[0]"
+      }
+    },
+    "helm-values.ui.ingress.hosts[0]": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "$ref": "#/$defs/helm-values.ui.ingress.hosts[0].host"
+        },
+        "paths": {
+          "$ref": "#/$defs/helm-values.ui.ingress.hosts[0].paths"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.ui.ingress.hosts[0].host": {
+      "type": "string",
+      "default": "cronjob-guardian.local"
+    },
+    "helm-values.ui.ingress.hosts[0].paths": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/helm-values.ui.ingress.hosts[0].paths[0]"
+      }
+    },
+    "helm-values.ui.ingress.hosts[0].paths[0]": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/helm-values.ui.ingress.hosts[0].paths[0].path"
+        },
+        "pathType": {
+          "$ref": "#/$defs/helm-values.ui.ingress.hosts[0].paths[0].pathType"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.ui.ingress.hosts[0].paths[0].path": {
+      "type": "string",
+      "default": "/"
+    },
+    "helm-values.ui.ingress.hosts[0].paths[0].pathType": {
+      "type": "string",
+      "default": "Prefix"
+    },
+    "helm-values.ui.ingress.tls": {
+      "description": "Ingress TLS configuration",
+      "type": "array",
+      "default": [],
+      "items": {}
+    },
+    "helm-values.ui.port": {
+      "description": "UI server port",
+      "type": "number",
+      "default": 8080
+    },
+    "helm-values.ui.route": {
+      "type": "object",
+      "properties": {
+        "annotations": {
+          "$ref": "#/$defs/helm-values.ui.route.annotations"
+        },
+        "enabled": {
+          "$ref": "#/$defs/helm-values.ui.route.enabled"
+        },
+        "host": {
+          "$ref": "#/$defs/helm-values.ui.route.host"
+        },
+        "path": {
+          "$ref": "#/$defs/helm-values.ui.route.path"
+        },
+        "tls": {
+          "$ref": "#/$defs/helm-values.ui.route.tls"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.ui.route.annotations": {
+      "description": "Route annotations",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.ui.route.enabled": {
+      "description": "Enable OpenShift Route",
+      "type": "boolean",
+      "default": false
+    },
+    "helm-values.ui.route.host": {
+      "description": "Route host (leave empty for auto-generated)",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.ui.route.path": {
+      "description": "Route path",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.ui.route.tls": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/helm-values.ui.route.tls.enabled"
+        },
+        "insecureEdgeTerminationPolicy": {
+          "$ref": "#/$defs/helm-values.ui.route.tls.insecureEdgeTerminationPolicy"
+        },
+        "termination": {
+          "$ref": "#/$defs/helm-values.ui.route.tls.termination"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.ui.route.tls.enabled": {
+      "description": "Enable TLS termination",
+      "type": "boolean",
+      "default": true
+    },
+    "helm-values.ui.route.tls.insecureEdgeTerminationPolicy": {
+      "description": "Insecure edge termination policy (Allow, Redirect, None)",
+      "type": "string",
+      "default": "Redirect"
+    },
+    "helm-values.ui.route.tls.termination": {
+      "description": "TLS termination type (edge, passthrough, reencrypt)",
+      "type": "string",
+      "default": "edge"
+    },
+    "helm-values.ui.service": {
+      "type": "object",
+      "properties": {
+        "annotations": {
+          "$ref": "#/$defs/helm-values.ui.service.annotations"
+        },
+        "nodePort": {
+          "$ref": "#/$defs/helm-values.ui.service.nodePort"
+        },
+        "port": {
+          "$ref": "#/$defs/helm-values.ui.service.port"
+        },
+        "type": {
+          "$ref": "#/$defs/helm-values.ui.service.type"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.ui.service.annotations": {
+      "description": "Service annotations",
+      "type": "object",
+      "default": {}
+    },
+    "helm-values.ui.service.nodePort": {
+      "description": "NodePort (only used if type=NodePort)"
+    },
+    "helm-values.ui.service.port": {
+      "description": "Service port",
+      "type": "number",
+      "default": 8080
+    },
+    "helm-values.ui.service.type": {
+      "description": "Service type (ClusterIP, NodePort, LoadBalancer)",
+      "type": "string",
+      "default": "ClusterIP"
+    },
+    "helm-values.webhook": {
+      "type": "object",
+      "properties": {
+        "certKey": {
+          "$ref": "#/$defs/helm-values.webhook.certKey"
+        },
+        "certName": {
+          "$ref": "#/$defs/helm-values.webhook.certName"
+        },
+        "certPath": {
+          "$ref": "#/$defs/helm-values.webhook.certPath"
+        },
+        "enableHTTP2": {
+          "$ref": "#/$defs/helm-values.webhook.enableHTTP2"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.webhook.certKey": {
+      "description": "TLS key file name",
+      "type": "string",
+      "default": "tls.key"
+    },
+    "helm-values.webhook.certName": {
+      "description": "TLS certificate file name",
+      "type": "string",
+      "default": "tls.crt"
+    },
+    "helm-values.webhook.certPath": {
+      "description": "Path to TLS certificate directory",
+      "type": "string",
+      "default": ""
+    },
+    "helm-values.webhook.enableHTTP2": {
+      "description": "Enable HTTP/2 for webhook server",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

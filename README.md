@@ -1,8 +1,10 @@
 # CronJob Guardian
 
-[![Go Version](https://img.shields.io/github/go-mod/go-version/iLLeniumStudios/cronjob-guardian)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GitHub Release](https://img.shields.io/github/v/release/iLLeniumStudios/cronjob-guardian?logo=github&sort=semver)](https://github.com/iLLeniumStudios/cronjob-guardian/releases/latest)
+[![CI](https://github.com/iLLeniumStudios/cronjob-guardian/actions/workflows/ci.yaml/badge.svg)](https://github.com/iLLeniumStudios/cronjob-guardian/actions/workflows/ci.yaml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/iLLeniumStudios/cronjob-guardian?logo=go)](https://go.dev/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/iLLeniumStudios/cronjob-guardian)](https://goreportcard.com/report/github.com/iLLeniumStudios/cronjob-guardian)
+[![License](https://img.shields.io/github/license/iLLeniumStudios/cronjob-guardian)](https://github.com/iLLeniumStudios/cronjob-guardian/blob/main/LICENSE)
 
 A Kubernetes operator for monitoring CronJobs with SLA tracking, intelligent alerting, and a built-in dashboard.
 
@@ -452,6 +454,42 @@ make run
 
 # Or run in a local Kind cluster
 make test-e2e
+```
+
+### Updating Helm Documentation
+
+Before releasing, regenerate the Helm chart documentation:
+
+```bash
+# Generate both values.schema.json and update README.md Values section
+make helm-docs
+
+# Or run individually:
+make helm-schema  # Generate values.schema.json only
+make helm-readme  # Update README.md Values section only
+
+# Sync CRDs if API types changed
+make helm-sync-crds
+```
+
+This uses [helm-tool](https://github.com/cert-manager/helm-tool) to:
+- Generate `values.schema.json` from `values.yaml` comments (enables IDE autocompletion)
+- Update the `## Values` section in the chart README with HTML tables organized by section
+
+**Documenting values.yaml:**
+- Use `# Description` comments above properties to add descriptions
+- Use `# +docs:section=SectionName` to organize values into sections
+- Section comments can include additional description text on following lines
+
+Example:
+```yaml
+# +docs:section=Storage
+# Configuration for the storage backend.
+
+config:
+  storage:
+    # Storage type: sqlite, postgres, or mysql
+    type: sqlite
 ```
 
 ### Project Structure
