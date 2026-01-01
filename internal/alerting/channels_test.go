@@ -38,6 +38,8 @@ import (
 )
 
 // createTestSecret creates a Secret for testing
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func createTestSecret(namespace, name, key, value string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{

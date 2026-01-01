@@ -56,6 +56,8 @@ func testLogger() logr.Logger {
 }
 
 // Helper to create a basic CronJobMonitor
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func newTestMonitor(name, namespace string) *guardianv1alpha1.CronJobMonitor {
 	return &guardianv1alpha1.CronJobMonitor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -127,7 +129,7 @@ func TestReconcile_NewMonitor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should requeue for finalizer addition
-	assert.True(t, result.Requeue || result.RequeueAfter > 0)
+	assert.True(t, result.RequeueAfter > 0)
 
 	// Verify monitor still exists
 	var updated guardianv1alpha1.CronJobMonitor

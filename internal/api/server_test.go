@@ -36,7 +36,7 @@ func TestServer_Start(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
+	_ = listener.Close()
 
 	server := NewServer(ServerOptions{
 		Client: newTestAPIClient(),
@@ -57,7 +57,7 @@ func TestServer_Start(t *testing.T) {
 	// Make a request to verify server is running
 	resp, err := http.Get("http://127.0.0.1:" + string(rune(port+'0')) + "/api/v1/health")
 	if err == nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	// Shutdown
@@ -116,7 +116,7 @@ func TestServer_ServesUI(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Without embedded UI assets, we get 404 since fs.Sub returns empty FS
 	// This is expected behavior in test mode without UI build
@@ -138,7 +138,7 @@ func TestServer_CORSHeaders(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "*", resp.Header.Get("Access-Control-Allow-Origin"))
@@ -298,7 +298,7 @@ func TestServer_HeadMethod(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Without embedded UI assets, we get 404 since fs.Sub returns empty FS
 	// In production with real UI assets, this would return 200

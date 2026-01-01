@@ -95,7 +95,7 @@ func TestHealthHandler_Healthy(t *testing.T) {
 	h.GetHealth(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -123,7 +123,7 @@ func TestHealthHandler_StorageInfo(t *testing.T) {
 	h.GetHealth(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result HealthResponse
 	err := json.NewDecoder(resp.Body).Decode(&result)
@@ -192,7 +192,7 @@ func TestStatsHandler_Counts(t *testing.T) {
 	h.GetStats(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -330,7 +330,7 @@ func TestMonitorDetailHandler_Found(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -355,7 +355,7 @@ func TestMonitorDetailHandler_NotFound(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 
@@ -468,7 +468,7 @@ func TestCronJobDetailHandler_Found(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -1073,7 +1073,7 @@ func TestTriggerCronJob_NotFound(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -1167,7 +1167,7 @@ func TestWriteJSON(t *testing.T) {
 	writeJSON(w, http.StatusOK, data)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
@@ -1182,7 +1182,7 @@ func TestWriteError(t *testing.T) {
 	writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid input")
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 

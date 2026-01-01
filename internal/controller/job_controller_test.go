@@ -55,6 +55,8 @@ func newJobTestClient(objs ...client.Object) client.Client {
 }
 
 // Helper to create a test CronJob
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func createTestCronJob(name, namespace string) *batchv1.CronJob {
 	return &batchv1.CronJob{
 		ObjectMeta: metav1.ObjectMeta{
@@ -84,6 +86,8 @@ func createTestCronJob(name, namespace string) *batchv1.CronJob {
 }
 
 // Helper to create a completed job
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func createCompletedJob(name, namespace, cronJobName string) *batchv1.Job {
 	now := metav1.Now()
 	startTime := metav1.NewTime(now.Add(-1 * time.Minute))
@@ -109,6 +113,8 @@ func createCompletedJob(name, namespace, cronJobName string) *batchv1.Job {
 }
 
 // Helper to create a failed job
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func createFailedJob(name, namespace, cronJobName string) *batchv1.Job {
 	now := metav1.Now()
 	startTime := metav1.NewTime(now.Add(-1 * time.Minute))
@@ -133,6 +139,8 @@ func createFailedJob(name, namespace, cronJobName string) *batchv1.Job {
 }
 
 // Helper to create a running job
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func createRunningJob(name, namespace, cronJobName string) *batchv1.Job {
 	now := metav1.Now()
 	return &batchv1.Job{
@@ -156,6 +164,8 @@ func createRunningJob(name, namespace, cronJobName string) *batchv1.Job {
 }
 
 // Helper to create a test monitor
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func createTestMonitor(name, namespace string, selector *guardianv1alpha1.CronJobSelector) *guardianv1alpha1.CronJobMonitor {
 	return &guardianv1alpha1.CronJobMonitor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -909,13 +919,11 @@ func TestReconcile_JobNotFound(t *testing.T) {
 func TestReconcile_CronJobDeleted(t *testing.T) {
 	// Job exists but CronJob was deleted
 	job := createCompletedJob("deleted-parent-12345", "default", "deleted-parent")
-
-	fakeClient := newJobTestClient(job)
 	mockStore := &testutil.MockStore{}
 	monitor := createTestMonitor("test-monitor", "default", &guardianv1alpha1.CronJobSelector{
 		MatchNames: []string{"deleted-parent"},
 	})
-	fakeClient = newJobTestClient(job, monitor)
+	fakeClient := newJobTestClient(job, monitor)
 
 	reconciler := &JobReconciler{
 		Client: fakeClient,

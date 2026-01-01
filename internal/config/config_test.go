@@ -363,19 +363,12 @@ func TestLoad_Flags_LeaderElection(t *testing.T) {
 // ============================================================================
 
 func TestLoad_Environment(t *testing.T) {
-	// Set environment variables
-	os.Setenv("GUARDIAN_LOG_LEVEL", "warn")
-	os.Setenv("GUARDIAN_STORAGE_TYPE", "postgres")
-	os.Setenv("GUARDIAN_STORAGE_POSTGRES_HOST", "pg.example.com")
-	os.Setenv("GUARDIAN_UI_PORT", "8888")
-	os.Setenv("GUARDIAN_HISTORY_RETENTION_DEFAULT_DAYS", "45")
-	defer func() {
-		os.Unsetenv("GUARDIAN_LOG_LEVEL")
-		os.Unsetenv("GUARDIAN_STORAGE_TYPE")
-		os.Unsetenv("GUARDIAN_STORAGE_POSTGRES_HOST")
-		os.Unsetenv("GUARDIAN_UI_PORT")
-		os.Unsetenv("GUARDIAN_HISTORY_RETENTION_DEFAULT_DAYS")
-	}()
+	// Set environment variables using t.Setenv which cleans up automatically
+	t.Setenv("GUARDIAN_LOG_LEVEL", "warn")
+	t.Setenv("GUARDIAN_STORAGE_TYPE", "postgres")
+	t.Setenv("GUARDIAN_STORAGE_POSTGRES_HOST", "pg.example.com")
+	t.Setenv("GUARDIAN_UI_PORT", "8888")
+	t.Setenv("GUARDIAN_HISTORY_RETENTION_DEFAULT_DAYS", "45")
 
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	BindFlags(flags)
@@ -405,8 +398,7 @@ storage:
 	require.NoError(t, err)
 
 	// Set environment to override
-	os.Setenv("GUARDIAN_LOG_LEVEL", "error")
-	defer os.Unsetenv("GUARDIAN_LOG_LEVEL")
+	t.Setenv("GUARDIAN_LOG_LEVEL", "error")
 
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	BindFlags(flags)

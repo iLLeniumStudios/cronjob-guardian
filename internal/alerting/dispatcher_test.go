@@ -19,6 +19,7 @@ package alerting
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -220,6 +221,8 @@ func testAlertingConfig(channelNames ...string) *v1alpha1.AlertingConfig {
 }
 
 // Helper to create test alert
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func testAlert(namespace, name, alertType, severity string) Alert {
 	return Alert{
 		Key:      namespace + "/" + name + "/" + alertType,
@@ -1077,7 +1080,7 @@ func TestExitCodeCategory(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(string(rune(tc.code)), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%d", tc.code), func(t *testing.T) {
 			result := exitCodeCategory(tc.code)
 			assert.Equal(t, tc.expected, result)
 		})

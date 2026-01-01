@@ -56,6 +56,8 @@ func newTestSchedulerClient(objs ...client.Object) client.Client {
 }
 
 // Helper to create a test CronJob
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func newTestSchedulerCronJob(name, namespace string, suspended bool) *batchv1.CronJob {
 	return &batchv1.CronJob{
 		ObjectMeta: metav1.ObjectMeta{
@@ -75,6 +77,8 @@ func newTestSchedulerCronJob(name, namespace string, suspended bool) *batchv1.Cr
 }
 
 // Helper to create a test monitor with dead-man's switch enabled
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func newTestMonitorWithDeadMan(name, namespace string, cjName string) *guardianv1alpha1.CronJobMonitor {
 	enabled := true
 	return &guardianv1alpha1.CronJobMonitor{
@@ -99,6 +103,8 @@ func newTestMonitorWithDeadMan(name, namespace string, cjName string) *guardianv
 }
 
 // Helper to create a test monitor with SLA enabled
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func newTestMonitorWithSLA(name, namespace string, cjName string) *guardianv1alpha1.CronJobMonitor {
 	enabled := true
 	return &guardianv1alpha1.CronJobMonitor{

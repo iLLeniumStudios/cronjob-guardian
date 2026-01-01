@@ -38,6 +38,8 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/testutil"
 )
 
+const conditionTypeReady = "Ready"
+
 // Test helper to create a fake client with scheme
 func newAlertChannelTestClient(objs ...client.Object) client.Client {
 	scheme := runtime.NewScheme()
@@ -53,6 +55,8 @@ func newAlertChannelTestClient(objs ...client.Object) client.Client {
 }
 
 // Helper to create a test secret
+//
+//nolint:unparam // namespace is always "default" in tests but parameter kept for API clarity
 func createTestSecret(name, namespace, key, value string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -606,7 +610,7 @@ func TestUpdateStatus_Ready(t *testing.T) {
 	// Verify Ready condition is set
 	var readyCondition *metav1.Condition
 	for i := range updated.Status.Conditions {
-		if updated.Status.Conditions[i].Type == "Ready" {
+		if updated.Status.Conditions[i].Type == conditionTypeReady {
 			readyCondition = &updated.Status.Conditions[i]
 			break
 		}
@@ -854,7 +858,7 @@ func TestReconcile_ConsecutiveFailuresNotReady(t *testing.T) {
 	// Verify condition shows the reason
 	var readyCondition *metav1.Condition
 	for i := range updated.Status.Conditions {
-		if updated.Status.Conditions[i].Type == "Ready" {
+		if updated.Status.Conditions[i].Type == conditionTypeReady {
 			readyCondition = &updated.Status.Conditions[i]
 			break
 		}
