@@ -154,27 +154,15 @@ func (h *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	)
 
 	if h.Store != nil {
-		log.V(1).Info("recording execution to store")
 		if err := h.Store.RecordExecution(ctx, exec); err != nil {
 			log.Error(err, "failed to record execution")
 		} else {
-			log.Info(
-				"execution recorded",
-				"cronJob", cronJobName,
-				"job", job.Name,
-				"succeeded", exec.Succeeded,
-				"duration", exec.Duration().Round(time.Millisecond),
-			)
-
-			// Record Prometheus metrics
 			status := "failed"
 			if exec.Succeeded {
 				status = "success"
 			}
 			metrics.RecordExecution(job.Namespace, cronJobName, status)
 		}
-	} else {
-		log.V(1).Info("store not configured, skipping execution recording")
 	}
 
 	// Handle completion for ALL matching monitors
@@ -531,11 +519,8 @@ func (h *JobReconciler) handleFailure(ctx context.Context, log logr.Logger, moni
 	if includeCtx != nil && isEnabled(includeCtx.Logs) {
 		if exec.Logs != nil && *exec.Logs != "" {
 			alertCtx.Logs = *exec.Logs
-			log.V(1).Info("using stored logs", "logLength", len(alertCtx.Logs))
 		} else {
-			log.V(1).Info("collecting logs for alert")
 			alertCtx.Logs = h.collectLogs(ctx, job, includeCtx)
-			log.V(1).Info("collected logs", "logLength", len(alertCtx.Logs))
 		}
 	}
 
@@ -543,26 +528,26 @@ func (h *JobReconciler) handleFailure(ctx context.Context, log logr.Logger, moni
 	if includeCtx != nil && isEnabled(includeCtx.Events) {
 		if exec.Events != nil && *exec.Events != "" {
 			alertCtx.Events = strings.Split(*exec.Events, "\n")
-			log.V(1).Info("using stored events", "eventCount", len(alertCtx.Events))
 		} else {
-			log.V(1).Info("collecting events for alert")
 			alertCtx.Events = h.collectEvents(ctx, job)
-			log.V(1).Info("collected events", "eventCount", len(alertCtx.Events))
 		}
 	}
 
 	// Use the pre-generated suggested fix from the execution record
 	if includeCtx != nil && isEnabled(includeCtx.SuggestedFixes) {
 		alertCtx.SuggestedFix = exec.SuggestedFix
-		log.V(1).Info("using stored suggested fix", "fix", alertCtx.SuggestedFix)
 	}
+
+	log.V(1).Info("built alert context",
+		"logLength", len(alertCtx.Logs),
+		"eventCount", len(alertCtx.Events),
+		"hasSuggestedFix", alertCtx.SuggestedFix != "")
 
 	// Determine severity (with nil safety)
 	severity := statusCritical
 	if monitor.Spec.Alerting != nil && monitor.Spec.Alerting.SeverityOverrides != nil {
 		severity = getSeverity(monitor.Spec.Alerting.SeverityOverrides.JobFailed, statusCritical)
 	}
-	log.V(1).Info("determined alert severity", "severity", severity)
 
 	// Create alert
 	alert := alerting.Alert{

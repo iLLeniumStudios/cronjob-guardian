@@ -183,12 +183,11 @@ func (d *dispatcher) dispatchImmediate(ctx context.Context, alert Alert, alertCf
 				ch.Name(),
 			)
 		} else {
-			logger.Info(
+			logger.V(1).Info(
 				"alert sent successfully",
 				"channel", ch.Name(),
 				"provider", ch.Type(),
 				"alertKey", alert.Key,
-				"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name),
 			)
 			channelNames = append(channelNames, ch.Name())
 

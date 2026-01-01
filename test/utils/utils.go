@@ -77,10 +77,8 @@ func UninstallPrometheusOperator() {
 	}
 }
 
-// IsPrometheusCRDsInstalled checks if any Prometheus CRDs are installed
-// by verifying the existence of key CRDs related to Prometheus.
+// IsPrometheusCRDsInstalled checks if any Prometheus CRDs are installed.
 func IsPrometheusCRDsInstalled() bool {
-	// List of common Prometheus CRDs
 	prometheusCRDs := []string{
 		"prometheuses.monitoring.coreos.com",
 		"prometheusrules.monitoring.coreos.com",
@@ -120,8 +118,6 @@ func InstallCertManager() error {
 	if _, err := Run(cmd); err != nil {
 		return err
 	}
-	// Wait for cert-manager-webhook to be ready, which can take time if cert-manager
-	// was re-installed after uninstalling on a cluster.
 	cmd = exec.Command("kubectl", "wait", "deployment.apps/cert-manager-webhook",
 		"--for", "condition=Available",
 		"--namespace", "cert-manager",
@@ -132,10 +128,8 @@ func InstallCertManager() error {
 	return err
 }
 
-// IsCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed
-// by verifying the existence of key CRDs related to Cert Manager.
+// IsCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed.
 func IsCertManagerCRDsInstalled() bool {
-	// List of common Cert Manager CRDs
 	certManagerCRDs := []string{
 		"certificates.cert-manager.io",
 		"issuers.cert-manager.io",
@@ -145,14 +139,12 @@ func IsCertManagerCRDsInstalled() bool {
 		"challenges.acme.cert-manager.io",
 	}
 
-	// Execute the kubectl command to get all CRDs
 	cmd := exec.Command("kubectl", "get", "crds")
 	output, err := Run(cmd)
 	if err != nil {
 		return false
 	}
 
-	// Check if any of the Cert Manager CRDs are present
 	crdList := GetNonEmptyLines(output)
 	for _, crd := range certManagerCRDs {
 		for _, line := range crdList {
@@ -165,42 +157,34 @@ func IsCertManagerCRDsInstalled() bool {
 	return false
 }
 
-// LoadImageToKindClusterWithName loads a local docker image to the kind cluster
+// LoadImageToKindClusterWithName loads a local docker image to the kind cluster.
 func LoadImageToKindClusterWithName(name string) error {
 	cluster := "kind"
 	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
 		cluster = v
 	}
 
-	// Check if using podman (CONTAINER_TOOL env var or detect podman)
 	containerTool := os.Getenv("CONTAINER_TOOL")
 	if containerTool == "podman" {
-		// With podman, we need to save the image to a tar and load via image-archive
-		// Sanitize image name for use as filename (replace / and : with -)
 		sanitizedName := strings.ReplaceAll(name, "/", "-")
 		sanitizedName = strings.ReplaceAll(sanitizedName, ":", "-")
 		tarFile := "/tmp/kind-image-" + sanitizedName + ".tar"
 
-		// Save image to tar
 		saveCmd := exec.Command("podman", "save", "-o", tarFile, name)
 		if _, err := Run(saveCmd); err != nil {
 			return fmt.Errorf("failed to save image with podman: %w", err)
 		}
 
-		// Load via kind image-archive
 		loadCmd := exec.Command("kind", "load", "image-archive", tarFile, "--name", cluster)
 		if _, err := Run(loadCmd); err != nil {
-			// Clean up tar file
 			_ = os.Remove(tarFile)
 			return fmt.Errorf("failed to load image archive to kind: %w", err)
 		}
 
-		// Clean up tar file
 		_ = os.Remove(tarFile)
 		return nil
 	}
 
-	// Default: use docker-image load (works with docker)
 	kindOptions := []string{"load", "docker-image", name, "--name", cluster}
 	cmd := exec.Command("kind", kindOptions...)
 	_, err := Run(cmd)
@@ -231,12 +215,9 @@ func GetProjectDir() (string, error) {
 	return wd, nil
 }
 
-// UncommentCode searches for target in the file and remove the comment prefix
-// of the target content. The target content may span multiple lines.
+// UncommentCode searches for target in the file and removes the comment prefix.
 func UncommentCode(filename, target, prefix string) error {
-	// false positive
-	// nolint:gosec
-	content, err := os.ReadFile(filename)
+	content, err := os.ReadFile(filename) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to read file %q: %w", filename, err)
 	}
@@ -261,7 +242,6 @@ func UncommentCode(filename, target, prefix string) error {
 		if _, err = out.WriteString(strings.TrimPrefix(scanner.Text(), prefix)); err != nil {
 			return fmt.Errorf("failed to write to output: %w", err)
 		}
-		// Avoid writing a newline in case the previous line was the last in target.
 		if !scanner.Scan() {
 			break
 		}
@@ -274,9 +254,7 @@ func UncommentCode(filename, target, prefix string) error {
 		return fmt.Errorf("failed to write to output: %w", err)
 	}
 
-	// false positive
-	// nolint:gosec
-	if err = os.WriteFile(filename, out.Bytes(), 0644); err != nil {
+	if err = os.WriteFile(filename, out.Bytes(), 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write file %q: %w", filename, err)
 	}
 

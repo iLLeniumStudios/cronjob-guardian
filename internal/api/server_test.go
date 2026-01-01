@@ -236,13 +236,18 @@ func TestServer_SetupRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, healthW.Code)
 }
 
-func TestZerologMiddleware_SkipsStaticAssets(t *testing.T) {
+func TestRequestLoggerMiddleware_SkipsStaticAssets(t *testing.T) {
+	// Create a server instance to get the middleware
+	server := NewServer(ServerOptions{
+		Client: newTestAPIClient(),
+	})
+
 	// Create a simple handler that always returns 200
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := zerologMiddleware(nextHandler)
+	handler := server.requestLoggerMiddleware()(nextHandler)
 
 	// Test static asset paths are handled without logging
 	staticPaths := []string{
@@ -262,12 +267,17 @@ func TestZerologMiddleware_SkipsStaticAssets(t *testing.T) {
 	}
 }
 
-func TestZerologMiddleware_LogsAPIRequests(t *testing.T) {
+func TestRequestLoggerMiddleware_LogsAPIRequests(t *testing.T) {
+	// Create a server instance to get the middleware
+	server := NewServer(ServerOptions{
+		Client: newTestAPIClient(),
+	})
+
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := zerologMiddleware(nextHandler)
+	handler := server.requestLoggerMiddleware()(nextHandler)
 
 	// Test API paths are handled (logging occurs but we can't easily verify)
 	apiPaths := []string{

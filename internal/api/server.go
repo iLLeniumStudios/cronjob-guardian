@@ -42,7 +42,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/rs/zerolog"
+	"github.com/go-logr/logr"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,14 +58,6 @@ var Version = "dev"
 // UIAssets holds the embedded UI files (set from main)
 var UIAssets embed.FS
 
-// logger is the zerolog logger for the API server
-var logger *zerolog.Logger
-
-// SetLogger sets the zerolog logger for the API server
-func SetLogger(l *zerolog.Logger) {
-	logger = l
-}
-
 // Server is the REST API server
 type Server struct {
 	client              client.Client
@@ -79,6 +71,7 @@ type Server struct {
 	leaderElectionCheck func() bool
 	analyzerEnabled     bool
 	schedulersRunning   []string
+	log                 logr.Logger
 }
 
 // ServerOptions contains options for creating the server
@@ -111,13 +104,12 @@ func NewServer(opts ServerOptions) *Server {
 		leaderElectionCheck: opts.LeaderElectionCheck,
 		analyzerEnabled:     opts.AnalyzerEnabled,
 		schedulersRunning:   opts.SchedulersRunning,
+		log:                 ctrl.Log.WithName("api-server"),
 	}
 }
 
 // Start starts the API server
 func (s *Server) Start(ctx context.Context) error {
-	logger := ctrl.Log.WithName("api-server")
-
 	router := s.setupRoutes()
 
 	s.server = &http.Server{
@@ -130,60 +122,56 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start server in goroutine
 	go func() {
-		logger.Info("starting API server", "port", s.port)
+		s.log.Info("starting API server", "port", s.port)
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error(err, "API server error")
+			s.log.Error(err, "API server error")
 		}
 	}()
 
 	// Wait for shutdown signal
 	<-ctx.Done()
 
-	logger.Info("shutting down API server")
+	s.log.Info("shutting down API server")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	return s.server.Shutdown(shutdownCtx)
 }
 
-// zerologMiddleware is a chi middleware that logs requests using zerolog
-func zerologMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if logger == nil {
-			next.ServeHTTP(w, r)
-			return
-		}
+// requestLoggerMiddleware returns a chi middleware that logs HTTP requests
+func (s *Server) requestLoggerMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip logging for static assets (UI files)
+			if strings.HasPrefix(r.URL.Path, "/_next/") ||
+				strings.HasSuffix(r.URL.Path, ".js") ||
+				strings.HasSuffix(r.URL.Path, ".css") ||
+				strings.HasSuffix(r.URL.Path, ".svg") ||
+				strings.HasSuffix(r.URL.Path, ".ico") ||
+				strings.HasSuffix(r.URL.Path, ".woff2") ||
+				strings.HasSuffix(r.URL.Path, ".woff") ||
+				strings.HasSuffix(r.URL.Path, ".png") ||
+				strings.HasSuffix(r.URL.Path, ".jpg") {
+				next.ServeHTTP(w, r)
+				return
+			}
 
-		// Skip logging for static assets (UI files)
-		if strings.HasPrefix(r.URL.Path, "/_next/") ||
-			strings.HasSuffix(r.URL.Path, ".js") ||
-			strings.HasSuffix(r.URL.Path, ".css") ||
-			strings.HasSuffix(r.URL.Path, ".svg") ||
-			strings.HasSuffix(r.URL.Path, ".ico") ||
-			strings.HasSuffix(r.URL.Path, ".woff2") ||
-			strings.HasSuffix(r.URL.Path, ".woff") ||
-			strings.HasSuffix(r.URL.Path, ".png") ||
-			strings.HasSuffix(r.URL.Path, ".jpg") {
-			next.ServeHTTP(w, r)
-			return
-		}
+			start := time.Now()
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
-		start := time.Now()
-		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			defer func() {
+				s.log.V(1).Info("http request",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", ww.Status(),
+					"bytes", ww.BytesWritten(),
+					"duration", time.Since(start).String(),
+					"remote", r.RemoteAddr)
+			}()
 
-		defer func() {
-			logger.Info().
-				Str("method", r.Method).
-				Str("path", r.URL.Path).
-				Int("status", ww.Status()).
-				Int("bytes", ww.BytesWritten()).
-				Dur("duration", time.Since(start)).
-				Str("remote", r.RemoteAddr).
-				Msg("http request")
-		}()
-
-		next.ServeHTTP(ww, r)
-	})
+			next.ServeHTTP(ww, r)
+		})
+	}
 }
 
 // setupRoutes configures the router
@@ -195,7 +183,7 @@ func (s *Server) setupRoutes() chi.Router {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-	r.Use(zerologMiddleware)
+	r.Use(s.requestLoggerMiddleware())
 
 	// CORS for UI
 	r.Use(func(next http.Handler) http.Handler {

@@ -149,12 +149,6 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// 7. Calculate summary
 	summary := r.calculateSummary(cronJobStatuses)
-	log.V(1).Info("calculated summary",
-		"total", summary.TotalCronJobs,
-		"healthy", summary.Healthy,
-		"warning", summary.Warning,
-		"critical", summary.Critical,
-		"suspended", summary.Suspended)
 
 	// 8. Update status with retry to handle optimistic locking conflicts
 	// Pass the generation we observed at the start of reconcile to detect mid-reconcile spec changes
@@ -173,7 +167,6 @@ func (r *CronJobMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		"cronJobCount", len(cronJobStatuses))
 
 	// 9. Requeue for periodic checks
-	log.V(1).Info("requeueing for periodic check", "after", "30s")
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
@@ -325,14 +318,12 @@ func (r *CronJobMonitorReconciler) getNamespacesBySelector(ctx context.Context, 
 
 func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *guardianv1alpha1.CronJobMonitor, cj *batchv1.CronJob) guardianv1alpha1.CronJobStatus {
 	log := r.Log.WithValues("cronJob", cj.Name)
-	log.V(1).Info("processing CronJob")
 
 	status := guardianv1alpha1.CronJobStatus{
 		Name:      cj.Name,
 		Namespace: cj.Namespace,
 		Suspended: cj.Spec.Suspend != nil && *cj.Spec.Suspend,
 	}
-	log.V(1).Info("CronJob state", "suspended", status.Suspended)
 
 	cronJobNN := types.NamespacedName{Namespace: cj.Namespace, Name: cj.Name}
 
@@ -342,29 +333,19 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 		log.V(1).Error(err, "failed to get active jobs")
 	} else {
 		status.ActiveJobs = activeJobs
-		log.V(1).Info("found active jobs", "count", len(activeJobs))
 	}
 
 	// Get last successful execution
 	if r.Store != nil {
-		log.V(1).Info("fetching last successful execution from store")
 		lastSuccess, _ := r.Store.GetLastSuccessfulExecution(ctx, cronJobNN)
 		if lastSuccess != nil {
 			status.LastSuccessfulTime = &metav1.Time{Time: lastSuccess.CompletionTime}
 			status.LastRunDuration = &metav1.Duration{Duration: lastSuccess.Duration()}
-			log.V(1).Info("found last successful execution",
-				"completionTime", lastSuccess.CompletionTime,
-				"duration", lastSuccess.Duration())
-		} else {
-			log.V(1).Info("no last successful execution found")
 		}
 	}
 
 	// Calculate next scheduled time
 	status.NextScheduledTime = calculateNextRun(cj.Spec.Schedule, cj.Spec.TimeZone)
-	if status.NextScheduledTime != nil {
-		log.V(1).Info("calculated next run", "nextScheduledTime", status.NextScheduledTime.Time)
-	}
 
 	// Get metrics - always fetch basic metrics, use SLA window if configured
 	windowDays := 7 // Default window
@@ -373,13 +354,9 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 	}
 
 	// Get metrics from analyzer (always available - required dependency)
-	log.V(1).Info("fetching metrics", "windowDays", windowDays)
 	metrics, err := r.Analyzer.GetMetrics(ctx, cronJobNN, windowDays)
 	if err == nil && metrics != nil {
 		status.Metrics = metrics
-		log.V(1).Info("metrics retrieved",
-			"successRate", metrics.SuccessRate,
-			"totalRuns", metrics.TotalRuns)
 
 		// Update Prometheus metrics
 		prommetrics.UpdateSuccessRate(cj.Namespace, cj.Name, monitor.Name, metrics.SuccessRate)
@@ -400,7 +377,6 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 		}
 	}
 	status.ActiveAlerts = r.checkAlerts(ctx, monitor, cj, &status, previousAlerts)
-	log.V(1).Info("checked alerts", "activeAlertCount", len(status.ActiveAlerts))
 
 	// Update active alerts Prometheus metric by severity
 	alertsBySeverity := make(map[string]float64)
@@ -413,7 +389,12 @@ func (r *CronJobMonitorReconciler) processCronJob(ctx context.Context, monitor *
 
 	// Determine overall status
 	status.Status = r.determineStatus(&status)
-	log.V(1).Info("determined CronJob status", "status", status.Status)
+
+	log.V(1).Info("processed CronJob",
+		"status", status.Status,
+		"suspended", status.Suspended,
+		"activeJobs", len(status.ActiveJobs),
+		"activeAlerts", len(status.ActiveAlerts))
 
 	return status
 }

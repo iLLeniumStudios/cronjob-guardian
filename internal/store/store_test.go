@@ -34,17 +34,14 @@ type StoreTestSuite struct {
 	ctx   context.Context
 }
 
-// SetupTest creates a fresh in-memory SQLite database for each test
 func (s *StoreTestSuite) SetupTest() {
 	var err error
-	// Use in-memory SQLite with shared cache for testing
 	s.store, err = NewGormStore("sqlite", "file::memory:?cache=shared")
 	require.NoError(s.T(), err)
 	require.NoError(s.T(), s.store.Init())
 	s.ctx = context.Background()
 }
 
-// TearDownTest closes the store after each test
 func (s *StoreTestSuite) TearDownTest() {
 	if s.store != nil {
 		_ = s.store.Close()

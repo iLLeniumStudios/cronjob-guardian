@@ -109,9 +109,6 @@ func main() {
 		setupLog.Info("no config file found, using defaults and flags", "level", cfg.LogLevel)
 	}
 
-	// Share zerolog with API server for chi middleware
-	api.SetLogger(&zl)
-
 	// TLS options
 	var tlsOpts []func(*tls.Config)
 
