@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useEffect, useMemo } from "react";
+import { useCallback, useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Target,
@@ -10,55 +10,20 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  Filter,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { EmptyState } from "@/components/empty-state";
-import { SortableTableHeader } from "@/components/sortable-table-header";
 import { PageSkeleton } from "@/components/page-skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { ExportButton } from "@/components/export/export-button";
 import { exportSLAReportToCSV } from "@/lib/export/csv";
 import { generateSLAPDFReport } from "@/lib/export/pdf";
 import { listMonitors, listCronJobs, getMonitor, getCronJob } from "@/lib/api";
-
-const PAGE_SIZE = 50;
+import { DataTable } from "@/components/data-table/data-table";
+import type { ColumnDef } from "@/components/data-table/types";
 
 type SLAStatus = "meeting" | "breaching" | "at-risk" | "no-sla";
-type SLASortColumn = "name" | "monitor" | "targetSLA" | "currentRate" | "status" | "trend";
-type SortDirection = "asc" | "desc";
-
-const statusOrder: Record<SLAStatus, number> = {
-  breaching: 0,
-  "at-risk": 1,
-  meeting: 2,
-  "no-sla": 3,
-};
-
-const trendOrder: Record<string, number> = {
-  declining: 0,
-  stable: 1,
-  improving: 2,
-};
 
 interface SLACronJob {
   name: string;
@@ -80,6 +45,168 @@ interface SLASummary {
   noSLA: number;
 }
 
+const statusOrder: Record<SLAStatus, number> = {
+  breaching: 0,
+  "at-risk": 1,
+  meeting: 2,
+  "no-sla": 3,
+};
+
+const trendOrder: Record<string, number> = {
+  declining: 0,
+  stable: 1,
+  improving: 2,
+};
+
+function StatusBadge({ status }: { status: SLAStatus }) {
+  switch (status) {
+    case "meeting":
+      return (
+        <Badge className="bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400">
+          Meeting
+        </Badge>
+      );
+    case "at-risk":
+      return (
+        <Badge className="bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400">
+          At Risk
+        </Badge>
+      );
+    case "breaching":
+      return (
+        <Badge className="bg-red-500/10 text-red-700 hover:bg-red-500/20 dark:text-red-400">
+          Breaching
+        </Badge>
+      );
+    case "no-sla":
+      return (
+        <Badge variant="outline" className="text-muted-foreground">
+          No SLA
+        </Badge>
+      );
+  }
+}
+
+function TrendIndicator({ trend }: { trend: "improving" | "declining" | "stable" }) {
+  switch (trend) {
+    case "improving":
+      return (
+        <div className="flex items-center justify-center gap-1 text-emerald-600 dark:text-emerald-400">
+          <TrendingUp className="h-4 w-4" />
+          <span className="text-xs">Up</span>
+        </div>
+      );
+    case "declining":
+      return (
+        <div className="flex items-center justify-center gap-1 text-red-600 dark:text-red-400">
+          <TrendingDown className="h-4 w-4" />
+          <span className="text-xs">Down</span>
+        </div>
+      );
+    case "stable":
+      return (
+        <div className="flex items-center justify-center gap-1 text-muted-foreground">
+          <Minus className="h-4 w-4" />
+          <span className="text-xs">Stable</span>
+        </div>
+      );
+  }
+}
+
+const columns: ColumnDef<SLACronJob>[] = [
+  {
+    id: "name",
+    header: "CronJob",
+    accessorKey: "name",
+    sortable: true,
+    cell: (row) => (
+      <div>
+        <Link
+          href={`/cronjob/${row.namespace}/${row.name}`}
+          className="font-medium hover:underline"
+        >
+          {row.name}
+        </Link>
+        <div className="text-xs text-muted-foreground">{row.namespace}</div>
+      </div>
+    ),
+  },
+  {
+    id: "monitor",
+    header: "Monitor",
+    accessorKey: "monitorName",
+    sortable: true,
+    cell: (row) => (
+      <Link
+        href={`/monitors/${row.monitorNamespace}/${row.monitorName}`}
+        className="text-sm hover:underline"
+      >
+        {row.monitorName}
+      </Link>
+    ),
+  },
+  {
+    id: "targetSLA",
+    header: "Target SLA",
+    accessorKey: "targetSLA",
+    sortable: true,
+    align: "right",
+    cell: (row) =>
+      row.status === "no-sla" ? (
+        <span className="text-muted-foreground">-</span>
+      ) : (
+        <span className="font-mono">{row.targetSLA.toFixed(0)}%</span>
+      ),
+  },
+  {
+    id: "currentSuccessRate",
+    header: "Current Rate",
+    accessorKey: "currentSuccessRate",
+    sortable: true,
+    align: "right",
+    cell: (row) => (
+      <div className="flex flex-col items-end">
+        <span
+          className={`font-mono font-medium ${
+            row.status === "meeting"
+              ? "text-emerald-600 dark:text-emerald-400"
+              : row.status === "at-risk"
+              ? "text-amber-600 dark:text-amber-400"
+              : row.status === "breaching"
+              ? "text-red-600 dark:text-red-400"
+              : ""
+          }`}
+        >
+          {row.currentSuccessRate.toFixed(1)}%
+        </span>
+        {row.windowDays > 0 && (
+          <span className="text-[10px] text-muted-foreground">
+            {row.windowDays}d window
+          </span>
+        )}
+      </div>
+    ),
+  },
+  {
+    id: "status",
+    header: "Status",
+    accessorKey: "status",
+    sortable: true,
+    align: "center",
+    cell: (row) => <StatusBadge status={row.status} />,
+    sortFn: (a, b) => statusOrder[a.status] - statusOrder[b.status],
+  },
+  {
+    id: "trend",
+    header: "Trend",
+    accessorKey: "trend",
+    sortable: true,
+    align: "center",
+    cell: (row) => <TrendIndicator trend={row.trend} />,
+    sortFn: (a, b) => trendOrder[a.trend] - trendOrder[b.trend],
+  },
+];
+
 export default function SLAPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -91,10 +218,6 @@ export default function SLAPage() {
     atRisk: 0,
     noSLA: 0,
   });
-  const [filter, setFilter] = useState<SLAStatus | "all">("all");
-  const [page, setPage] = useState(0);
-  const [sortColumn, setSortColumn] = useState<SLASortColumn>("status");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const fetchData = useCallback(async (showRefreshing = false) => {
     if (showRefreshing) setIsRefreshing(true);
@@ -106,11 +229,12 @@ export default function SLAPage() {
 
       // Fetch detailed monitor data to get SLA config
       const monitorDetails = await Promise.all(
-        monitorsRes.items.map((m) => getMonitor(m.namespace, m.name).catch(() => null))
+        monitorsRes.items.map((m) =>
+          getMonitor(m.namespace, m.name).catch(() => null)
+        )
       );
 
       // First pass: collect all cronjobs with SLA and their window configs
-      // Key: namespace/name, Value: { windowDays, targetSLA, monitorName, monitorNamespace }
       type CronJobSLAConfig = {
         windowDays: number;
         targetSLA: number;
@@ -128,7 +252,6 @@ export default function SLAPage() {
         for (const cj of detail.status.cronJobs) {
           const key = `${cj.namespace}/${cj.name}`;
           const existing = cronJobConfigs.get(key);
-          // Keep the strictest (highest) SLA target
           if (!existing || targetSLA > existing.targetSLA) {
             cronJobConfigs.set(key, {
               windowDays,
@@ -140,8 +263,7 @@ export default function SLAPage() {
         }
       }
 
-      // Second pass: fetch cronjob details to get metrics for the correct window
-      // Use batched fetching to avoid too many concurrent requests
+      // Second pass: fetch cronjob details
       const cronJobKeys = Array.from(cronJobConfigs.keys());
       const cronJobDetails = await Promise.all(
         cronJobKeys.map(async (key) => {
@@ -154,7 +276,6 @@ export default function SLAPage() {
         })
       );
 
-      // Build SLA data with correct window metrics
       const slaMap = new Map<string, SLACronJob>();
 
       for (let i = 0; i < cronJobKeys.length; i++) {
@@ -163,37 +284,29 @@ export default function SLAPage() {
         const detail = cronJobDetails[i];
         const [namespace, name] = key.split("/");
 
-        // Get success rate based on configured window
-        // For windows <= 7 days, use 7d metrics
-        // For windows > 7 days, use 30d metrics (closest we have)
         let successRate = 0;
         if (detail?.metrics) {
           if (config.windowDays <= 7) {
             successRate = detail.metrics.successRate7d;
           } else {
-            // Use 30d metrics for windows > 7 days
             successRate = detail.metrics.successRate30d;
           }
         } else {
-          // Fallback to list data
           const listCronJob = cronJobsRes.items.find(
             (c) => c.name === name && c.namespace === namespace
           );
           successRate = listCronJob?.successRate ?? 0;
         }
 
-        // Determine SLA status
         let status: SLAStatus;
         if (successRate >= config.targetSLA) {
           status = "meeting";
         } else if (successRate >= config.targetSLA * 0.9) {
-          // Within 10% of target
           status = "at-risk";
         } else {
           status = "breaching";
         }
 
-        // Determine trend (simplified - would need historical data for real trend)
         let trend: "improving" | "declining" | "stable" = "stable";
         const gap = successRate - config.targetSLA;
         if (gap > 5) trend = "improving";
@@ -212,11 +325,10 @@ export default function SLAPage() {
         });
       }
 
-      // Also check cronjobs without SLA configured
+      // Check cronjobs without SLA
       for (const cj of cronJobsRes.items) {
         const key = `${cj.namespace}/${cj.name}`;
         if (!slaMap.has(key) && cj.monitorRef) {
-          // Has monitor but no SLA configured
           slaMap.set(key, {
             name: cj.name,
             namespace: cj.namespace,
@@ -233,7 +345,6 @@ export default function SLAPage() {
 
       const slaItems = Array.from(slaMap.values());
 
-      // Calculate summary
       const newSummary: SLASummary = {
         total: slaItems.length,
         meeting: slaItems.filter((s) => s.status === "meeting").length,
@@ -258,73 +369,6 @@ export default function SLAPage() {
     const interval = setInterval(() => fetchData(), 5000);
     return () => clearInterval(interval);
   }, [fetchData]);
-
-  // Filter, sort, and paginate data
-  const { paginatedData, totalFiltered, totalPages } = useMemo(() => {
-    // Filter by status
-    const filtered = filter === "all" ? slaData : slaData.filter((s) => s.status === filter);
-
-    // Sort with stable secondary sort by name
-    const multiplier = sortDirection === "asc" ? 1 : -1;
-    const sorted = [...filtered].sort((a, b) => {
-      let comparison = 0;
-      switch (sortColumn) {
-        case "name":
-          comparison = a.name.localeCompare(b.name);
-          break;
-        case "monitor":
-          comparison = a.monitorName.localeCompare(b.monitorName);
-          break;
-        case "targetSLA":
-          comparison = a.targetSLA - b.targetSLA;
-          break;
-        case "currentRate":
-          comparison = a.currentSuccessRate - b.currentSuccessRate;
-          break;
-        case "status":
-          comparison = statusOrder[a.status] - statusOrder[b.status];
-          break;
-        case "trend":
-          comparison = trendOrder[a.trend] - trendOrder[b.trend];
-          break;
-      }
-      // Stable sort: use name as tiebreaker when primary sort values are equal
-      if (comparison === 0 && sortColumn !== "name") {
-        comparison = a.name.localeCompare(b.name);
-      }
-      return comparison * multiplier;
-    });
-
-    // Paginate
-    const total = sorted.length;
-    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const effectivePage = Math.min(page, Math.max(0, pages - 1));
-    const start = effectivePage * PAGE_SIZE;
-    const paginated = sorted.slice(start, start + PAGE_SIZE);
-
-    return {
-      paginatedData: paginated,
-      totalFiltered: total,
-      totalPages: pages,
-    };
-  }, [slaData, filter, sortColumn, sortDirection, page]);
-
-  const effectivePage = Math.min(page, Math.max(0, totalPages - 1));
-
-  const handleSort = (column: SLASortColumn) => {
-    if (sortColumn === column) {
-      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-    setPage(0);
-  };
-
-  const handleFilterChange = (value: SLAStatus | "all") => {
-    setFilter(value);
-    setPage(0);
-  };
 
   const handleExportCSV = () => {
     if (slaData.length > 0) {
@@ -388,7 +432,6 @@ export default function SLAPage() {
         }
       />
       <div className="flex-1 space-y-6 overflow-auto p-6">
-        {/* Summary Cards */}
         <div className="grid gap-4 md:grid-cols-4">
           <SummaryCard
             title="Total Monitored"
@@ -419,201 +462,37 @@ export default function SLAPage() {
           />
         </div>
 
-        {/* Compliance Table */}
-        <Card>
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-medium">
-                SLA Compliance Details
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <Select
-                  value={filter}
-                  onValueChange={(v) => handleFilterChange(v as SLAStatus | "all")}
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Filter" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="meeting">Meeting SLA</SelectItem>
-                    <SelectItem value="at-risk">At Risk</SelectItem>
-                    <SelectItem value="breaching">Breaching</SelectItem>
-                    <SelectItem value="no-sla">No SLA</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {totalFiltered === 0 ? (
-              <EmptyState
-                icon={Target}
-                title="No SLA data available"
-                description={filter === "all"
-                  ? "Configure SLA targets on your CronJobMonitor resources"
-                  : "No CronJobs match the selected filter"}
-                bordered={false}
-              />
-            ) : (
-              <div className="space-y-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <SortableTableHeader
-                      column="name"
-                      label="CronJob"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHeader
-                      column="monitor"
-                      label="Monitor"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHeader
-                      column="targetSLA"
-                      label="Target SLA"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                    <SortableTableHeader
-                      column="currentRate"
-                      label="Current Rate"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                    <SortableTableHeader
-                      column="status"
-                      label="Status"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                      align="center"
-                    />
-                    <SortableTableHeader
-                      column="trend"
-                      label="Trend"
-                      currentSort={sortColumn}
-                      direction={sortDirection}
-                      onSort={handleSort}
-                      align="center"
-                    />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedData.map((item) => (
-                    <TableRow key={`${item.namespace}/${item.name}`}>
-                      <TableCell>
-                        <Link
-                          href={`/cronjob/${item.namespace}/${item.name}`}
-                          className="font-medium hover:underline"
-                        >
-                          {item.name}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">
-                          {item.namespace}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Link
-                          href={`/monitors/${item.monitorNamespace}/${item.monitorName}`}
-                          className="text-sm hover:underline"
-                        >
-                          {item.monitorName}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {item.status === "no-sla" ? (
-                          <span className="text-muted-foreground">-</span>
-                        ) : (
-                          <span className="font-mono">
-                            {item.targetSLA.toFixed(0)}%
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex flex-col items-end">
-                          <span
-                            className={`font-mono font-medium ${
-                              item.status === "meeting"
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : item.status === "at-risk"
-                                  ? "text-amber-600 dark:text-amber-400"
-                                  : item.status === "breaching"
-                                    ? "text-red-600 dark:text-red-400"
-                                    : ""
-                            }`}
-                          >
-                            {item.currentSuccessRate.toFixed(1)}%
-                          </span>
-                          {item.windowDays > 0 && (
-                            <span className="text-[10px] text-muted-foreground">
-                              {item.windowDays}d window
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <StatusBadge status={item.status} />
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <TrendIndicator trend={item.trend} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {/* Pagination */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-4">
-                <div className="text-sm text-muted-foreground order-2 sm:order-1">
-                  {totalFiltered > 0 ? (
-                    <>
-                      Showing {effectivePage * PAGE_SIZE + 1}-
-                      {Math.min((effectivePage + 1) * PAGE_SIZE, totalFiltered)} of {totalFiltered}
-                    </>
-                  ) : (
-                    "No items"
-                  )}
-                </div>
-                <div className="flex items-center gap-2 order-1 sm:order-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((p) => Math.max(0, p - 1))}
-                    disabled={effectivePage === 0}
-                    className="cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                    <span className="hidden sm:inline">Previous</span>
-                  </Button>
-                  <span className="text-sm text-muted-foreground whitespace-nowrap">
-                    {effectivePage + 1} / {totalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                    disabled={effectivePage >= totalPages - 1}
-                    className="cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    <span className="hidden sm:inline">Next</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <DataTable
+          data={slaData}
+          columns={columns}
+          getRowKey={(row) => `${row.namespace}/${row.name}`}
+          title="SLA Compliance Details"
+          pageSize={50}
+          defaultSort={{ column: "status", direction: "asc" }}
+          filters={[
+            {
+              type: "faceted",
+              key: "status",
+              label: "Status",
+              options: [
+                { label: "Meeting SLA", value: "meeting" },
+                { label: "At Risk", value: "at-risk" },
+                { label: "Breaching", value: "breaching" },
+                { label: "No SLA", value: "no-sla" },
+              ],
+            },
+          ]}
+          search={{
+            placeholder: "Filter cronjobs...",
+            searchKeys: ["name", "monitorName"],
+          }}
+          enableViewOptions
+          emptyState={{
+            icon: Target,
+            title: "No SLA data available",
+            description: "Configure SLA targets to see compliance data",
+          }}
+        />
       </div>
     </div>
   );
@@ -665,59 +544,4 @@ function SummaryCard({
       </CardContent>
     </Card>
   );
-}
-
-function StatusBadge({ status }: { status: SLAStatus }) {
-  switch (status) {
-    case "meeting":
-      return (
-        <Badge className="bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400">
-          Meeting
-        </Badge>
-      );
-    case "at-risk":
-      return (
-        <Badge className="bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400">
-          At Risk
-        </Badge>
-      );
-    case "breaching":
-      return (
-        <Badge className="bg-red-500/10 text-red-700 hover:bg-red-500/20 dark:text-red-400">
-          Breaching
-        </Badge>
-      );
-    case "no-sla":
-      return (
-        <Badge variant="outline" className="text-muted-foreground">
-          No SLA
-        </Badge>
-      );
-  }
-}
-
-function TrendIndicator({ trend }: { trend: "improving" | "declining" | "stable" }) {
-  switch (trend) {
-    case "improving":
-      return (
-        <div className="flex items-center justify-center gap-1 text-emerald-600 dark:text-emerald-400">
-          <TrendingUp className="h-4 w-4" />
-          <span className="text-xs">Up</span>
-        </div>
-      );
-    case "declining":
-      return (
-        <div className="flex items-center justify-center gap-1 text-red-600 dark:text-red-400">
-          <TrendingDown className="h-4 w-4" />
-          <span className="text-xs">Down</span>
-        </div>
-      );
-    case "stable":
-      return (
-        <div className="flex items-center justify-center gap-1 text-muted-foreground">
-          <Minus className="h-4 w-4" />
-          <span className="text-xs">Stable</span>
-        </div>
-      );
-  }
 }

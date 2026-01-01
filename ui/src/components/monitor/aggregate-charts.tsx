@@ -138,23 +138,24 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                     type="number"
                     domain={[0, 100]}
                     tickFormatter={(v) => `${v}%`}
-                    tick={{ fontSize: 11 }}
-                    className="fill-muted-foreground"
+                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                   />
                   <YAxis
                     type="category"
                     dataKey="name"
-                    tick={{ fontSize: 11 }}
+                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                     width={55}
-                    className="fill-muted-foreground"
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "var(--card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "4px",
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "var(--radius)",
                       fontSize: "12px",
+                      color: "hsl(var(--foreground))",
                     }}
+                    itemStyle={{ color: "hsl(var(--foreground))" }}
+                    labelStyle={{ color: "hsl(var(--muted-foreground))", marginBottom: "0.25rem" }}
                     formatter={(value: number, _name: string, props) => [
                       `${value.toFixed(1)}%`,
                       props.payload.fullName,
@@ -204,11 +205,14 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                   </Pie>
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "var(--card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "4px",
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "var(--radius)",
                       fontSize: "12px",
+                      color: "hsl(var(--foreground))",
                     }}
+                    itemStyle={{ color: "hsl(var(--foreground))" }}
+                    labelStyle={{ color: "hsl(var(--muted-foreground))", marginBottom: "0.25rem" }}
                     formatter={(value: number, name: string) => [`${value} CronJob${value > 1 ? "s" : ""}`, name]}
                   />
                   <Legend
@@ -237,21 +241,23 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis
                   dataKey="name"
-                  tick={{ fontSize: 10 }}
+                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                   angle={-45}
                   textAnchor="end"
                   height={60}
                   interval={0}
-                  className="fill-muted-foreground"
                 />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatDuration(v)} className="fill-muted-foreground" />
+                <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => formatDuration(v)} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: "var(--card)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "4px",
+                    backgroundColor: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "var(--radius)",
                     fontSize: "12px",
+                    color: "hsl(var(--foreground))",
                   }}
+                  itemStyle={{ color: "hsl(var(--foreground))" }}
+                  labelStyle={{ color: "hsl(var(--muted-foreground))", marginBottom: "0.25rem" }}
                   formatter={(value: number, _name: string, props) => [
                     formatDuration(value),
                     props.payload.fullName,

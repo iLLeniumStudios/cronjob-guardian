@@ -39,6 +39,7 @@ import { HealthHeatmap } from "@/components/cronjob/health-heatmap";
 import { ExecutionHistory } from "@/components/cronjob/execution-history";
 import { ExportButton } from "@/components/export/export-button";
 import { SuggestedFix } from "@/components/suggested-fix";
+import { CronSchedule } from "@/components/cron-schedule";
 import { exportExecutionsToCSV } from "@/lib/export/csv";
 import { generateCronJobPDFReport } from "@/lib/export/pdf";
 import {
@@ -370,9 +371,9 @@ export function CronJobDetailClient() {
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm">
                 <span className="text-muted-foreground">Schedule:</span>{" "}
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                  {cronJob.schedule}
-                </code>
+                <div className="inline-flex align-middle">
+                  <CronSchedule schedule={cronJob.schedule} className="bg-muted px-1.5 py-0.5 rounded" />
+                </div>
               </span>
             </div>
             {cronJob.timezone && (

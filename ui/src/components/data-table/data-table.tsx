@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { SortableTableHeader } from "@/components/sortable-table-header";
+import { DataTableColumnHeader } from "./data-table-column-header";
 import { DataTableCell } from "./data-table-cell";
 import { DataTableToolbar } from "./data-table-toolbar";
 import { DataTablePagination } from "./data-table-pagination";
@@ -67,12 +67,10 @@ function defaultSort<T>(
   const bValue = getValue(b, column);
   const multiplier = direction === "asc" ? 1 : -1;
 
-  // Handle null/undefined
   if (aValue == null && bValue == null) return 0;
   if (aValue == null) return 1 * multiplier;
   if (bValue == null) return -1 * multiplier;
 
-  // Compare based on type
   if (typeof aValue === "number" && typeof bValue === "number") {
     return (aValue - bValue) * multiplier;
   }
@@ -81,8 +79,11 @@ function defaultSort<T>(
     return (aValue.getTime() - bValue.getTime()) * multiplier;
   }
 
-  // String comparison for everything else
   return String(aValue).localeCompare(String(bValue)) * multiplier;
+}
+
+interface ExtendedDataTableProps<T> extends DataTableProps<T> {
+  className?: string;
 }
 
 export function DataTable<T>({
@@ -91,16 +92,18 @@ export function DataTable<T>({
   getRowKey,
   pageSize = DEFAULT_PAGE_SIZE,
   defaultSort: defaultSortConfig,
-  filter,
+  filters,
   search,
   emptyState,
   noResultsState,
   title,
   headerActions,
+  enableViewOptions = false,
   showCard = true,
   isLoading = false,
   onRowClick,
-}: DataTableProps<T>) {
+  className,
+}: ExtendedDataTableProps<T>) {
   // State
   const [page, setPage] = useState(0);
   const [sortColumn, setSortColumn] = useState<string>(
@@ -110,9 +113,23 @@ export function DataTable<T>({
     defaultSortConfig?.direction || "asc"
   );
   const [searchValue, setSearchValue] = useState("");
-  const [filterValue, setFilterValue] = useState(
-    filter?.defaultValue || "all"
+  
+  // Filter state
+  const [filterValues, setFilterValues] = useState<Record<string, string | Set<string>>>(
+    () => {
+      const initial: Record<string, string | Set<string>> = {};
+      filters?.forEach((f) => {
+        if (f.type === "faceted") {
+          initial[f.key as string] = new Set<string>();
+        } else {
+          initial[f.key as string] = f.defaultValue || "all";
+        }
+      });
+      return initial;
+    }
   );
+
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
 
   // Get column by ID
   const getColumn = useCallback(
@@ -120,15 +137,27 @@ export function DataTable<T>({
     [columns]
   );
 
-  // Process data: filter, search, sort, paginate
+  // Process data
   const { processedData, totalFiltered, totalPages } = useMemo(() => {
     let result = [...data];
 
-    // Apply filter
-    if (filter && filterValue !== "all") {
+    // Apply filters
+    if (filters && filters.length > 0) {
       result = result.filter((row) => {
-        const value = row[filter.key];
-        return String(value) === filterValue;
+        return filters.every((filter) => {
+          const rowValue = String(row[filter.key]);
+          const filterValue = filterValues[filter.key as string];
+
+          if (filter.type === "faceted") {
+            const selected = filterValue as Set<string>;
+            if (!selected || selected.size === 0) return true;
+            return selected.has(rowValue);
+          } else {
+            const selected = filterValue as string;
+            if (!selected || selected === "all") return true;
+            return rowValue === selected;
+          }
+        });
       });
     }
 
@@ -145,7 +174,7 @@ export function DataTable<T>({
       });
     }
 
-    // Apply sort with stable secondary sort using row key
+    // Apply sort
     if (sortColumn) {
       const column = getColumn(sortColumn);
       if (column) {
@@ -157,7 +186,6 @@ export function DataTable<T>({
           } else {
             comparison = defaultSort(a, b, column, sortDirection);
           }
-          // Stable sort: use row key as tiebreaker when primary sort values are equal
           if (comparison === 0) {
             comparison = getRowKey(a).localeCompare(getRowKey(b));
           }
@@ -182,20 +210,32 @@ export function DataTable<T>({
       totalFiltered,
       totalPages,
     };
-  }, [data, filter, filterValue, search, searchValue, sortColumn, sortDirection, getColumn, getRowKey, page, pageSize]);
+  }, [
+    data,
+    filters,
+    filterValues,
+    search,
+    searchValue,
+    sortColumn,
+    sortDirection,
+    getColumn,
+    getRowKey,
+    page,
+    pageSize,
+  ]);
 
   // Handlers
   const handleSort = useCallback(
-    (column: string) => {
-      if (sortColumn === column) {
-        setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    (column: string, direction: SortDirection) => {
+      if (sortColumn === column && direction === sortDirection) {
+         setSortDirection(direction === "asc" ? "desc" : "asc");
       } else {
         setSortColumn(column);
-        setSortDirection("asc");
+        setSortDirection(direction);
       }
       setPage(0);
     },
-    [sortColumn]
+    [sortColumn, sortDirection]
   );
 
   const handleSearchChange = useCallback((value: string) => {
@@ -203,8 +243,11 @@ export function DataTable<T>({
     setPage(0);
   }, []);
 
-  const handleFilterChange = useCallback((value: string) => {
-    setFilterValue(value);
+  const handleFilterChange = useCallback((key: string, value: string | Set<string>) => {
+    setFilterValues((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
     setPage(0);
   }, []);
 
@@ -236,13 +279,13 @@ export function DataTable<T>({
     if (!showCard) return content;
 
     return (
-      <Card>
+      <Card className={cn("flex flex-col", className)}>
         {title && (
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-medium">{title}</CardTitle>
           </CardHeader>
         )}
-        <CardContent>{content}</CardContent>
+        <CardContent className="flex-1">{content}</CardContent>
       </Card>
     );
   }
@@ -255,62 +298,66 @@ export function DataTable<T>({
 
   // Build table content
   const tableContent = (
-    <div className="space-y-4">
+    <div className="flex flex-col h-full space-y-4">
       {/* Toolbar */}
       <DataTableToolbar
         search={search}
         searchValue={searchValue}
         onSearchChange={handleSearchChange}
-        filter={filter}
-        filterValue={filterValue}
+        filters={filters}
+        filterValues={filterValues}
         onFilterChange={handleFilterChange}
+        columns={columns}
+        hiddenColumns={hiddenColumns}
+        onHiddenColumnsChange={setHiddenColumns}
+        enableViewOptions={enableViewOptions}
         headerActions={headerActions}
       />
 
       {/* Empty/No Results State */}
       {(showEmptyState || showNoResultsState) ? (
-        <EmptyState
-          icon={(noResultsState || emptyState)!.icon}
-          title={(noResultsState || emptyState)!.title}
-          description={(noResultsState || emptyState)!.description}
-          action={(noResultsState || emptyState)!.action}
-          bordered={false}
-        />
+        <div className="flex-1 flex flex-col">
+          <EmptyState
+            icon={(noResultsState || emptyState)!.icon}
+            title={(noResultsState || emptyState)!.title}
+            description={(noResultsState || emptyState)!.description}
+            action={(noResultsState || emptyState)!.action}
+            bordered={false}
+            className="flex-1"
+          />
+        </div>
       ) : (
         <>
-          {/* Table */}
-          <div className="rounded border overflow-x-auto">
+          {/* Table Container - Takes remaining space */}
+          <div className="rounded border overflow-x-auto flex-1">
             <Table>
               <TableHeader>
                 <TableRow>
-                  {columns.map((column) => {
-                    const hiddenClass = getHiddenClass(column.hiddenBelow);
-                    const alignClass = getAlignClass(column.align);
+                  {columns
+                    .filter((col) => !hiddenColumns.has(col.id))
+                    .map((column) => {
+                      const hiddenClass = getHiddenClass(column.hiddenBelow);
+                      const alignClass = getAlignClass(column.align);
 
-                    if (column.sortable) {
                       return (
-                        <SortableTableHeader
+                        <TableHead
                           key={column.id}
-                          column={column.id}
-                          label={column.header}
-                          currentSort={sortColumn}
-                          direction={sortDirection}
-                          onSort={handleSort}
-                          className={cn(hiddenClass, column.headerClassName)}
-                          align={column.align}
-                        />
+                          className={cn(
+                            hiddenClass,
+                            alignClass,
+                            column.headerClassName
+                          )}
+                        >
+                          <DataTableColumnHeader
+                            column={column}
+                            title={column.header}
+                            currentSortColumn={sortColumn}
+                            currentSortDirection={sortDirection}
+                            onSort={handleSort}
+                          />
+                        </TableHead>
                       );
-                    }
-
-                    return (
-                      <TableHead
-                        key={column.id}
-                        className={cn(hiddenClass, alignClass, column.headerClassName)}
-                      >
-                        {column.header}
-                      </TableHead>
-                    );
-                  })}
+                    })}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -320,34 +367,42 @@ export function DataTable<T>({
                     className={onRowClick ? "cursor-pointer" : undefined}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
                   >
-                    {columns.map((column) => {
-                      const hiddenClass = getHiddenClass(column.hiddenBelow);
-                      const alignClass = getAlignClass(column.align);
+                    {columns
+                      .filter((col) => !hiddenColumns.has(col.id))
+                      .map((column) => {
+                        const hiddenClass = getHiddenClass(column.hiddenBelow);
+                        const alignClass = getAlignClass(column.align);
 
-                      return (
-                        <TableCell
-                          key={column.id}
-                          className={cn(hiddenClass, alignClass, column.className)}
-                        >
-                          <DataTableCell row={row} column={column} />
-                        </TableCell>
-                      );
-                    })}
+                        return (
+                          <TableCell
+                            key={column.id}
+                            className={cn(
+                              hiddenClass,
+                              alignClass,
+                              column.className
+                            )}
+                          >
+                            <DataTableCell row={row} column={column} />
+                          </TableCell>
+                        );
+                      })}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
 
-          {/* Pagination */}
+          {/* Pagination - Pushed to bottom */}
           {pageSize > 0 && totalFiltered > 0 && (
-            <DataTablePagination
-              page={page}
-              totalPages={totalPages}
-              totalItems={totalFiltered}
-              pageSize={pageSize}
-              onPageChange={handlePageChange}
-            />
+            <div className="mt-auto">
+              <DataTablePagination
+                page={page}
+                totalPages={totalPages}
+                totalItems={totalFiltered}
+                pageSize={pageSize}
+                onPageChange={handlePageChange}
+              />
+            </div>
           )}
         </>
       )}
@@ -356,17 +411,17 @@ export function DataTable<T>({
 
   // Wrap in card if needed
   if (!showCard) {
-    return tableContent;
+    return <div className={cn("h-full", className)}>{tableContent}</div>;
   }
 
   return (
-    <Card>
+    <Card className={cn("flex flex-col", className)}>
       {title && (
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium">{title}</CardTitle>
         </CardHeader>
       )}
-      <CardContent>{tableContent}</CardContent>
+      <CardContent className="flex-1 flex flex-col overflow-hidden">{tableContent}</CardContent>
     </Card>
   );
 }

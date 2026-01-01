@@ -118,13 +118,13 @@ export function HealthHeatmap({
 
   const getColorClass = (successRate: number): string => {
     if (successRate < 0) return "bg-muted/50"; // No data
-    if (successRate === 100) return "bg-emerald-500";
-    if (successRate >= 90) return "bg-emerald-400";
-    if (successRate >= 75) return "bg-emerald-300 dark:bg-emerald-600";
-    if (successRate >= 50) return "bg-amber-400";
-    if (successRate >= 25) return "bg-amber-500";
-    if (successRate > 0) return "bg-red-400";
-    return "bg-red-500"; // 0% success rate
+    if (successRate === 100) return "bg-emerald-500 dark:bg-emerald-500";
+    if (successRate >= 90) return "bg-emerald-400 dark:bg-emerald-600";
+    if (successRate >= 75) return "bg-emerald-300 dark:bg-emerald-700";
+    if (successRate >= 50) return "bg-amber-400 dark:bg-amber-600";
+    if (successRate >= 25) return "bg-amber-500 dark:bg-amber-700";
+    if (successRate > 0) return "bg-red-400 dark:bg-red-600";
+    return "bg-red-500 dark:bg-red-700"; // 0% success rate
   };
 
   const formatDate = (date: Date): string => {
@@ -246,10 +246,10 @@ export function HealthHeatmap({
               <span>Less</span>
               <div className="flex gap-1">
                 <div className="h-4 w-4 rounded-sm bg-muted/50" />
-                <div className="h-4 w-4 rounded-sm bg-red-500" />
-                <div className="h-4 w-4 rounded-sm bg-amber-400" />
-                <div className="h-4 w-4 rounded-sm bg-emerald-300 dark:bg-emerald-600" />
-                <div className="h-4 w-4 rounded-sm bg-emerald-500" />
+                <div className="h-4 w-4 rounded-sm bg-red-500 dark:bg-red-700" />
+                <div className="h-4 w-4 rounded-sm bg-amber-400 dark:bg-amber-600" />
+                <div className="h-4 w-4 rounded-sm bg-emerald-300 dark:bg-emerald-700" />
+                <div className="h-4 w-4 rounded-sm bg-emerald-500 dark:bg-emerald-500" />
               </div>
               <span>More</span>
             </div>

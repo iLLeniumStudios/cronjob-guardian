@@ -92,7 +92,7 @@ export interface ColumnDef<T> {
   headerClassName?: string;
 }
 
-export interface FilterConfig<T> {
+export interface BaseFilterConfig<T> {
   /** Key in the row data to filter on */
   key: keyof T;
 
@@ -100,17 +100,24 @@ export interface FilterConfig<T> {
   label?: string;
 
   /** Available filter options */
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; icon?: React.ComponentType<{ className?: string }> }[];
+}
 
+export interface SelectFilterConfig<T> extends BaseFilterConfig<T> {
+  type: "select";
   /** Default selected value (defaults to first option or "all") */
   defaultValue?: string;
-
   /** Whether to include an "All" option (defaults to true) */
   showAll?: boolean;
-
   /** Label for the "All" option (defaults to "All") */
   allLabel?: string;
 }
+
+export interface FacetedFilterConfig<T> extends BaseFilterConfig<T> {
+  type: "faceted";
+}
+
+export type FilterConfig<T> = SelectFilterConfig<T> | FacetedFilterConfig<T>;
 
 export interface SearchConfig<T> {
   /** Placeholder text for the search input */
@@ -159,13 +166,18 @@ export interface DataTableProps<T> {
 
   // --- Filtering ---
 
-  /** Filter dropdown configuration */
-  filter?: FilterConfig<T>;
+  /** Filter configuration */
+  filters?: FilterConfig<T>[];
 
   // --- Search ---
 
   /** Search input configuration */
   search?: SearchConfig<T>;
+
+  // --- View Options ---
+
+  /** Whether to show the column visibility toggle */
+  enableViewOptions?: boolean;
 
   // --- Empty State ---
 

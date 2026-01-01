@@ -145,27 +145,28 @@ export function SuccessRateChart({ executions, defaultDays = 14, targetSLA }: Su
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                 tickLine={false}
                 axisLine={false}
-                className="fill-muted-foreground"
                 interval={daysRange > 30 ? Math.floor(daysRange / 10) : "preserveStartEnd"}
               />
               <YAxis
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                 tickLine={false}
                 axisLine={false}
                 domain={[0, 100]}
                 tickFormatter={(value) => `${value}%`}
-                className="fill-muted-foreground"
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "var(--card)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "4px",
+                  backgroundColor: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "var(--radius)",
                   fontSize: "12px",
+                  color: "hsl(var(--foreground))",
                 }}
+                itemStyle={{ color: "hsl(var(--foreground))" }}
+                labelStyle={{ color: "hsl(var(--muted-foreground))", marginBottom: "0.25rem" }}
                 formatter={(value: number, _name: string, props) => {
                   const data = props.payload;
                   return [
