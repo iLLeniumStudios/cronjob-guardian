@@ -46,7 +46,17 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
   const sortedAlerts = [...(uniqueAlerts?.values() ?? [])].sort((a, b) => {
     const aSeverity = (a.severity || "info") as Severity;
     const bSeverity = (b.severity || "info") as Severity;
-    return SEVERITY_ORDER[aSeverity] - SEVERITY_ORDER[bSeverity];
+    // Primary sort: severity (critical first)
+    const severityDiff = SEVERITY_ORDER[aSeverity] - SEVERITY_ORDER[bSeverity];
+    if (severityDiff !== 0) return severityDiff;
+    // Secondary sort: namespace
+    const namespaceDiff = a.cronjob.namespace.localeCompare(b.cronjob.namespace);
+    if (namespaceDiff !== 0) return namespaceDiff;
+    // Tertiary sort: name
+    const nameDiff = a.cronjob.name.localeCompare(b.cronjob.name);
+    if (nameDiff !== 0) return nameDiff;
+    // Quaternary sort: alert type (for stability)
+    return (a.type || "").localeCompare(b.type || "");
   });
 
   return (

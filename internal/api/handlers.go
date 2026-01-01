@@ -558,45 +558,12 @@ func (h *Handlers) GetExecutions(w http.ResponseWriter, r *http.Request) {
 	var paged []store.Execution
 	var total int64
 
-	// Use database-level pagination when no status filter is applied
-	if statusFilter == "" {
-		var err error
-		paged, total, err = h.store.GetExecutionsPaginated(ctx, cronJobNN, since, limit, offset)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-			return
-		}
-	} else {
-		// Fallback to in-memory filtering when status filter is applied
-		executions, err := h.store.GetExecutions(ctx, cronJobNN, since)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-			return
-		}
-
-		// Apply status filter
-		filtered := make([]store.Execution, 0, len(executions))
-		for _, e := range executions {
-			if statusFilter == statusSuccess && !e.Succeeded {
-				continue
-			}
-			if statusFilter == statusFailed && e.Succeeded {
-				continue
-			}
-			filtered = append(filtered, e)
-		}
-
-		// Apply pagination
-		total = int64(len(filtered))
-		start := offset
-		end := offset + limit
-		if start > len(filtered) {
-			start = len(filtered)
-		}
-		if end > len(filtered) {
-			end = len(filtered)
-		}
-		paged = filtered[start:end]
+	// Use database-level pagination with optional status filter
+	var err error
+	paged, total, err = h.store.GetExecutionsFiltered(ctx, cronJobNN, since, statusFilter, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
 	}
 
 	items := make([]ExecutionItem, 0, len(paged))

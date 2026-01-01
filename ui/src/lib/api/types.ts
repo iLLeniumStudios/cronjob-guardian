@@ -5,6 +5,7 @@ export interface CronJobSummary {
   healthy: number;
   warning: number;
   critical: number;
+  suspended: number;
   running: number;
 }
 

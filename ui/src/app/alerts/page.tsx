@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import Link from "next/link";
 import { Bell, AlertCircle, History } from "lucide-react";
 import { Header } from "@/components/header";
@@ -23,7 +23,7 @@ import {
   type AlertHistoryItem,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { SEVERITY_STYLES, type Severity } from "@/lib/constants";
+import { SEVERITY_STYLES, SEVERITY_ORDER, type Severity } from "@/lib/constants";
 
 interface AlertsData {
   activeAlerts: AlertsResponse;
@@ -41,12 +41,33 @@ export default function AlertsPage() {
 
   const { data, isLoading, isRefreshing, refetch } = useFetchData(fetchAlertsData);
 
+  const activeAlerts = data?.activeAlerts;
+  const alertHistory = data?.alertHistory;
+
+  // Sort active alerts: critical first, then by namespace, then by name, then by type
+  const sortedActiveAlerts = useMemo(() => {
+    const items = activeAlerts?.items;
+    if (!items) return [];
+    return [...items].sort((a, b) => {
+      const aSeverity = (a.severity || "info") as Severity;
+      const bSeverity = (b.severity || "info") as Severity;
+      // Primary sort: severity (critical first)
+      const severityDiff = SEVERITY_ORDER[aSeverity] - SEVERITY_ORDER[bSeverity];
+      if (severityDiff !== 0) return severityDiff;
+      // Secondary sort: namespace
+      const namespaceDiff = a.cronjob.namespace.localeCompare(b.cronjob.namespace);
+      if (namespaceDiff !== 0) return namespaceDiff;
+      // Tertiary sort: name
+      const nameDiff = a.cronjob.name.localeCompare(b.cronjob.name);
+      if (nameDiff !== 0) return nameDiff;
+      // Quaternary sort: alert type (for stability)
+      return (a.type || "").localeCompare(b.type || "");
+    });
+  }, [activeAlerts?.items]);
+
   if (isLoading) {
     return <PageSkeleton title="Alerts" variant="table" />;
   }
-
-  const activeAlerts = data?.activeAlerts;
-  const alertHistory = data?.alertHistory;
 
   return (
     <div className="flex h-full flex-col">
@@ -98,7 +119,7 @@ export default function AlertsPage() {
                 <CardTitle className="text-base font-medium">Active Alerts</CardTitle>
               </CardHeader>
               <CardContent>
-                {activeAlerts?.items.length === 0 ? (
+                {sortedActiveAlerts.length === 0 ? (
                   <EmptyState
                     icon={Bell}
                     title="No active alerts"
@@ -108,7 +129,7 @@ export default function AlertsPage() {
                 ) : (
                   <ScrollArea className="h-[500px]">
                     <div className="space-y-3 pr-3">
-                      {activeAlerts?.items.map((alert) => (
+                      {sortedActiveAlerts.map((alert) => (
                         <ActiveAlertCard key={alert.id} alert={alert} />
                       ))}
                     </div>

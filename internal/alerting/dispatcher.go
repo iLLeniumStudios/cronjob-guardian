@@ -394,6 +394,14 @@ func (d *dispatcher) IsSuppressed(alert Alert, alertCfg *v1alpha1.AlertingConfig
 			suppressDuration = alertCfg.SuppressDuplicatesFor.Duration
 		}
 		if time.Since(lastSent) < suppressDuration {
+			// Check if error signature changed - if so, don't suppress
+			// This ensures on-call is notified when the error type changes
+			// (e.g., OOMKilled -> connection error)
+			if existingAlert, exists := d.activeAlerts[alert.Key]; exists {
+				if errorSignatureChanged(existingAlert.Context, alert.Context) {
+					return false, "" // Don't suppress - error type changed
+				}
+			}
 			return true, "duplicate within suppression window"
 		}
 	}
@@ -402,6 +410,39 @@ func (d *dispatcher) IsSuppressed(alert Alert, alertCfg *v1alpha1.AlertingConfig
 	// Dependency suppression would be done by caller (controller)
 
 	return false, ""
+}
+
+// exitCodeCategory groups exit codes into meaningful categories
+func exitCodeCategory(code int32) string {
+	switch {
+	case code == 0:
+		return "success"
+	case code == 137:
+		return "oom" // SIGKILL, usually OOM
+	case code == 143:
+		return "sigterm" // Graceful termination
+	case code >= 128:
+		return "signal" // Terminated by signal
+	default:
+		return "app-error" // Application error 1-127
+	}
+}
+
+// errorSignatureChanged returns true if the error type changed significantly
+// between two alerts. This is used to bypass duplicate suppression when
+// the error category changes (e.g., OOM -> connection error).
+func errorSignatureChanged(old, new AlertContext) bool {
+	// Major exit code category changed
+	if exitCodeCategory(old.ExitCode) != exitCodeCategory(new.ExitCode) {
+		return true
+	}
+
+	// Reason changed (OOMKilled -> Error, ImagePullBackOff, etc.)
+	if old.Reason != "" && new.Reason != "" && old.Reason != new.Reason {
+		return true
+	}
+
+	return false
 }
 
 // ClearAlert clears an active alert

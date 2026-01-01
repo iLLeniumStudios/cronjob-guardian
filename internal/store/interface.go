@@ -41,11 +41,18 @@ type Store interface {
 	// GetExecutionsPaginated returns executions with database-level pagination
 	GetExecutionsPaginated(ctx context.Context, cronJob types.NamespacedName, since time.Time, limit, offset int) ([]Execution, int64, error)
 
+	// GetExecutionsFiltered returns executions with database-level filtering and pagination
+	// status can be "success", "failed", or "" for all
+	GetExecutionsFiltered(ctx context.Context, cronJob types.NamespacedName, since time.Time, status string, limit, offset int) ([]Execution, int64, error)
+
 	// GetLastExecution returns the most recent execution
 	GetLastExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error)
 
 	// GetLastSuccessfulExecution returns the most recent successful execution
 	GetLastSuccessfulExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error)
+
+	// GetExecutionByJobName returns an execution by its job name
+	GetExecutionByJobName(ctx context.Context, namespace, jobName string) (*Execution, error)
 
 	// GetMetrics calculates SLA metrics for a CronJob
 	GetMetrics(ctx context.Context, cronJob types.NamespacedName, windowDays int) (*Metrics, error)

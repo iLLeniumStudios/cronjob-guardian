@@ -116,6 +116,37 @@ func (s *GormStore) GetExecutionsPaginated(ctx context.Context, cronJob types.Na
 	return execs, total, err
 }
 
+// GetExecutionsFiltered returns executions with database-level filtering and pagination
+func (s *GormStore) GetExecutionsFiltered(ctx context.Context, cronJob types.NamespacedName, since time.Time, status string, limit, offset int) ([]Execution, int64, error) {
+	var execs []Execution
+	var total int64
+
+	query := s.db.WithContext(ctx).Model(&Execution{}).
+		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ?",
+			cronJob.Namespace, cronJob.Name, since)
+
+	// Apply status filter at database level
+	switch status {
+	case "success":
+		query = query.Where("succeeded = ?", true)
+	case "failed":
+		query = query.Where("succeeded = ?", false)
+	}
+
+	// Get total count first
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Get paginated results
+	err := query.Order("start_time DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&execs).Error
+
+	return execs, total, err
+}
+
 // GetLastExecution returns the most recent execution
 func (s *GormStore) GetLastExecution(ctx context.Context, cronJob types.NamespacedName) (*Execution, error) {
 	var exec Execution
@@ -139,6 +170,21 @@ func (s *GormStore) GetLastSuccessfulExecution(ctx context.Context, cronJob type
 		Where("cronjob_ns = ? AND cronjob_name = ? AND succeeded = ?",
 			cronJob.Namespace, cronJob.Name, true).
 		Order("start_time DESC").
+		First(&exec).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &exec, nil
+}
+
+// GetExecutionByJobName returns an execution by its job name
+func (s *GormStore) GetExecutionByJobName(ctx context.Context, namespace, jobName string) (*Execution, error) {
+	var exec Execution
+	err := s.db.WithContext(ctx).
+		Where("cronjob_ns = ? AND job_name = ?", namespace, jobName).
 		First(&exec).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -185,25 +231,54 @@ func (s *GormStore) GetMetrics(ctx context.Context, cronJob types.NamespacedName
 	}
 
 	// Get durations for percentile calculation
-	var durations []float64
-	err = s.db.WithContext(ctx).Model(&Execution{}).
-		Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL",
-			cronJob.Namespace, cronJob.Name, since).
-		Order("duration_secs").
-		Pluck("duration_secs", &durations).Error
-	if err != nil {
-		return nil, err
-	}
-
-	if len(durations) > 0 {
-		var sum float64
-		for _, d := range durations {
-			sum += d
+	// Use native percentile functions for PostgreSQL, in-memory for SQLite
+	if s.dialect == "postgres" {
+		// Use native PostgreSQL percentile_cont for O(1) memory usage
+		type percentileResult struct {
+			Avg float64
+			P50 float64
+			P95 float64
+			P99 float64
 		}
-		metrics.AvgDurationSeconds = sum / float64(len(durations))
-		metrics.P50DurationSeconds = percentile(durations, 50)
-		metrics.P95DurationSeconds = percentile(durations, 95)
-		metrics.P99DurationSeconds = percentile(durations, 99)
+		var pr percentileResult
+		err = s.db.WithContext(ctx).Model(&Execution{}).
+			Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL",
+				cronJob.Namespace, cronJob.Name, since).
+			Select(`
+				AVG(duration_secs) as avg,
+				PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_secs) as p50,
+				PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_secs) as p95,
+				PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_secs) as p99
+			`).
+			Scan(&pr).Error
+		if err == nil {
+			metrics.AvgDurationSeconds = pr.Avg
+			metrics.P50DurationSeconds = pr.P50
+			metrics.P95DurationSeconds = pr.P95
+			metrics.P99DurationSeconds = pr.P99
+		}
+	} else {
+		// SQLite: Use in-memory percentile calculation
+		var durations []float64
+		err = s.db.WithContext(ctx).Model(&Execution{}).
+			Where("cronjob_ns = ? AND cronjob_name = ? AND start_time >= ? AND duration_secs IS NOT NULL",
+				cronJob.Namespace, cronJob.Name, since).
+			Order("duration_secs").
+			Pluck("duration_secs", &durations).Error
+		if err != nil {
+			return nil, err
+		}
+
+		if len(durations) > 0 {
+			var sum float64
+			for _, d := range durations {
+				sum += d
+			}
+			metrics.AvgDurationSeconds = sum / float64(len(durations))
+			metrics.P50DurationSeconds = percentile(durations, 50)
+			metrics.P95DurationSeconds = percentile(durations, 95)
+			metrics.P99DurationSeconds = percentile(durations, 99)
+		}
 	}
 
 	return metrics, nil
