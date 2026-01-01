@@ -1,0 +1,144 @@
+# Full-featured CronJobMonitor
+# Demonstrates all available configuration options
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: full-featured
+  namespace: production
+spec:
+  # ============================================================================
+  # Selector: Which CronJobs to monitor
+  # ============================================================================
+  selector:
+    # Match by label expressions (supports In, NotIn, Exists, DoesNotExist)
+    matchExpressions:
+      - key: tier
+        operator: In
+        values: [critical, high]
+    # Or match by exact labels
+    # matchLabels:
+    #   tier: critical
+    # Or match by explicit names (only valid for single namespace)
+    # matchNames:
+    #   - daily-backup
+    #   - weekly-report
+    # Watch specific namespaces
+    # namespaces:
+    #   - production
+    #   - staging
+    # Or select namespaces by their labels
+    # namespaceSelector:
+    #   matchLabels:
+    #     env: production
+    # Or watch all namespaces cluster-wide
+    # allNamespaces: true
+
+  # ============================================================================
+  # Dead-Man's Switch: Alert if jobs don't run on time
+  # ============================================================================
+  deadManSwitch:
+    enabled: true
+    # Option 1: Fixed time window
+    maxTimeSinceLastSuccess: 25h
+    # Option 2: Auto-detect from cron schedule (alternative to maxTimeSinceLastSuccess)
+    # autoFromSchedule:
+    #   enabled: true
+    #   buffer: 1h                    # Extra time added to expected interval
+    #   missedScheduleThreshold: 2    # Alert after this many missed schedules
+
+  # ============================================================================
+  # SLA Tracking: Monitor success rates and durations
+  # ============================================================================
+  sla:
+    enabled: true
+    minSuccessRate: 95              # Minimum acceptable success rate percentage
+    windowDays: 7                   # Rolling window for success rate calculation
+    maxDuration: 30m                # Alert if any job exceeds this duration
+    durationPercentiles:            # Percentiles to track (default: [50, 95, 99])
+      - 50
+      - 95
+      - 99
+    durationRegressionThreshold: 50 # Alert if P95 increases by this percentage
+    durationBaselineWindowDays: 14  # Window for baseline calculation
+
+  # ============================================================================
+  # Suspended Handling: Behavior for suspended CronJobs
+  # ============================================================================
+  suspendedHandling:
+    pauseMonitoring: true           # Pause monitoring when CronJob is suspended
+    alertIfSuspendedFor: 168h       # Alert if suspended for more than 7 days
+
+  # ============================================================================
+  # Maintenance Windows: Suppress alerts during planned maintenance
+  # ============================================================================
+  maintenanceWindows:
+    - name: weekly-maintenance
+      schedule: "0 2 * * 0"         # Every Sunday at 2 AM
+      duration: 4h
+      timezone: America/New_York    # Optional timezone (default: UTC)
+      suppressAlerts: true          # Suppress alerts during this window
+
+  # ============================================================================
+  # Alerting Configuration
+  # ============================================================================
+  alerting:
+    enabled: true
+
+    # Channel references (cluster-scoped AlertChannel resources)
+    channelRefs:
+      - name: pagerduty-oncall
+        severities: [critical]       # Only critical alerts to PagerDuty
+      - name: slack-ops
+        severities: [critical, warning]  # All actionable alerts to Slack
+      # Note: Only 'critical' and 'warning' severities are supported
+
+    # Override default severities for specific alert types
+    severityOverrides:
+      jobFailed: critical
+      slaBreached: warning
+      missedSchedule: warning
+      deadManTriggered: critical
+      durationRegression: warning
+
+    # Suppress duplicate alerts within this window
+    suppressDuplicatesFor: 1h
+
+    # Delay alert dispatch to allow transient issues to resolve
+    # If the issue resolves before the delay expires, the alert is cancelled
+    alertDelay: 5m
+
+    # What context to include in alerts
+    includeContext:
+      logs: true                    # Include pod logs
+      logLines: 100                 # Number of log lines to include
+      logContainerName: main        # Specific container for logs (default: first)
+      includeInitContainerLogs: false
+      events: true                  # Include Kubernetes events
+      podStatus: true               # Include pod status details
+      suggestedFixes: true          # Include fix suggestions
+
+    # Custom suggested fix patterns (merged with built-ins)
+    suggestedFixPatterns:
+      - name: custom-oom
+        match:
+          exitCode: 137
+        suggestion: "Container was OOM killed. Consider increasing memory limits for {{.Namespace}}/{{.Name}}"
+        priority: 150               # Higher than built-in (1-100)
+      - name: connection-timeout
+        match:
+          logPattern: "connection timed out|ETIMEDOUT"
+        suggestion: "Network timeout detected. Check connectivity to external services."
+        priority: 50
+
+  # ============================================================================
+  # Data Retention: Configure data lifecycle per monitor
+  # ============================================================================
+  dataRetention:
+    retentionDays: 60               # Override global retention for this monitor
+    onCronJobDeletion: purge-after-days  # retain, purge, or purge-after-days
+    purgeAfterDays: 7               # Days to wait before purging (for purge-after-days)
+    onRecreation: retain            # retain or reset when CronJob is recreated
+    storeLogs: true                 # Store job logs in database
+    logRetentionDays: 30            # Log retention (default: same as retentionDays)
+    maxLogSizeKB: 200               # Max log size per execution
+    storeEvents: true               # Store Kubernetes events in database

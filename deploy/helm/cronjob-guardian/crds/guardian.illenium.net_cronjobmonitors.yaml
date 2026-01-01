@@ -61,6 +61,13 @@ spec:
               alerting:
                 description: Alerting configures alert channels and behavior
                 properties:
+                  alertDelay:
+                    description: |-
+                      AlertDelay delays alert dispatch to allow transient issues to resolve.
+                      If the issue resolves (e.g., next job succeeds) before the delay expires,
+                      the alert is cancelled and never sent. Useful for flaky jobs.
+                      Example: "5m" waits 5 minutes before sending failure alerts.
+                    type: string
                   channelRefs:
                     description: ChannelRefs references cluster-scoped AlertChannel
                       CRs
@@ -123,33 +130,94 @@ spec:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                       durationRegression:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                       jobFailed:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                       missedSchedule:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                       slaBreached:
                         enum:
                         - critical
                         - warning
-                        - info
                         type: string
                     type: object
+                  suggestedFixPatterns:
+                    description: |-
+                      SuggestedFixPatterns defines custom fix patterns for this monitor
+                      These are merged with built-in patterns, with custom patterns taking priority
+                    items:
+                      description: SuggestedFixPattern defines a pattern for suggesting
+                        fixes based on failure context
+                      properties:
+                        match:
+                          description: Match criteria - at least one must be specified
+                          properties:
+                            eventPattern:
+                              description: EventPattern matches event messages using
+                                regex
+                              type: string
+                            exitCode:
+                              description: ExitCode matches specific exit codes (e.g.,
+                                137 for OOM)
+                              format: int32
+                              type: integer
+                            exitCodeRange:
+                              description: ExitCodeRange matches a range [min, max]
+                                inclusive
+                              properties:
+                                max:
+                                  format: int32
+                                  type: integer
+                                min:
+                                  format: int32
+                                  type: integer
+                              required:
+                              - max
+                              - min
+                              type: object
+                            logPattern:
+                              description: LogPattern matches log content using regex
+                              type: string
+                            reason:
+                              description: Reason matches container termination reason
+                                (exact match, case-insensitive)
+                              type: string
+                            reasonPattern:
+                              description: ReasonPattern matches reason using regex
+                              type: string
+                          type: object
+                        name:
+                          description: Name identifies this pattern (for overriding
+                            built-ins like "oom-killed")
+                          type: string
+                        priority:
+                          description: |-
+                            Priority determines order (higher = checked first, default: 0)
+                            Built-in patterns use priorities 1-100, use >100 to override
+                          format: int32
+                          type: integer
+                        suggestion:
+                          description: |-
+                            Suggestion is the fix text (supports Go templates)
+                            Available variables: {{.Namespace}}, {{.Name}}, {{.ExitCode}}, {{.Reason}}, {{.JobName}}
+                          type: string
+                      required:
+                      - match
+                      - name
+                      - suggestion
+                      type: object
+                    type: array
                   suppressDuplicatesFor:
                     description: 'SuppressDuplicatesFor prevents re-alerting within
                       this window (default: 1h)'
@@ -492,6 +560,11 @@ spec:
                       items:
                         description: ActiveAlert represents an active alert
                         properties:
+                          exitCode:
+                            description: ExitCode from the failed container (for JobFailed
+                              alerts)
+                            format: int32
+                            type: integer
                           lastNotified:
                             description: LastNotified is when the alert was last sent
                             format: date-time
@@ -499,12 +572,20 @@ spec:
                           message:
                             description: Message describes the alert
                             type: string
+                          reason:
+                            description: Reason for the failure (e.g., OOMKilled,
+                              Error)
+                            type: string
                           severity:
                             description: Severity of alert
                             type: string
                           since:
                             description: Since is when the alert became active
                             format: date-time
+                            type: string
+                          suggestedFix:
+                            description: SuggestedFix provides actionable guidance
+                              for resolving the alert
                             type: string
                           type:
                             description: Type of alert
@@ -514,6 +595,40 @@ spec:
                         - severity
                         - since
                         - type
+                        type: object
+                      type: array
+                    activeJobs:
+                      description: ActiveJobs lists currently running jobs for this
+                        CronJob
+                      items:
+                        description: ActiveJob represents a currently running job
+                        properties:
+                          name:
+                            description: Name of the Job
+                            type: string
+                          podName:
+                            description: PodName is the name of the pod running the
+                              job
+                            type: string
+                          podPhase:
+                            description: PodPhase is the current phase of the job's
+                              pod (Pending, Running, etc.)
+                            type: string
+                          ready:
+                            description: Ready indicates how many pods are ready vs
+                              total
+                            type: string
+                          runningDuration:
+                            description: RunningDuration is how long the job has been
+                              running
+                            type: string
+                          startTime:
+                            description: StartTime is when the Job started
+                            format: date-time
+                            type: string
+                        required:
+                        - name
+                        - startTime
                         type: object
                       type: array
                     lastFailedTime:
@@ -615,6 +730,9 @@ spec:
                   healthy:
                     format: int32
                     type: integer
+                  running:
+                    format: int32
+                    type: integer
                   suspended:
                     format: int32
                     type: integer
@@ -628,6 +746,7 @@ spec:
                 - activeAlerts
                 - critical
                 - healthy
+                - running
                 - suspended
                 - totalCronJobs
                 - warning

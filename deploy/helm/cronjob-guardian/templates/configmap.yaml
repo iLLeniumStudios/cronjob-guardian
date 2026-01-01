@@ -13,6 +13,7 @@ data:
       dead-man-switch-interval: {{ .Values.config.scheduler.deadManSwitchInterval }}
       sla-recalculation-interval: {{ .Values.config.scheduler.slaRecalculationInterval }}
       prune-interval: {{ .Values.config.scheduler.pruneInterval }}
+      startup-grace-period: {{ .Values.config.scheduler.startupGracePeriod | default "30s" }}
 
     storage:
       type: {{ .Values.config.storage.type | quote }}

@@ -150,6 +150,7 @@ helm install cronjob-guardian oci://ghcr.io/illeniumstudios/charts/cronjob-guard
 | `config.scheduler.deadManSwitchInterval` | Dead-man's switch check interval | `1m` |
 | `config.scheduler.slaRecalculationInterval` | SLA recalculation interval | `5m` |
 | `config.scheduler.pruneInterval` | History prune interval | `1h` |
+| `config.scheduler.startupGracePeriod` | Grace period after startup before sending alerts | `30s` |
 | `config.historyRetention.defaultDays` | Default history retention | `30` |
 | `config.historyRetention.maxDays` | Maximum history retention | `90` |
 | `config.rateLimits.maxAlertsPerMinute` | Maximum alerts per minute | `50` |

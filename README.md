@@ -4,19 +4,78 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Report Card](https://goreportcard.com/badge/github.com/iLLeniumStudios/cronjob-guardian)](https://goreportcard.com/report/github.com/iLLeniumStudios/cronjob-guardian)
 
-A Kubernetes operator that provides intelligent monitoring, SLA tracking, and alerting for CronJobs. Stop firefighting failed batch jobs and let CronJob Guardian watch over your scheduled workloads.
+A Kubernetes operator for monitoring CronJobs with SLA tracking, intelligent alerting, and a built-in dashboard.
 
 ## Why CronJob Guardian?
 
-Kubernetes CronJobs are critical for many operations: database backups, report generation, data pipelines, cache warming, and more. When they fail silently or stop running, the consequences can be severe.
+CronJobs power critical operations—backups, ETL pipelines, reports, cache warming—but Kubernetes provides no built-in monitoring for them. When jobs fail silently or stop running, you only find out when it's too late.
 
-CronJob Guardian solves common pain points:
+CronJob Guardian watches your CronJobs and alerts you when something goes wrong:
 
-- **Silent failures**: Get alerted immediately when jobs fail, with logs and suggested fixes
-- **Missed schedules**: Dead-man's switch alerts when jobs don't run on time
-- **Performance degradation**: Track SLAs and detect when jobs slow down or regress
-- **Alert fatigue**: Smart deduplication, maintenance windows, and severity routing
-- **Visibility**: Rich web dashboard with SLA compliance tracking, health heatmaps, and trend analysis
+- **Job failures** with logs, events, and suggested fixes
+- **Missed schedules** via dead-man's switch detection
+- **Performance regressions** when jobs slow down over time
+- **SLA breaches** when success rates drop below thresholds
+
+## Architecture
+
+```
+                                    Kubernetes Cluster
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                  │
+│   ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐                │
+│   │ CronJobMonitor  │   │  AlertChannel   │   │    CronJobs     │                │
+│   │     (CRD)       │   │     (CRD)       │   │    & Jobs       │                │
+│   └────────┬────────┘   └────────┬────────┘   └────────┬────────┘                │
+│            │                     │                     │                         │
+│            └─────────────────────┼─────────────────────┘                         │
+│                                  ▼                                               │
+│   ┌──────────────────────────────────────────────────────────────────────────┐   │
+│   │                      CronJob Guardian Operator                           │   │
+│   │                                                                          │   │
+│   │   ┌────────────────┐   ┌────────────────┐   ┌────────────────┐           │   │
+│   │   │  Controllers   │   │   Schedulers   │   │    Alerting    │           │   │
+│   │   │                │   │                │   │   Dispatcher   │───────────────────┐
+│   │   │  • Monitor     │   │  • Dead-man    │   │                │           │   │   │
+│   │   │  • Job         │◀──│  • SLA recalc  │──▶│  • Dedup       │           │   │   │
+│   │   │  • Channel     │   │  • Prune       │   │  • Rate limit  │           │   │   │
+│   │   └───────┬────────┘   └────────────────┘   └────────────────┘           │   │   │
+│   │           │                                                              │   │   │
+│   │           ▼                                                              │   │   │
+│   │   ┌─────────────────────────────────────┐   ┌────────────────┐           │   │   │
+│   │   │              Store                  │   │   Prometheus   │           │   │   │
+│   │   │    SQLite / PostgreSQL / MySQL      │   │    Metrics     │───────────────────┐
+│   │   │                                     │   │   :8443        │           │   │   │
+│   │   │  • Executions  • Logs  • Alerts     │   └────────────────┘           │   │   │
+│   │   └──────────────────┬──────────────────┘                                │   │   │
+│   │                      │                                                   │   │   │
+│   │   ┌──────────────────┴──────────────────┐                                │   │   │
+│   │   │        Web UI & REST API            │                                │   │   │
+│   │   │             :8080                   │────────────────────────────────────────┐
+│   │   └─────────────────────────────────────┘                                │   │   │
+│   └──────────────────────────────────────────────────────────────────────────┘   │   │
+│                                                                                  │   │
+└──────────────────────────────────────────────────────────────────────────────────┘   │
+                                                                                       │
+     ┌─────────────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              External Services                                  │
+│                                                                                 │
+│   ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐    │
+│   │   Slack   │  │ PagerDuty │  │  Webhook  │  │   Email   │  │Prometheus │    │
+│   └───────────┘  └───────────┘  └───────────┘  └───────────┘  └───────────┘    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**How it works:**
+1. Create `CronJobMonitor` resources to define what to watch (label selectors, SLA thresholds)
+2. Create `AlertChannel` resources to configure alert destinations (Slack, PagerDuty, etc.)
+3. The operator watches CronJobs and Jobs, records executions to the store
+4. Background schedulers check for missed schedules, SLA breaches, and duration regressions
+5. When issues are detected, alerts are dispatched with context (logs, events, suggested fixes)
 
 ## Features
 
@@ -30,9 +89,9 @@ CronJob Guardian solves common pain points:
 ### Alerting
 
 - **Multiple Channels**: Slack, PagerDuty, generic webhooks, and email
-- **Smart Context**: Alerts include pod logs, Kubernetes events, and suggested fixes
-- **Deduplication**: Prevent alert storms with configurable suppression windows
-- **Severity Routing**: Send critical alerts to PagerDuty, warnings to Slack
+- **Rich Context**: Alerts include pod logs, Kubernetes events, and suggested fixes
+- **Deduplication**: Configurable suppression windows and alert delays for flaky jobs
+- **Severity Routing**: Route critical and warning alerts to different channels
 
 ### Operations
 
@@ -195,9 +254,9 @@ See [examples/monitors/](examples/monitors/) for complete examples of each patte
 | Feature | Description |
 |---------|-------------|
 | **Dead-Man's Switch** | Alert when jobs don't run within expected window |
-| **SLA Tracking** | Monitor success rates over rolling time windows |
+| **SLA Tracking** | Monitor success rates and duration percentiles |
 | **Maintenance Windows** | Suppress alerts during planned maintenance |
-| **Severity Routing** | Route critical/warning/info to different channels |
+| **Severity Routing** | Route critical/warning alerts to different channels |
 
 ### AlertChannel
 
@@ -236,14 +295,17 @@ Example monitors for common scenarios:
 
 CronJob Guardian includes a feature-rich web UI that serves both an interactive dashboard and REST API on port 8080.
 
-### Dashboard Features
+### Dashboard Pages
 
-- **Overview**: Summary cards showing total CronJobs, health status, and active alerts
-- **CronJob Details**: Per-job metrics, execution history, and performance charts
-- **SLA Compliance**: Dedicated page showing which jobs are meeting/breaching SLA targets
-- **Monitors**: View and manage CronJobMonitor resources with aggregate metrics
-- **Alert Channels**: Manage and test notification channels
-- **Alert History**: Browse past alerts with filtering
+| Page | Description |
+|------|-------------|
+| **Overview** | Summary cards, CronJob table with health status, active alerts panel |
+| **CronJob Details** | Per-job metrics, execution history, duration/success charts, health heatmap |
+| **Monitors** | CronJobMonitor list with aggregate metrics and cronjob counts |
+| **Channels** | AlertChannel management with test functionality |
+| **Alerts** | Alert history with filtering by type, severity, and time range |
+| **SLA** | SLA compliance dashboard with breach tracking |
+| **Settings** | System config, storage stats, data pruning, and **Pattern Tester** |
 
 ### Visualization Features
 
@@ -284,6 +346,57 @@ curl -X POST http://localhost:8080/api/v1/cronjobs/production/daily-backup/trigg
 ```
 
 See the **[API Reference](docs/api.md)** for complete endpoint documentation.
+
+## Suggested Fixes
+
+CronJob Guardian includes intelligent fix suggestions that analyze failure context (exit codes, reasons, logs, events) and provide actionable guidance in alerts.
+
+### Built-in Patterns
+
+| Pattern | Trigger | Suggestion |
+|---------|---------|------------|
+| OOMKilled | Reason: `OOMKilled` | Increase `resources.limits.memory` |
+| SIGKILL (137) | Exit code 137 | Check for OOM, inspect pod state |
+| SIGTERM (143) | Exit code 143 | Check `activeDeadlineSeconds` or eviction |
+| ImagePullBackOff | Reason match | Verify image name and `imagePullSecrets` |
+| CrashLoopBackOff | Reason match | Check application startup logs |
+| ConfigError | Reason: `CreateContainerConfigError` | Verify Secret/ConfigMap references |
+| DeadlineExceeded | Reason match | Increase deadline or optimize job |
+| BackoffLimitExceeded | Reason match | Check logs from failed attempts |
+| Evicted | Reason match | Check node pressure, set pod priority |
+| FailedScheduling | Event pattern | Check resources, taints, affinity |
+
+### Custom Patterns
+
+Define custom patterns in your CronJobMonitor to match application-specific failures:
+
+```yaml
+alerting:
+  suggestedFixPatterns:
+    - name: db-connection-failed
+      match:
+        logPattern: "connection refused.*:5432|ECONNREFUSED"
+      suggestion: "PostgreSQL connection failed. Check: kubectl get pods -n {{.Namespace}} -l app=postgres"
+      priority: 150  # Higher than built-ins (1-100)
+    - name: s3-access-denied
+      match:
+        logPattern: "AccessDenied|NoCredentialProviders"
+      suggestion: "S3 access denied. Verify IAM role and bucket policy."
+      priority: 140
+```
+
+### Pattern Tester
+
+Test patterns before deploying via the **Settings > Pattern Tester** page in the UI. Enter match criteria and sample failure data to verify your pattern works correctly.
+
+### Template Variables
+
+Suggestions support Go template variables:
+- `{{.Namespace}}` - CronJob namespace
+- `{{.Name}}` - CronJob name
+- `{{.JobName}}` - Job name (includes timestamp suffix)
+- `{{.ExitCode}}` - Container exit code
+- `{{.Reason}}` - Termination reason
 
 ## Storage Backends
 

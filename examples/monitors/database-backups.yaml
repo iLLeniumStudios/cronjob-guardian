@@ -1,0 +1,32 @@
+# Database Backup Monitoring
+# Monitors critical backup jobs with strict SLA requirements
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: database-backups
+  namespace: databases
+spec:
+  selector:
+    matchLabels:
+      type: backup
+  deadManSwitch:
+    enabled: true
+    maxTimeSinceLastSuccess: 25h  # Daily backups with 1h buffer
+  sla:
+    enabled: true
+    minSuccessRate: 100  # Backups must never fail
+    maxDuration: 1h      # Alert if backup takes too long
+  alerting:
+    channelRefs:
+      - name: pagerduty-dba
+        severities: [critical]
+    severityOverrides:
+      jobFailed: critical
+      deadManTriggered: critical
+    # Custom fix suggestion for backup failures
+    suggestedFixPatterns:
+      - name: disk-full
+        match:
+          logPattern: "No space left on device|disk full"
+        suggestion: "Backup storage is full. Check PVC usage: kubectl get pvc -n {{.Namespace}}"
+        priority: 150

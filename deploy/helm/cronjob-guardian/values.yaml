@@ -112,6 +112,8 @@ config:
     slaRecalculationInterval: 5m
     # -- History prune interval
     pruneInterval: 1h
+    # -- Grace period after startup before sending alerts (prevents alert floods on restart)
+    startupGracePeriod: 30s
 
   # -- Storage backend configuration
   storage:

@@ -1,0 +1,31 @@
+# Data Pipeline Monitoring
+# Tracks ETL performance with duration regression detection
+apiVersion: guardian.illenium.net/v1alpha1
+kind: CronJobMonitor
+metadata:
+  name: etl-pipeline
+  namespace: data-eng
+spec:
+  selector:
+    matchLabels:
+      pipeline: etl
+  deadManSwitch:
+    enabled: true
+    autoFromSchedule:
+      enabled: true
+      buffer: 30m
+  sla:
+    enabled: true
+    minSuccessRate: 95
+    windowDays: 7
+    # ETL jobs have duration SLAs
+    maxDuration: 2h
+    durationRegressionThreshold: 25  # Alert if P95 increases by 25%
+    durationBaselineWindowDays: 14
+  alerting:
+    channelRefs:
+      - name: slack-data-eng
+    # Include logs to debug ETL failures
+    includeContext:
+      logs: true
+      logLines: 200

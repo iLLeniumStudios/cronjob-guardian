@@ -1,0 +1,17 @@
+# Slack AlertChannel
+# Sends alerts to a Slack channel via incoming webhook
+apiVersion: guardian.illenium.net/v1alpha1
+kind: AlertChannel
+metadata:
+  name: slack-alerts
+spec:
+  type: slack
+  slack:
+    webhookSecretRef:
+      name: slack-webhook
+      namespace: cronjob-guardian
+      key: url
+    defaultChannel: "#alerts"
+  rateLimiting:
+    maxAlertsPerHour: 100
+    burstLimit: 10
