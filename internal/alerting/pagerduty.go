@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -34,7 +33,7 @@ import (
 
 const pagerDutyEventsURL = "https://events.pagerduty.com/v2/enqueue"
 
-type pagerdutyChannel struct {
+type pagerDutyChannel struct {
 	name        string
 	client      client.Client
 	secretRef   v1alpha1.NamespacedSecretKeyRef
@@ -43,56 +42,43 @@ type pagerdutyChannel struct {
 }
 
 // NewPagerDutyChannel creates a new PagerDuty channel
-func NewPagerDutyChannel(c client.Client, ac *v1alpha1.AlertChannel) (*pagerdutyChannel, error) {
+func NewPagerDutyChannel(c client.Client, ac *v1alpha1.AlertChannel) (Channel, error) {
 	if ac.Spec.PagerDuty == nil {
 		return nil, fmt.Errorf("pagerduty config required for pagerduty channel")
 	}
 
-	pc := &pagerdutyChannel{
-		name:      ac.Name,
-		client:    c,
-		secretRef: ac.Spec.PagerDuty.RoutingKeySecretRef,
-		severity:  ac.Spec.PagerDuty.Severity,
+	pc := &pagerDutyChannel{
+		name:        ac.Name,
+		client:      c,
+		secretRef:   ac.Spec.PagerDuty.RoutingKeySecretRef,
+		severity:    ac.Spec.PagerDuty.Severity,
+		rateLimiter: NewRateLimiter(ac.Spec.RateLimiting),
 	}
-
-	// Setup rate limiter
-	maxPerHour := int32(100)
-	burst := int32(10)
-	if ac.Spec.RateLimiting != nil {
-		if ac.Spec.RateLimiting.MaxAlertsPerHour != nil {
-			maxPerHour = *ac.Spec.RateLimiting.MaxAlertsPerHour
-		}
-		if ac.Spec.RateLimiting.BurstLimit != nil {
-			burst = *ac.Spec.RateLimiting.BurstLimit
-		}
-	}
-	pc.rateLimiter = rate.NewLimiter(rate.Limit(float64(maxPerHour)/3600), int(burst))
 
 	return pc, nil
 }
 
 // Name returns the channel name
-func (p *pagerdutyChannel) Name() string {
+func (p *pagerDutyChannel) Name() string {
 	return p.name
 }
 
 // Type returns the channel type
-func (p *pagerdutyChannel) Type() string {
+func (p *pagerDutyChannel) Type() string {
 	return "pagerduty"
 }
 
 // Send delivers an alert to PagerDuty
-func (p *pagerdutyChannel) Send(ctx context.Context, alert Alert) error {
+func (p *pagerDutyChannel) Send(ctx context.Context, alert Alert) error {
 	if !p.rateLimiter.Allow() {
 		return fmt.Errorf("rate limit exceeded for channel %s", p.name)
 	}
 
-	routingKey, err := p.getRoutingKey(ctx)
+	routingKey, err := getValueFromSecret(ctx, p.client, p.secretRef)
 	if err != nil {
 		return err
 	}
 
-	// Map severity
 	pdSeverity := p.severity
 	if pdSeverity == "" {
 		switch alert.Severity {
@@ -125,7 +111,6 @@ func (p *pagerdutyChannel) Send(ctx context.Context, alert Alert) error {
 		},
 	}
 
-	// Send with shared HTTP client (has timeouts)
 	jsonPayload, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, "POST", pagerDutyEventsURL, bytes.NewReader(jsonPayload))
 	if err != nil {
@@ -149,35 +134,16 @@ func (p *pagerdutyChannel) Send(ctx context.Context, alert Alert) error {
 }
 
 // Test sends a test alert
-func (p *pagerdutyChannel) Test(ctx context.Context) error {
-	return p.Send(ctx, Alert{
-		Key:       "test-alert",
-		Type:      "Test",
-		Severity:  "info",
-		Title:     "CronJob Guardian Test Alert",
-		Message:   "This is a test alert from CronJob Guardian.",
-		CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
-		Timestamp: timeNow(),
-	})
+func (p *pagerDutyChannel) Test(ctx context.Context) error {
+	return p.Send(
+		ctx, Alert{
+			Key:       "test-alert",
+			Type:      "Test",
+			Severity:  "info",
+			Title:     "CronJob Guardian Test Alert",
+			Message:   "This is a test alert from CronJob Guardian.",
+			CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
+			Timestamp: time.Now(),
+		},
+	)
 }
-
-func (p *pagerdutyChannel) getRoutingKey(ctx context.Context) (string, error) {
-	secret := &corev1.Secret{}
-	err := p.client.Get(ctx, types.NamespacedName{
-		Namespace: p.secretRef.Namespace,
-		Name:      p.secretRef.Name,
-	}, secret)
-	if err != nil {
-		return "", fmt.Errorf("failed to get secret: %w", err)
-	}
-
-	key, ok := secret.Data[p.secretRef.Key]
-	if !ok {
-		return "", fmt.Errorf("key %s not found in secret", p.secretRef.Key)
-	}
-
-	return string(key), nil
-}
-
-// timeNow is a variable for testing
-var timeNow = time.Now

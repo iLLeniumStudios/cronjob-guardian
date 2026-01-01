@@ -23,6 +23,7 @@ import (
 	"net/smtp"
 	"strings"
 	"text/template"
+	"time"
 
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
@@ -52,7 +53,7 @@ type emailChannel struct {
 }
 
 // NewEmailChannel creates a new email channel
-func NewEmailChannel(c client.Client, ac *v1alpha1.AlertChannel) (*emailChannel, error) {
+func NewEmailChannel(c client.Client, ac *v1alpha1.AlertChannel) (Channel, error) {
 	if ac.Spec.Email == nil {
 		return nil, fmt.Errorf("email config required for email channel")
 	}
@@ -65,7 +66,6 @@ func NewEmailChannel(c client.Client, ac *v1alpha1.AlertChannel) (*emailChannel,
 		to:            ac.Spec.Email.To,
 	}
 
-	// Parse subject template
 	subjectTmplStr := defaultEmailSubjectTemplate
 	if ac.Spec.Email.SubjectTemplate != "" {
 		subjectTmplStr = ac.Spec.Email.SubjectTemplate
@@ -76,7 +76,6 @@ func NewEmailChannel(c client.Client, ac *v1alpha1.AlertChannel) (*emailChannel,
 	}
 	ec.subjectTemplate = subjectTmpl
 
-	// Parse body template
 	bodyTmplStr := defaultEmailBodyTemplate
 	if ac.Spec.Email.BodyTemplate != "" {
 		bodyTmplStr = ac.Spec.Email.BodyTemplate
@@ -86,19 +85,7 @@ func NewEmailChannel(c client.Client, ac *v1alpha1.AlertChannel) (*emailChannel,
 		return nil, fmt.Errorf("invalid body template: %w", err)
 	}
 	ec.bodyTemplate = bodyTmpl
-
-	// Setup rate limiter
-	maxPerHour := int32(100)
-	burst := int32(10)
-	if ac.Spec.RateLimiting != nil {
-		if ac.Spec.RateLimiting.MaxAlertsPerHour != nil {
-			maxPerHour = *ac.Spec.RateLimiting.MaxAlertsPerHour
-		}
-		if ac.Spec.RateLimiting.BurstLimit != nil {
-			burst = *ac.Spec.RateLimiting.BurstLimit
-		}
-	}
-	ec.rateLimiter = rate.NewLimiter(rate.Limit(float64(maxPerHour)/3600), int(burst))
+	ec.rateLimiter = NewRateLimiter(ac.Spec.RateLimiting)
 
 	return ec, nil
 }
@@ -119,13 +106,11 @@ func (e *emailChannel) Send(ctx context.Context, alert Alert) error {
 		return fmt.Errorf("rate limit exceeded for channel %s", e.name)
 	}
 
-	// Get SMTP credentials
 	smtpConfig, err := e.getSMTPConfig(ctx)
 	if err != nil {
 		return err
 	}
 
-	// Render subject and body
 	var subjectBuf, bodyBuf bytes.Buffer
 	if err := e.subjectTemplate.Execute(&subjectBuf, alert); err != nil {
 		return fmt.Errorf("failed to render subject: %w", err)
@@ -134,7 +119,6 @@ func (e *emailChannel) Send(ctx context.Context, alert Alert) error {
 		return fmt.Errorf("failed to render body: %w", err)
 	}
 
-	// Build message
 	msg := fmt.Sprintf("From: %s\r\n", e.from)
 	msg += fmt.Sprintf("To: %s\r\n", strings.Join(e.to, ", "))
 	msg += fmt.Sprintf("Subject: %s\r\n", subjectBuf.String())
@@ -143,7 +127,6 @@ func (e *emailChannel) Send(ctx context.Context, alert Alert) error {
 	msg += "\r\n"
 	msg += bodyBuf.String()
 
-	// Send
 	auth := smtp.PlainAuth("", smtpConfig.Username, smtpConfig.Password, smtpConfig.Host)
 	addr := fmt.Sprintf("%s:%s", smtpConfig.Host, smtpConfig.Port)
 
@@ -152,23 +135,27 @@ func (e *emailChannel) Send(ctx context.Context, alert Alert) error {
 
 // Test sends a test alert
 func (e *emailChannel) Test(ctx context.Context) error {
-	return e.Send(ctx, Alert{
-		Key:       "test-alert",
-		Type:      "Test",
-		Severity:  "info",
-		Title:     "CronJob Guardian Test Alert",
-		Message:   "This is a test alert from CronJob Guardian.",
-		CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
-		Timestamp: timeNow(),
-	})
+	return e.Send(
+		ctx, Alert{
+			Key:       "test-alert",
+			Type:      "Test",
+			Severity:  "info",
+			Title:     "CronJob Guardian Test Alert",
+			Message:   "This is a test alert from CronJob Guardian.",
+			CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
+			Timestamp: time.Now(),
+		},
+	)
 }
 
 func (e *emailChannel) getSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 	secret := &corev1.Secret{}
-	err := e.client.Get(ctx, types.NamespacedName{
-		Namespace: e.smtpSecretRef.Namespace,
-		Name:      e.smtpSecretRef.Name,
-	}, secret)
+	err := e.client.Get(
+		ctx, types.NamespacedName{
+			Namespace: e.smtpSecretRef.Namespace,
+			Name:      e.smtpSecretRef.Name,
+		}, secret,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get SMTP secret: %w", err)
 	}
@@ -184,7 +171,7 @@ func (e *emailChannel) getSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 	if port, ok := secret.Data["port"]; ok {
 		config.Port = string(port)
 	} else {
-		config.Port = "587" // Default to submission port
+		config.Port = "587"
 	}
 
 	if username, ok := secret.Data["username"]; ok {

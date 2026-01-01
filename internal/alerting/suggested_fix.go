@@ -50,10 +50,8 @@ func NewSuggestedFixEngine() *SuggestedFixEngine {
 
 // GetBestSuggestion returns the highest priority matching suggestion
 func (e *SuggestedFixEngine) GetBestSuggestion(ctx MatchContext, customPatterns []v1alpha1.SuggestedFixPattern) string {
-	// Merge patterns: custom patterns can override builtins by name
 	patterns := e.mergePatterns(customPatterns)
 
-	// Sort by priority (descending)
 	sort.Slice(patterns, func(i, j int) bool {
 		pi := int32(0)
 		pj := int32(0)
@@ -66,7 +64,6 @@ func (e *SuggestedFixEngine) GetBestSuggestion(ctx MatchContext, customPatterns 
 		return pi > pj
 	})
 
-	// Find first match
 	for _, pattern := range patterns {
 		if e.matches(ctx, pattern.Match) {
 			return e.renderSuggestion(pattern.Suggestion, ctx)
@@ -80,14 +77,12 @@ func (e *SuggestedFixEngine) GetBestSuggestion(ctx MatchContext, customPatterns 
 func (e *SuggestedFixEngine) mergePatterns(custom []v1alpha1.SuggestedFixPattern) []v1alpha1.SuggestedFixPattern {
 	result := make([]v1alpha1.SuggestedFixPattern, 0, len(e.builtinPatterns)+len(custom))
 
-	// Add custom patterns first
 	customNames := make(map[string]bool)
 	for _, p := range custom {
 		result = append(result, p)
 		customNames[p.Name] = true
 	}
 
-	// Add builtins that aren't overridden
 	for _, p := range e.builtinPatterns {
 		if !customNames[p.Name] {
 			result = append(result, p)
@@ -101,16 +96,14 @@ func (e *SuggestedFixEngine) mergePatterns(custom []v1alpha1.SuggestedFixPattern
 func (e *SuggestedFixEngine) matches(ctx MatchContext, match v1alpha1.PatternMatch) bool {
 	matched := false
 
-	// Exit code exact match
 	if match.ExitCode != nil {
 		if ctx.ExitCode == *match.ExitCode {
 			matched = true
 		} else {
-			return false // Explicit mismatch
+			return false
 		}
 	}
 
-	// Exit code range
 	if match.ExitCodeRange != nil {
 		if ctx.ExitCode >= match.ExitCodeRange.Min && ctx.ExitCode <= match.ExitCodeRange.Max {
 			matched = true
@@ -119,7 +112,6 @@ func (e *SuggestedFixEngine) matches(ctx MatchContext, match v1alpha1.PatternMat
 		}
 	}
 
-	// Reason exact match (case-insensitive)
 	if match.Reason != "" {
 		if strings.EqualFold(ctx.Reason, match.Reason) {
 			matched = true
@@ -128,7 +120,6 @@ func (e *SuggestedFixEngine) matches(ctx MatchContext, match v1alpha1.PatternMat
 		}
 	}
 
-	// Reason pattern (regex)
 	if match.ReasonPattern != "" {
 		re, err := regexp.Compile(match.ReasonPattern)
 		if err == nil && re.MatchString(ctx.Reason) {
@@ -138,7 +129,6 @@ func (e *SuggestedFixEngine) matches(ctx MatchContext, match v1alpha1.PatternMat
 		}
 	}
 
-	// Log pattern (regex)
 	if match.LogPattern != "" {
 		re, err := regexp.Compile(match.LogPattern)
 		if err == nil && re.MatchString(ctx.Logs) {
@@ -148,7 +138,6 @@ func (e *SuggestedFixEngine) matches(ctx MatchContext, match v1alpha1.PatternMat
 		}
 	}
 
-	// Event pattern (regex) - match any event
 	if match.EventPattern != "" {
 		re, err := regexp.Compile(match.EventPattern)
 		if err != nil {

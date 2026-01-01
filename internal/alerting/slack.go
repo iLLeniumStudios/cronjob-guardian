@@ -23,9 +23,9 @@ import (
 	"fmt"
 	"net/http"
 	"text/template"
+	"time"
 
 	"golang.org/x/time/rate"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,7 +42,7 @@ type slackChannel struct {
 }
 
 // NewSlackChannel creates a new Slack channel
-func NewSlackChannel(c client.Client, ac *v1alpha1.AlertChannel) (*slackChannel, error) {
+func NewSlackChannel(c client.Client, ac *v1alpha1.AlertChannel) (Channel, error) {
 	if ac.Spec.Slack == nil {
 		return nil, fmt.Errorf("slack config required for slack channel")
 	}
@@ -54,7 +54,6 @@ func NewSlackChannel(c client.Client, ac *v1alpha1.AlertChannel) (*slackChannel,
 		channel:   ac.Spec.Slack.DefaultChannel,
 	}
 
-	// Parse template
 	tmplStr := defaultSlackTemplate
 	if ac.Spec.Slack.MessageTemplate != "" {
 		tmplStr = ac.Spec.Slack.MessageTemplate
@@ -64,19 +63,7 @@ func NewSlackChannel(c client.Client, ac *v1alpha1.AlertChannel) (*slackChannel,
 		return nil, fmt.Errorf("invalid template: %w", err)
 	}
 	sc.template = tmpl
-
-	// Setup rate limiter
-	maxPerHour := int32(100)
-	burst := int32(10)
-	if ac.Spec.RateLimiting != nil {
-		if ac.Spec.RateLimiting.MaxAlertsPerHour != nil {
-			maxPerHour = *ac.Spec.RateLimiting.MaxAlertsPerHour
-		}
-		if ac.Spec.RateLimiting.BurstLimit != nil {
-			burst = *ac.Spec.RateLimiting.BurstLimit
-		}
-	}
-	sc.rateLimiter = rate.NewLimiter(rate.Limit(float64(maxPerHour)/3600), int(burst))
+	sc.rateLimiter = NewRateLimiter(ac.Spec.RateLimiting)
 
 	return sc, nil
 }
@@ -93,24 +80,20 @@ func (s *slackChannel) Type() string {
 
 // Send delivers an alert to Slack
 func (s *slackChannel) Send(ctx context.Context, alert Alert) error {
-	// Check rate limit
 	if !s.rateLimiter.Allow() {
 		return fmt.Errorf("rate limit exceeded for channel %s", s.name)
 	}
 
-	// Get webhook URL from secret
-	webhookURL, err := s.getWebhookURL(ctx)
+	webhookURL, err := getValueFromSecret(ctx, s.client, s.secretRef)
 	if err != nil {
 		return err
 	}
 
-	// Render message
 	var buf bytes.Buffer
 	if err := s.template.Execute(&buf, alert); err != nil {
 		return fmt.Errorf("failed to render template: %w", err)
 	}
 
-	// Build payload
 	payload := map[string]interface{}{
 		"text": buf.String(),
 	}
@@ -118,7 +101,6 @@ func (s *slackChannel) Send(ctx context.Context, alert Alert) error {
 		payload["channel"] = s.channel
 	}
 
-	// Send with shared HTTP client (has timeouts)
 	jsonPayload, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(jsonPayload))
 	if err != nil {
@@ -150,29 +132,9 @@ func (s *slackChannel) Test(ctx context.Context) error {
 			Title:     "CronJob Guardian Test Alert",
 			Message:   "This is a test alert from CronJob Guardian.",
 			CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
-			Timestamp: timeNow(),
+			Timestamp: time.Now(),
 		},
 	)
-}
-
-func (s *slackChannel) getWebhookURL(ctx context.Context) (string, error) {
-	secret := &corev1.Secret{}
-	err := s.client.Get(
-		ctx, types.NamespacedName{
-			Namespace: s.secretRef.Namespace,
-			Name:      s.secretRef.Name,
-		}, secret,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to get secret: %w", err)
-	}
-
-	url, ok := secret.Data[s.secretRef.Key]
-	if !ok {
-		return "", fmt.Errorf("key %s not found in secret", s.secretRef.Key)
-	}
-
-	return string(url), nil
 }
 
 var defaultSlackTemplate = `:{{ if eq .Severity "critical" }}red_circle{{ else if eq .Severity "warning" }}warning{{ else }}large_blue_circle{{ end }}: *{{ .Title }}*

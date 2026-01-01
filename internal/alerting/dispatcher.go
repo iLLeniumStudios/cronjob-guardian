@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -35,115 +34,6 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/metrics"
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
-
-// Alert represents an alert to be dispatched
-type Alert struct {
-	Key        string // Deduplication key
-	Type       string // JobFailed, MissedSchedule, DeadManTriggered, etc.
-	Severity   string // critical, warning, info
-	Title      string
-	Message    string
-	CronJob    types.NamespacedName
-	MonitorRef types.NamespacedName
-	Context    AlertContext
-	Timestamp  time.Time
-}
-
-// AlertContext contains additional context for alerts
-type AlertContext struct {
-	Logs         string
-	Events       []string
-	PodStatus    string
-	SuggestedFix string
-	SuccessRate  float64
-	LastDuration time.Duration
-	ExitCode     int32
-	Reason       string
-}
-
-// Channel represents an alert delivery channel
-type Channel interface {
-	// Name returns the channel name
-	Name() string
-
-	// Type returns the channel type (slack, pagerduty, webhook, email)
-	Type() string
-
-	// Send delivers an alert
-	Send(ctx context.Context, alert Alert) error
-
-	// Test sends a test alert
-	Test(ctx context.Context) error
-}
-
-// ChannelStats tracks success/failure statistics for a channel
-type ChannelStats struct {
-	AlertsSentTotal     int64
-	AlertsFailedTotal   int64
-	LastAlertTime       time.Time
-	LastFailedTime      time.Time
-	LastFailedError     string
-	ConsecutiveFailures int32
-}
-
-// Dispatcher handles alert routing and delivery
-type Dispatcher interface {
-	// Dispatch sends an alert through configured channels
-	// If alertCfg.AlertDelay is set, the alert is queued and sent after the delay
-	// unless cancelled by CancelPendingAlert
-	Dispatch(ctx context.Context, alert Alert, alertCfg *v1alpha1.AlertingConfig) error
-
-	// RegisterChannel adds or updates an alert channel
-	RegisterChannel(channel *v1alpha1.AlertChannel) error
-
-	// RemoveChannel removes an alert channel
-	RemoveChannel(name string)
-
-	// SendToChannel sends to a specific channel (for testing)
-	SendToChannel(ctx context.Context, channelName string, alert Alert) error
-
-	// IsSuppressed checks if an alert should be suppressed
-	IsSuppressed(alert Alert, alertCfg *v1alpha1.AlertingConfig) (bool, string)
-
-	// ClearAlert clears an active alert (e.g., when resolved)
-	ClearAlert(ctx context.Context, alertKey string) error
-
-	// ClearAlertsForMonitor clears all alerts for a monitor
-	ClearAlertsForMonitor(namespace, name string)
-
-	// CancelPendingAlert cancels a pending (delayed) alert before it's sent.
-	// Call this when an issue resolves (e.g., next job succeeds) to prevent
-	// the delayed alert from being sent.
-	CancelPendingAlert(alertKey string) bool
-
-	// CancelPendingAlertsForCronJob cancels all pending alerts for a specific CronJob.
-	// Useful when a CronJob succeeds after a failure to cancel any pending failure alerts.
-	CancelPendingAlertsForCronJob(namespace, name string) int
-
-	// SetGlobalRateLimits updates global rate limits
-	SetGlobalRateLimits(limits config.RateLimitsConfig)
-
-	// SetStartupGracePeriod sets the grace period during which alerts are suppressed
-	// to prevent alert floods on operator restart. Must be called before alerts start dispatching.
-	SetStartupGracePeriod(d time.Duration)
-
-	// GetAlertCount24h returns alerts sent in last 24h
-	GetAlertCount24h() int32
-
-	// SetStore sets the store for persisting alerts
-	SetStore(s store.Store)
-
-	// GetChannelStats returns statistics for a specific channel
-	GetChannelStats(channelName string) *ChannelStats
-}
-
-// PendingAlert represents an alert that is delayed before sending
-type PendingAlert struct {
-	Alert    Alert
-	AlertCfg *v1alpha1.AlertingConfig
-	SendAt   time.Time
-	Cancel   chan struct{}
-}
 
 type dispatcher struct {
 	channels           map[string]Channel       // name -> channel
@@ -157,7 +47,7 @@ type dispatcher struct {
 	statsMu            sync.RWMutex
 	pendingMu          sync.RWMutex
 	alertCount24h      int32
-	client             client.Client // K8s client for secret lookups
+	client             client.Client
 	store              store.Store   // Store for persisting alerts
 	cleanupDone        chan struct{} // Signal channel for cleanup goroutine shutdown
 	startupGracePeriod time.Duration // Grace period after startup to suppress alerts
@@ -165,7 +55,7 @@ type dispatcher struct {
 }
 
 // NewDispatcher creates a new alert dispatcher
-func NewDispatcher(c client.Client) Dispatcher {
+func NewDispatcher(c client.Client, s store.Store, gracePeriod time.Duration) Dispatcher {
 	d := &dispatcher{
 		channels:           make(map[string]Channel),
 		channelStats:       make(map[string]*ChannelStats),
@@ -175,10 +65,13 @@ func NewDispatcher(c client.Client) Dispatcher {
 		globalLimiter:      rate.NewLimiter(rate.Limit(50.0/60.0), 10), // 50/min, burst 10
 		client:             c,
 		cleanupDone:        make(chan struct{}),
-		startupGracePeriod: 0,          // Set via SetStartupGracePeriod from config
-		readyAt:            time.Now(), // Ready immediately until grace period is set
+		startupGracePeriod: gracePeriod,
+		readyAt:            time.Now().Add(gracePeriod),
+		store:              s,
 	}
 	d.startCleanup()
+	d.loadChannelStats()
+	d.loadRecentAlerts()
 	return d
 }
 
@@ -192,22 +85,22 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 		return nil
 	}
 
-	// Generate dedup key if not set
 	if alert.Key == "" {
-		alert.Key = fmt.Sprintf("%s/%s/%s",
+		alert.Key = fmt.Sprintf(
+			"%s/%s/%s",
 			alert.CronJob.Namespace,
 			alert.CronJob.Name,
-			alert.Type)
+			alert.Type,
+		)
 	}
 
-	// Check startup grace period - suppress alerts during initial reconciliation
-	// to prevent flood of alerts on operator restart
 	if time.Now().Before(d.readyAt) {
 		remaining := time.Until(d.readyAt).Round(time.Second)
-		logger.V(1).Info("alert suppressed during startup grace period",
+		logger.V(1).Info(
+			"alert suppressed during startup grace period",
 			"key", alert.Key,
-			"remainingGracePeriod", remaining)
-		// Track that we've seen this alert to prevent duplicate after grace period
+			"remainingGracePeriod", remaining,
+		)
 		d.alertMu.Lock()
 		d.sentAlerts[alert.Key] = time.Now()
 		d.activeAlerts[alert.Key] = alert
@@ -215,18 +108,15 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 		return nil
 	}
 
-	// Check suppression
 	if suppressed, reason := d.IsSuppressed(alert, alertCfg); suppressed {
 		logger.V(1).Info("alert suppressed", "key", alert.Key, "reason", reason)
 		return nil
 	}
 
-	// Check if alert delay is configured
 	if alertCfg.AlertDelay != nil && alertCfg.AlertDelay.Duration > 0 {
 		return d.queueDelayedAlert(alert, alertCfg)
 	}
 
-	// No delay configured, dispatch immediately
 	return d.dispatchImmediate(ctx, alert, alertCfg)
 }
 
@@ -234,55 +124,57 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 func (d *dispatcher) dispatchImmediate(ctx context.Context, alert Alert, alertCfg *v1alpha1.AlertingConfig) error {
 	logger := log.FromContext(ctx)
 
-	// Check global rate limit
 	if !d.globalLimiter.Allow() {
 		logger.Info("alert rate limited", "key", alert.Key)
 		return fmt.Errorf("global rate limit exceeded")
 	}
 
-	// Collect target channels
 	targetChannels := d.resolveChannels(alertCfg, alert.Severity)
 
 	if len(targetChannels) == 0 {
-		logger.V(1).Info("no channels configured for alert",
+		logger.V(1).Info(
+			"no channels configured for alert",
 			"alertKey", alert.Key,
 			"severity", alert.Severity,
-			"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name))
+			"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name),
+		)
 		return nil
 	}
 
-	// Log which channels will receive the alert
 	channelInfo := make([]string, 0, len(targetChannels))
 	for _, ch := range targetChannels {
 		channelInfo = append(channelInfo, fmt.Sprintf("%s(%s)", ch.Name(), ch.Type()))
 	}
-	logger.Info("dispatching alert to channels",
+	logger.Info(
+		"dispatching alert to channels",
 		"alertKey", alert.Key,
 		"alertType", alert.Type,
 		"severity", alert.Severity,
 		"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name),
-		"channels", strings.Join(channelInfo, ", "))
+		"channels", strings.Join(channelInfo, ", "),
+	)
 
-	// Send to each channel
 	var errs []error
 	var channelNames []string
 	for _, ch := range targetChannels {
-		logger.V(1).Info("sending alert to channel",
+		logger.V(1).Info(
+			"sending alert to channel",
 			"channel", ch.Name(),
 			"provider", ch.Type(),
-			"alertKey", alert.Key)
+			"alertKey", alert.Key,
+		)
 
 		if err := ch.Send(ctx, alert); err != nil {
-			logger.Error(err, "failed to send alert to channel",
+			logger.Error(
+				err, "failed to send alert to channel",
 				"channel", ch.Name(),
 				"provider", ch.Type(),
-				"alertKey", alert.Key)
+				"alertKey", alert.Key,
+			)
 			errs = append(errs, err)
 
-			// Record failure stats
 			d.recordChannelFailure(ch.Name(), err)
 
-			// Record Prometheus metrics for failed alert delivery
 			metrics.RecordAlertFailed(
 				alert.CronJob.Namespace,
 				alert.CronJob.Name,
@@ -291,17 +183,17 @@ func (d *dispatcher) dispatchImmediate(ctx context.Context, alert Alert, alertCf
 				ch.Name(),
 			)
 		} else {
-			logger.Info("alert sent successfully",
+			logger.Info(
+				"alert sent successfully",
 				"channel", ch.Name(),
 				"provider", ch.Type(),
 				"alertKey", alert.Key,
-				"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name))
+				"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name),
+			)
 			channelNames = append(channelNames, ch.Name())
 
-			// Record success stats
 			d.recordChannelSuccess(ch.Name())
 
-			// Record Prometheus metrics for successful alert delivery
 			metrics.RecordAlert(
 				alert.CronJob.Namespace,
 				alert.CronJob.Name,
@@ -312,14 +204,12 @@ func (d *dispatcher) dispatchImmediate(ctx context.Context, alert Alert, alertCf
 		}
 	}
 
-	// Record sent time for dedup
 	d.alertMu.Lock()
 	d.sentAlerts[alert.Key] = time.Now()
 	d.activeAlerts[alert.Key] = alert
 	d.alertCount24h++
 	d.alertMu.Unlock()
 
-	// Store alert in history if store is available
 	if d.store != nil && len(channelNames) > 0 {
 		alertHistory := store.AlertHistory{
 			Type:             alert.Type,
@@ -331,10 +221,9 @@ func (d *dispatcher) dispatchImmediate(ctx context.Context, alert Alert, alertCf
 			MonitorNamespace: alert.MonitorRef.Namespace,
 			MonitorName:      alert.MonitorRef.Name,
 			OccurredAt:       alert.Timestamp,
-			// Include context for failure alerts
-			ExitCode:     alert.Context.ExitCode,
-			Reason:       alert.Context.Reason,
-			SuggestedFix: alert.Context.SuggestedFix,
+			ExitCode:         alert.Context.ExitCode,
+			Reason:           alert.Context.Reason,
+			SuggestedFix:     alert.Context.SuggestedFix,
 		}
 		alertHistory.SetChannelsNotified(channelNames)
 		if err := d.store.StoreAlert(ctx, alertHistory); err != nil {
@@ -387,28 +276,20 @@ func (d *dispatcher) IsSuppressed(alert Alert, alertCfg *v1alpha1.AlertingConfig
 	d.alertMu.RLock()
 	defer d.alertMu.RUnlock()
 
-	// Check duplicate suppression
 	if lastSent, ok := d.sentAlerts[alert.Key]; ok {
 		suppressDuration := 1 * time.Hour
 		if alertCfg.SuppressDuplicatesFor != nil {
 			suppressDuration = alertCfg.SuppressDuplicatesFor.Duration
 		}
 		if time.Since(lastSent) < suppressDuration {
-			// Check if error signature changed - if so, don't suppress
-			// This ensures on-call is notified when the error type changes
-			// (e.g., OOMKilled -> connection error)
 			if existingAlert, exists := d.activeAlerts[alert.Key]; exists {
 				if errorSignatureChanged(existingAlert.Context, alert.Context) {
-					return false, "" // Don't suppress - error type changed
+					return false, ""
 				}
 			}
 			return true, "duplicate within suppression window"
 		}
 	}
-
-	// Maintenance window check would be done by caller (controller)
-	// Dependency suppression would be done by caller (controller)
-
 	return false, ""
 }
 
@@ -432,12 +313,10 @@ func exitCodeCategory(code int32) string {
 // between two alerts. This is used to bypass duplicate suppression when
 // the error category changes (e.g., OOM -> connection error).
 func errorSignatureChanged(old, new AlertContext) bool {
-	// Major exit code category changed
 	if exitCodeCategory(old.ExitCode) != exitCodeCategory(new.ExitCode) {
 		return true
 	}
 
-	// Reason changed (OOMKilled -> Error, ImagePullBackOff, etc.)
 	if old.Reason != "" && new.Reason != "" && old.Reason != new.Reason {
 		return true
 	}
@@ -446,7 +325,7 @@ func errorSignatureChanged(old, new AlertContext) bool {
 }
 
 // ClearAlert clears an active alert
-func (d *dispatcher) ClearAlert(ctx context.Context, alertKey string) error {
+func (d *dispatcher) ClearAlert(_ context.Context, alertKey string) error {
 	d.alertMu.Lock()
 	delete(d.activeAlerts, alertKey)
 	delete(d.sentAlerts, alertKey)
@@ -476,17 +355,16 @@ func (d *dispatcher) queueDelayedAlert(alert Alert, alertCfg *v1alpha1.AlertingC
 
 	d.pendingMu.Lock()
 
-	// Check if there's already a pending alert for this key
 	if existing, ok := d.pendingAlerts[alert.Key]; ok {
 		d.pendingMu.Unlock()
-		// Already pending, don't queue another
-		log.Log.V(1).Info("alert already pending",
+		log.Log.V(1).Info(
+			"alert already pending",
 			"key", alert.Key,
-			"sendAt", existing.SendAt)
+			"sendAt", existing.SendAt,
+		)
 		return nil
 	}
 
-	// Create pending alert
 	pending := &PendingAlert{
 		Alert:    alert,
 		AlertCfg: alertCfg,
@@ -496,20 +374,20 @@ func (d *dispatcher) queueDelayedAlert(alert Alert, alertCfg *v1alpha1.AlertingC
 	d.pendingAlerts[alert.Key] = pending
 	d.pendingMu.Unlock()
 
-	log.Log.Info("alert queued with delay",
+	log.Log.Info(
+		"alert queued with delay",
 		"key", alert.Key,
 		"delay", delay,
 		"sendAt", pending.SendAt,
-		"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name))
+		"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name),
+	)
 
-	// Start goroutine to send after delay
 	go func() {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
 
 		select {
 		case <-timer.C:
-			// Delay expired, check if still pending and send
 			d.pendingMu.Lock()
 			_, stillPending := d.pendingAlerts[alert.Key]
 			if stillPending {
@@ -518,9 +396,11 @@ func (d *dispatcher) queueDelayedAlert(alert Alert, alertCfg *v1alpha1.AlertingC
 			d.pendingMu.Unlock()
 
 			if stillPending {
-				log.Log.Info("alert delay expired, dispatching",
+				log.Log.Info(
+					"alert delay expired, dispatching",
 					"key", alert.Key,
-					"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name))
+					"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name),
+				)
 
 				ctx := context.Background()
 				if err := d.dispatchImmediate(ctx, alert, alertCfg); err != nil {
@@ -529,14 +409,15 @@ func (d *dispatcher) queueDelayedAlert(alert Alert, alertCfg *v1alpha1.AlertingC
 			}
 
 		case <-pending.Cancel:
-			// Alert was cancelled
 			d.pendingMu.Lock()
 			delete(d.pendingAlerts, alert.Key)
 			d.pendingMu.Unlock()
 
-			log.Log.Info("pending alert cancelled",
+			log.Log.Info(
+				"pending alert cancelled",
 				"key", alert.Key,
-				"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name))
+				"cronjob", fmt.Sprintf("%s/%s", alert.CronJob.Namespace, alert.CronJob.Name),
+			)
 		}
 	}()
 
@@ -550,7 +431,6 @@ func (d *dispatcher) CancelPendingAlert(alertKey string) bool {
 	defer d.pendingMu.Unlock()
 
 	if pending, ok := d.pendingAlerts[alertKey]; ok {
-		// Signal the goroutine to cancel
 		close(pending.Cancel)
 		delete(d.pendingAlerts, alertKey)
 		return true
@@ -576,10 +456,12 @@ func (d *dispatcher) CancelPendingAlertsForCronJob(namespace, name string) int {
 	}
 
 	if cancelled > 0 {
-		log.Log.Info("cancelled pending alerts for cronjob",
+		log.Log.Info(
+			"cancelled pending alerts for cronjob",
 			"namespace", namespace,
 			"name", name,
-			"count", cancelled)
+			"count", cancelled,
+		)
 	}
 
 	return cancelled
@@ -595,29 +477,11 @@ func (d *dispatcher) SetGlobalRateLimits(limits config.RateLimitsConfig) {
 	d.globalLimiter = rate.NewLimiter(rate.Limit(float64(maxPerMinute)/60.0), 10)
 }
 
-// SetStartupGracePeriod sets the grace period during which alerts are suppressed
-func (d *dispatcher) SetStartupGracePeriod(gracePeriod time.Duration) {
-	d.startupGracePeriod = gracePeriod
-	d.readyAt = time.Now().Add(gracePeriod)
-	log.Log.Info("dispatcher startup grace period set",
-		"gracePeriod", gracePeriod,
-		"readyAt", d.readyAt)
-}
-
 // GetAlertCount24h returns alerts sent in last 24h
 func (d *dispatcher) GetAlertCount24h() int32 {
 	d.alertMu.RLock()
 	defer d.alertMu.RUnlock()
 	return d.alertCount24h
-}
-
-// SetStore sets the store for persisting alerts and loads existing channel stats
-func (d *dispatcher) SetStore(s store.Store) {
-	d.store = s
-	// Load persisted channel stats
-	d.loadChannelStats()
-	// Load recent alerts to restore sentAlerts state for duplicate suppression
-	d.loadRecentAlerts()
 }
 
 // loadChannelStats loads channel statistics from the store
@@ -629,7 +493,6 @@ func (d *dispatcher) loadChannelStats() {
 	ctx := context.Background()
 	allStats, err := d.store.GetAllChannelStats(ctx)
 	if err != nil {
-		// Log error but don't fail - we'll start fresh
 		return
 	}
 
@@ -660,7 +523,6 @@ func (d *dispatcher) loadRecentAlerts() {
 	}
 
 	ctx := context.Background()
-	// Load alerts from the last hour (typical suppression window)
 	since := time.Now().Add(-1 * time.Hour)
 	query := store.AlertHistoryQuery{
 		Limit: 1000,
@@ -678,26 +540,27 @@ func (d *dispatcher) loadRecentAlerts() {
 
 	loaded := 0
 	for _, alert := range alerts {
-		// Only load unresolved alerts
 		if alert.ResolvedAt != nil {
 			continue
 		}
 
-		// Generate the same key format used in Dispatch
-		alertKey := fmt.Sprintf("%s/%s/%s",
+		alertKey := fmt.Sprintf(
+			"%s/%s/%s",
 			alert.CronJobNamespace,
 			alert.CronJobName,
-			alert.Type)
+			alert.Type,
+		)
 
-		// Record as sent at the time it occurred
 		d.sentAlerts[alertKey] = alert.OccurredAt
 		loaded++
 	}
 
 	if loaded > 0 {
-		log.Log.Info("loaded recent alerts for duplicate suppression",
+		log.Log.Info(
+			"loaded recent alerts for duplicate suppression",
 			"count", loaded,
-			"since", since)
+			"since", since,
+		)
 	}
 }
 
@@ -708,7 +571,6 @@ func (d *dispatcher) resolveChannels(alertCfg *v1alpha1.AlertingConfig, severity
 	d.channelMu.RLock()
 	defer d.channelMu.RUnlock()
 
-	// Resolve channel refs
 	for _, ref := range alertCfg.ChannelRefs {
 		if ch, ok := d.channels[ref.Name]; ok {
 			if len(ref.Severities) == 0 || contains(ref.Severities, severity) {
@@ -747,13 +609,11 @@ func (d *dispatcher) recordChannelSuccess(channelName string) {
 
 	stats.AlertsSentTotal++
 	stats.LastAlertTime = time.Now()
-	stats.ConsecutiveFailures = 0 // Reset on success
+	stats.ConsecutiveFailures = 0
 
-	// Copy stats for persistence (avoid holding lock during DB call)
 	statsCopy := *stats
 	d.statsMu.Unlock()
 
-	// Persist to store asynchronously
 	d.persistChannelStats(channelName, statsCopy)
 }
 
@@ -771,11 +631,9 @@ func (d *dispatcher) recordChannelFailure(channelName string, err error) {
 	stats.LastFailedError = err.Error()
 	stats.ConsecutiveFailures++
 
-	// Copy stats for persistence (avoid holding lock during DB call)
 	statsCopy := *stats
 	d.statsMu.Unlock()
 
-	// Persist to store asynchronously
 	d.persistChannelStats(channelName, statsCopy)
 }
 
@@ -785,7 +643,6 @@ func (d *dispatcher) persistChannelStats(channelName string, stats ChannelStats)
 		return
 	}
 
-	// Run in goroutine to avoid blocking alert dispatch
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -814,7 +671,6 @@ func (d *dispatcher) GetChannelStats(channelName string) *ChannelStats {
 	defer d.statsMu.RUnlock()
 
 	if stats, ok := d.channelStats[channelName]; ok {
-		// Return a copy to avoid race conditions
 		return &ChannelStats{
 			AlertsSentTotal:     stats.AlertsSentTotal,
 			AlertsFailedTotal:   stats.AlertsFailedTotal,
@@ -871,7 +727,6 @@ var templateFuncs = template.FuncMap{
 	"upper": strings.ToUpper,
 	"lower": strings.ToLower,
 	"jsonEscape": func(s string) string {
-		// Marshal to JSON string (includes quotes and escaping)
 		b, err := json.Marshal(s)
 		if err != nil {
 			return `""`
@@ -912,6 +767,5 @@ func (d *dispatcher) cleanupOldAlerts() {
 		}
 	}
 
-	// Reset 24h counter (will be recalculated from remaining alerts)
 	d.alertCount24h = int32(len(d.sentAlerts))
 }

@@ -19,10 +19,36 @@ package alerting
 import (
 	"net/http"
 	"time"
+
+	"golang.org/x/time/rate"
+
+	guardianv1alpha1 "github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 )
 
+// Default rate limiting values
+const (
+	DefaultMaxAlertsPerHour = 100
+	DefaultBurstLimit       = 10
+)
+
+// NewRateLimiter creates a rate limiter from AlertChannel rate limiting config.
+func NewRateLimiter(rl *guardianv1alpha1.RateLimitConfig) *rate.Limiter {
+	maxPerHour := int32(DefaultMaxAlertsPerHour)
+	burst := int32(DefaultBurstLimit)
+
+	if rl != nil {
+		if rl.MaxAlertsPerHour != nil {
+			maxPerHour = *rl.MaxAlertsPerHour
+		}
+		if rl.BurstLimit != nil {
+			burst = *rl.BurstLimit
+		}
+	}
+
+	return rate.NewLimiter(rate.Limit(float64(maxPerHour)/3600), int(burst))
+}
+
 // AlertHTTPClient is a shared HTTP client with sensible timeouts for alert delivery.
-// This prevents indefinite blocking when webhook endpoints are slow or unresponsive.
 var AlertHTTPClient = &http.Client{
 	Timeout: 30 * time.Second,
 	Transport: &http.Transport{

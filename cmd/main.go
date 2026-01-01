@@ -137,10 +137,12 @@ func main() {
 	webhookTLSOpts := tlsOpts
 
 	if len(cfg.Webhook.CertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
+		setupLog.Info(
+			"Initializing webhook certificate watcher using provided certificates",
 			"webhook-cert-path", cfg.Webhook.CertPath,
 			"webhook-cert-name", cfg.Webhook.CertName,
-			"webhook-cert-key", cfg.Webhook.CertKey)
+			"webhook-cert-key", cfg.Webhook.CertKey,
+		)
 
 		var err error
 		webhookCertWatcher, err = certwatcher.New(
@@ -152,14 +154,18 @@ func main() {
 			os.Exit(1)
 		}
 
-		webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
-			config.GetCertificate = webhookCertWatcher.GetCertificate
-		})
+		webhookTLSOpts = append(
+			webhookTLSOpts, func(config *tls.Config) {
+				config.GetCertificate = webhookCertWatcher.GetCertificate
+			},
+		)
 	}
 
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	})
+	webhookServer := webhook.NewServer(
+		webhook.Options{
+			TLSOpts: webhookTLSOpts,
+		},
+	)
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -183,10 +189,12 @@ func main() {
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
 	// this setup is not recommended for production.
 	if len(cfg.Metrics.CertPath) > 0 {
-		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
+		setupLog.Info(
+			"Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", cfg.Metrics.CertPath,
 			"metrics-cert-name", cfg.Metrics.CertName,
-			"metrics-cert-key", cfg.Metrics.CertKey)
+			"metrics-cert-key", cfg.Metrics.CertKey,
+		)
 
 		var err error
 		metricsCertWatcher, err = certwatcher.New(
@@ -198,30 +206,34 @@ func main() {
 			os.Exit(1)
 		}
 
-		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
-			config.GetCertificate = metricsCertWatcher.GetCertificate
-		})
+		metricsServerOptions.TLSOpts = append(
+			metricsServerOptions.TLSOpts, func(config *tls.Config) {
+				config.GetCertificate = metricsCertWatcher.GetCertificate
+			},
+		)
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: cfg.Probes.BindAddress,
-		LeaderElection:         cfg.LeaderElection.Enabled,
-		LeaderElectionID:       "59ab3636.illenium.net",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
-	})
+	mgr, err := ctrl.NewManager(
+		ctrl.GetConfigOrDie(), ctrl.Options{
+			Scheme:                 scheme,
+			Metrics:                metricsServerOptions,
+			WebhookServer:          webhookServer,
+			HealthProbeBindAddress: cfg.Probes.BindAddress,
+			LeaderElection:         cfg.LeaderElection.Enabled,
+			LeaderElectionID:       "59ab3636.illenium.net",
+			// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
+			// when the Manager ends. This requires the binary to immediately end when the
+			// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
+			// speeds up voluntary leader transitions as the new leader don't have to wait
+			// LeaseDuration time first.
+			//
+			// In the default scaffold provided, the program ends immediately after
+			// the manager stops, so would be fine to enable this option. However,
+			// if you are doing or is intended to do any operation such as perform cleanups
+			// after the manager stops then its usage might be unsafe.
+			// LeaderElectionReleaseOnCancel: true,
+		},
+	)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -233,15 +245,19 @@ func main() {
 	case "sqlite":
 		dsn = cfg.Storage.SQLite.Path + "?_journal_mode=WAL&_busy_timeout=5000"
 	case "postgres":
-		dsn = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		dsn = fmt.Sprintf(
+			"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 			cfg.Storage.PostgreSQL.Host, cfg.Storage.PostgreSQL.Port,
 			cfg.Storage.PostgreSQL.Username, cfg.Storage.PostgreSQL.Password,
-			cfg.Storage.PostgreSQL.Database, cfg.Storage.PostgreSQL.SSLMode)
+			cfg.Storage.PostgreSQL.Database, cfg.Storage.PostgreSQL.SSLMode,
+		)
 	case "mysql":
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+		dsn = fmt.Sprintf(
+			"%s:%s@tcp(%s:%d)/%s?parseTime=true",
 			cfg.Storage.MySQL.Username, cfg.Storage.MySQL.Password,
 			cfg.Storage.MySQL.Host, cfg.Storage.MySQL.Port,
-			cfg.Storage.MySQL.Database)
+			cfg.Storage.MySQL.Database,
+		)
 	default:
 		setupLog.Error(nil, "unsupported storage type", "type", cfg.Storage.Type)
 		os.Exit(1)
@@ -274,10 +290,12 @@ func main() {
 		setupLog.Error(err, "unable to add history pruner to manager")
 		os.Exit(1)
 	}
-	setupLog.Info("initialized history pruner",
+	setupLog.Info(
+		"initialized history pruner",
 		"retentionDays", cfg.HistoryRetention.DefaultDays,
 		"logRetentionDays", cfg.Storage.LogRetentionDays,
-		"interval", cfg.Scheduler.PruneInterval)
+		"interval", cfg.Scheduler.PruneInterval,
+	)
 
 	// Create clientset for controllers that need raw API access
 	clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
@@ -287,9 +305,7 @@ func main() {
 	}
 
 	// Create alert dispatcher and wire up the store
-	alertDispatcher := alerting.NewDispatcher(mgr.GetClient())
-	alertDispatcher.SetStore(dataStore)
-	alertDispatcher.SetStartupGracePeriod(cfg.Scheduler.StartupGracePeriod)
+	alertDispatcher := alerting.NewDispatcher(mgr.GetClient(), dataStore, cfg.Scheduler.StartupGracePeriod)
 	setupLog.Info("initialized alert dispatcher", "startupGracePeriod", cfg.Scheduler.StartupGracePeriod)
 
 	if err := (&controller.CronJobMonitorReconciler{
@@ -336,9 +352,11 @@ func main() {
 		setupLog.Error(err, "unable to add dead-man scheduler")
 		os.Exit(1)
 	}
-	setupLog.Info("initialized dead-man scheduler",
+	setupLog.Info(
+		"initialized dead-man scheduler",
 		"interval", cfg.Scheduler.DeadManSwitchInterval,
-		"startupDelay", cfg.Scheduler.StartupGracePeriod)
+		"startupDelay", cfg.Scheduler.StartupGracePeriod,
+	)
 
 	// Create and register SLARecalcScheduler for periodic SLA recalculation
 	slaRecalcScheduler := scheduler.NewSLARecalcScheduler(mgr.GetClient(), dataStore, slaAnalyzer, alertDispatcher)
@@ -393,17 +411,19 @@ func main() {
 			}
 		}
 
-		apiServer := api.NewServer(api.ServerOptions{
-			Client:              mgr.GetClient(),
-			Clientset:           clientset,
-			Store:               dataStore,
-			Config:              cfg,
-			AlertDispatcher:     alertDispatcher,
-			Port:                cfg.UI.Port,
-			LeaderElectionCheck: leaderElectionCheck,
-			AnalyzerEnabled:     true, // Analyzer is always enabled (required dependency)
-			SchedulersRunning:   []string{"dead-man-switch", "sla-recalc", "history-pruner"},
-		})
+		apiServer := api.NewServer(
+			api.ServerOptions{
+				Client:              mgr.GetClient(),
+				Clientset:           clientset,
+				Store:               dataStore,
+				Config:              cfg,
+				AlertDispatcher:     alertDispatcher,
+				Port:                cfg.UI.Port,
+				LeaderElectionCheck: leaderElectionCheck,
+				AnalyzerEnabled:     true, // Analyzer is always enabled (required dependency)
+				SchedulersRunning:   []string{"dead-man-switch", "sla-recalc", "history-pruner"},
+			},
+		)
 
 		// Add API server to manager
 		if err := mgr.Add(apiServer); err != nil {

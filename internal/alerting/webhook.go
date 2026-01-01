@@ -22,9 +22,9 @@ import (
 	"fmt"
 	"net/http"
 	"text/template"
+	"time"
 
 	"golang.org/x/time/rate"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,7 +42,7 @@ type webhookChannel struct {
 }
 
 // NewWebhookChannel creates a new webhook channel
-func NewWebhookChannel(c client.Client, ac *v1alpha1.AlertChannel) (*webhookChannel, error) {
+func NewWebhookChannel(c client.Client, ac *v1alpha1.AlertChannel) (Channel, error) {
 	if ac.Spec.Webhook == nil {
 		return nil, fmt.Errorf("webhook config required for webhook channel")
 	}
@@ -59,7 +59,6 @@ func NewWebhookChannel(c client.Client, ac *v1alpha1.AlertChannel) (*webhookChan
 		wc.method = "POST"
 	}
 
-	// Parse template
 	tmplStr := defaultWebhookTemplate
 	if ac.Spec.Webhook.PayloadTemplate != "" {
 		tmplStr = ac.Spec.Webhook.PayloadTemplate
@@ -69,19 +68,7 @@ func NewWebhookChannel(c client.Client, ac *v1alpha1.AlertChannel) (*webhookChan
 		return nil, fmt.Errorf("invalid template: %w", err)
 	}
 	wc.template = tmpl
-
-	// Setup rate limiter
-	maxPerHour := int32(100)
-	burst := int32(10)
-	if ac.Spec.RateLimiting != nil {
-		if ac.Spec.RateLimiting.MaxAlertsPerHour != nil {
-			maxPerHour = *ac.Spec.RateLimiting.MaxAlertsPerHour
-		}
-		if ac.Spec.RateLimiting.BurstLimit != nil {
-			burst = *ac.Spec.RateLimiting.BurstLimit
-		}
-	}
-	wc.rateLimiter = rate.NewLimiter(rate.Limit(float64(maxPerHour)/3600), int(burst))
+	wc.rateLimiter = NewRateLimiter(ac.Spec.RateLimiting)
 
 	return wc, nil
 }
@@ -102,30 +89,26 @@ func (w *webhookChannel) Send(ctx context.Context, alert Alert) error {
 		return fmt.Errorf("rate limit exceeded for channel %s", w.name)
 	}
 
-	url, err := w.getURL(ctx)
+	url, err := getValueFromSecret(ctx, w.client, w.secretRef)
 	if err != nil {
 		return err
 	}
 
-	// Render payload
 	var buf bytes.Buffer
 	if err := w.template.Execute(&buf, alert); err != nil {
 		return fmt.Errorf("failed to render template: %w", err)
 	}
 
-	// Create request
 	req, err := http.NewRequestWithContext(ctx, w.method, url, &buf)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add headers
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range w.headers {
 		req.Header.Set(k, v)
 	}
 
-	// Send with shared HTTP client (has timeouts)
 	resp, err := AlertHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
@@ -151,29 +134,9 @@ func (w *webhookChannel) Test(ctx context.Context) error {
 			Title:     "CronJob Guardian Test Alert",
 			Message:   "This is a test alert from CronJob Guardian.",
 			CronJob:   types.NamespacedName{Namespace: "test", Name: "test"},
-			Timestamp: timeNow(),
+			Timestamp: time.Now(),
 		},
 	)
-}
-
-func (w *webhookChannel) getURL(ctx context.Context) (string, error) {
-	secret := &corev1.Secret{}
-	err := w.client.Get(
-		ctx, types.NamespacedName{
-			Namespace: w.secretRef.Namespace,
-			Name:      w.secretRef.Name,
-		}, secret,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to get secret: %w", err)
-	}
-
-	url, ok := secret.Data[w.secretRef.Key]
-	if !ok {
-		return "", fmt.Errorf("key %s not found in secret", w.secretRef.Key)
-	}
-
-	return string(url), nil
 }
 
 var defaultWebhookTemplate = `{
