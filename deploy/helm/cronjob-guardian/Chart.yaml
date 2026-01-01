@@ -1,6 +1,6 @@
 apiVersion: v2
 name: cronjob-guardian
-description: A Kubernetes operator for intelligent CronJob monitoring, SLA tracking, and auto-remediation
+description: A Kubernetes operator for monitoring CronJobs with SLA tracking, intelligent alerting, and a built-in dashboard
 
 type: application
 
