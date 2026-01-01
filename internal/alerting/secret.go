@@ -10,9 +10,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func getValueFromSecret(ctx context.Context, client client.Client, secretRef v1alpha1.NamespacedSecretKeyRef) (string, error) {
+func getValueFromSecret(ctx context.Context, c client.Client, secretRef v1alpha1.NamespacedSecretKeyRef) (string, error) {
 	secret := &corev1.Secret{}
-	err := client.Get(
+	err := c.Get(
 		ctx, types.NamespacedName{
 			Namespace: secretRef.Namespace,
 			Name:      secretRef.Name,
