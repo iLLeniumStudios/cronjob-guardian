@@ -27,6 +27,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/chart-v}
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       - name: Update Chart.yaml version
         run: |
@@ -42,7 +43,7 @@ jobs:
 
       - name: Push to OCI registry
         run: |
-          helm push cronjob-guardian-${{ steps.version.outputs.VERSION }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+          helm push cronjob-guardian-${{ steps.version.outputs.VERSION }}.tgz oci://ghcr.io/${{ env.OWNER_LC }}/charts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -54,13 +55,13 @@ jobs:
             ### Installation
 
             ```bash
-            helm install cronjob-guardian oci://ghcr.io/${{ github.repository_owner }}/charts/cronjob-guardian --version ${{ steps.version.outputs.VERSION }}
+            helm install cronjob-guardian oci://ghcr.io/${{ env.OWNER_LC }}/charts/cronjob-guardian --version ${{ steps.version.outputs.VERSION }}
             ```
 
             ### Upgrade
 
             ```bash
-            helm upgrade cronjob-guardian oci://ghcr.io/${{ github.repository_owner }}/charts/cronjob-guardian --version ${{ steps.version.outputs.VERSION }}
+            helm upgrade cronjob-guardian oci://ghcr.io/${{ env.OWNER_LC }}/charts/cronjob-guardian --version ${{ steps.version.outputs.VERSION }}
             ```
           files: |
             cronjob-guardian-${{ steps.version.outputs.VERSION }}.tgz
