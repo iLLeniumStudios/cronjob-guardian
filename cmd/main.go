@@ -261,7 +261,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	dataStore, err := store.NewGormStore(cfg.Storage.Type, dsn)
+	// Get connection pool config based on storage type
+	var poolCfg store.ConnectionPoolConfig
+	switch cfg.Storage.Type {
+	case "postgres":
+		poolCfg = store.ConnectionPoolConfig{
+			MaxIdleConns:    cfg.Storage.PostgreSQL.ConnectionPool.MaxIdleConns,
+			MaxOpenConns:    cfg.Storage.PostgreSQL.ConnectionPool.MaxOpenConns,
+			ConnMaxLifetime: cfg.Storage.PostgreSQL.ConnectionPool.ConnMaxLifetime,
+			ConnMaxIdleTime: cfg.Storage.PostgreSQL.ConnectionPool.ConnMaxIdleTime,
+		}
+	case "mysql":
+		poolCfg = store.ConnectionPoolConfig{
+			MaxIdleConns:    cfg.Storage.MySQL.ConnectionPool.MaxIdleConns,
+			MaxOpenConns:    cfg.Storage.MySQL.ConnectionPool.MaxOpenConns,
+			ConnMaxLifetime: cfg.Storage.MySQL.ConnectionPool.ConnMaxLifetime,
+			ConnMaxIdleTime: cfg.Storage.MySQL.ConnectionPool.ConnMaxIdleTime,
+		}
+	}
+
+	dataStore, err := store.NewGormStoreWithPool(cfg.Storage.Type, dsn, poolCfg)
 	if err != nil {
 		setupLog.Error(err, "unable to create store")
 		os.Exit(1)

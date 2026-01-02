@@ -114,6 +114,21 @@ type SQLiteConfig struct {
 	Path string `mapstructure:"path" json:"path"`
 }
 
+// ConnectionPoolConfig configures database connection pooling
+type ConnectionPoolConfig struct {
+	// MaxIdleConns is the maximum number of idle connections
+	MaxIdleConns int `mapstructure:"max-idle-conns" json:"maxIdleConns,omitempty"`
+
+	// MaxOpenConns is the maximum number of open connections
+	MaxOpenConns int `mapstructure:"max-open-conns" json:"maxOpenConns,omitempty"`
+
+	// ConnMaxLifetime is the maximum lifetime of a connection
+	ConnMaxLifetime time.Duration `mapstructure:"conn-max-lifetime" json:"connMaxLifetime,omitempty"`
+
+	// ConnMaxIdleTime is the maximum idle time of a connection
+	ConnMaxIdleTime time.Duration `mapstructure:"conn-max-idle-time" json:"connMaxIdleTime,omitempty"`
+}
+
 // PostgreSQLConfig configures PostgreSQL storage
 type PostgreSQLConfig struct {
 	// Host is the database host
@@ -133,6 +148,9 @@ type PostgreSQLConfig struct {
 
 	// SSLMode for connection
 	SSLMode string `mapstructure:"ssl-mode" json:"sslMode,omitempty"`
+
+	// ConnectionPool configures connection pooling
+	ConnectionPool ConnectionPoolConfig `mapstructure:"pool" json:"pool,omitempty"`
 }
 
 // MySQLConfig configures MySQL/MariaDB storage
@@ -151,6 +169,9 @@ type MySQLConfig struct {
 
 	// Password for authentication (omitted from JSON for security)
 	Password string `mapstructure:"password" json:"-"`
+
+	// ConnectionPool configures connection pooling
+	ConnectionPool ConnectionPoolConfig `mapstructure:"pool" json:"pool,omitempty"`
 }
 
 // HistoryRetentionConfig configures retention
@@ -249,9 +270,21 @@ func DefaultConfig() *Config {
 			PostgreSQL: PostgreSQLConfig{
 				Port:    5432,
 				SSLMode: "require",
+				ConnectionPool: ConnectionPoolConfig{
+					MaxIdleConns:    10,
+					MaxOpenConns:    100,
+					ConnMaxLifetime: 1 * time.Hour,
+					ConnMaxIdleTime: 10 * time.Minute,
+				},
 			},
 			MySQL: MySQLConfig{
 				Port: 3306,
+				ConnectionPool: ConnectionPoolConfig{
+					MaxIdleConns:    10,
+					MaxOpenConns:    100,
+					ConnMaxLifetime: 1 * time.Hour,
+					ConnMaxIdleTime: 10 * time.Minute,
+				},
 			},
 			LogStorageEnabled:   false, // Opt-in by default
 			EventStorageEnabled: false, // Opt-in by default
@@ -313,11 +346,19 @@ func BindFlags(flags *pflag.FlagSet) {
 	flags.String("storage.postgres.username", "", "PostgreSQL username")
 	flags.String("storage.postgres.password", "", "PostgreSQL password")
 	flags.String("storage.postgres.ssl-mode", "require", "PostgreSQL SSL mode")
+	flags.Int("storage.postgres.pool.max-idle-conns", 10, "PostgreSQL max idle connections")
+	flags.Int("storage.postgres.pool.max-open-conns", 100, "PostgreSQL max open connections")
+	flags.Duration("storage.postgres.pool.conn-max-lifetime", 1*time.Hour, "PostgreSQL connection max lifetime")
+	flags.Duration("storage.postgres.pool.conn-max-idle-time", 10*time.Minute, "PostgreSQL connection max idle time")
 	flags.String("storage.mysql.host", "", "MySQL host")
 	flags.Int("storage.mysql.port", 3306, "MySQL port")
 	flags.String("storage.mysql.database", "", "MySQL database name")
 	flags.String("storage.mysql.username", "", "MySQL username")
 	flags.String("storage.mysql.password", "", "MySQL password")
+	flags.Int("storage.mysql.pool.max-idle-conns", 10, "MySQL max idle connections")
+	flags.Int("storage.mysql.pool.max-open-conns", 100, "MySQL max open connections")
+	flags.Duration("storage.mysql.pool.conn-max-lifetime", 1*time.Hour, "MySQL connection max lifetime")
+	flags.Duration("storage.mysql.pool.conn-max-idle-time", 10*time.Minute, "MySQL connection max idle time")
 	flags.Bool("storage.log-storage-enabled", false, "Enable storing job logs in database (default: false, opt-in)")
 	flags.Bool("storage.event-storage-enabled", false, "Enable storing K8s events in database (default: false, opt-in)")
 	flags.Int("storage.max-log-size-kb", 100, "Maximum log size to store per execution in KB")
@@ -372,7 +413,15 @@ func Load(flags *pflag.FlagSet) (*Config, error) {
 	v.SetDefault("storage.sqlite.path", defaults.Storage.SQLite.Path)
 	v.SetDefault("storage.postgres.port", defaults.Storage.PostgreSQL.Port)
 	v.SetDefault("storage.postgres.ssl-mode", defaults.Storage.PostgreSQL.SSLMode)
+	v.SetDefault("storage.postgres.pool.max-idle-conns", defaults.Storage.PostgreSQL.ConnectionPool.MaxIdleConns)
+	v.SetDefault("storage.postgres.pool.max-open-conns", defaults.Storage.PostgreSQL.ConnectionPool.MaxOpenConns)
+	v.SetDefault("storage.postgres.pool.conn-max-lifetime", defaults.Storage.PostgreSQL.ConnectionPool.ConnMaxLifetime)
+	v.SetDefault("storage.postgres.pool.conn-max-idle-time", defaults.Storage.PostgreSQL.ConnectionPool.ConnMaxIdleTime)
 	v.SetDefault("storage.mysql.port", defaults.Storage.MySQL.Port)
+	v.SetDefault("storage.mysql.pool.max-idle-conns", defaults.Storage.MySQL.ConnectionPool.MaxIdleConns)
+	v.SetDefault("storage.mysql.pool.max-open-conns", defaults.Storage.MySQL.ConnectionPool.MaxOpenConns)
+	v.SetDefault("storage.mysql.pool.conn-max-lifetime", defaults.Storage.MySQL.ConnectionPool.ConnMaxLifetime)
+	v.SetDefault("storage.mysql.pool.conn-max-idle-time", defaults.Storage.MySQL.ConnectionPool.ConnMaxIdleTime)
 	v.SetDefault("storage.log-storage-enabled", defaults.Storage.LogStorageEnabled)
 	v.SetDefault("storage.event-storage-enabled", defaults.Storage.EventStorageEnabled)
 	v.SetDefault("storage.max-log-size-kb", defaults.Storage.MaxLogSizeKB)

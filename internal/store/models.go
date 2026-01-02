@@ -65,17 +65,17 @@ func (e *Execution) SetDuration(d time.Duration) {
 // AlertHistory represents an alert event record (GORM model)
 type AlertHistory struct {
 	ID               int64      `gorm:"primaryKey;autoIncrement"`
-	Type             string     `gorm:"column:alert_type;size:100;not null"`
+	Type             string     `gorm:"column:alert_type;size:100;not null;index:idx_alert_resolve,priority:1"`
 	Severity         string     `gorm:"column:severity;size:20;not null;index:idx_alert_severity"`
 	Title            string     `gorm:"column:title;size:500;not null"`
 	Message          string     `gorm:"column:message;type:text"`
-	CronJobNamespace string     `gorm:"column:cronjob_ns;size:253;index:idx_alert_cronjob,priority:1;index:idx_alert_cronjob_time,priority:1"`
-	CronJobName      string     `gorm:"column:cronjob_name;size:253;index:idx_alert_cronjob,priority:2;index:idx_alert_cronjob_time,priority:2"`
+	CronJobNamespace string     `gorm:"column:cronjob_ns;size:253;index:idx_alert_cronjob,priority:1;index:idx_alert_cronjob_time,priority:1;index:idx_alert_resolve,priority:2"`
+	CronJobName      string     `gorm:"column:cronjob_name;size:253;index:idx_alert_cronjob,priority:2;index:idx_alert_cronjob_time,priority:2;index:idx_alert_resolve,priority:3"`
 	MonitorNamespace string     `gorm:"column:monitor_ns;size:253"`
 	MonitorName      string     `gorm:"column:monitor_name;size:253"`
 	ChannelsNotified string     `gorm:"column:channels_notified;type:text"` // Comma-separated
 	OccurredAt       time.Time  `gorm:"column:occurred_at;not null;index:idx_alert_occurred,sort:desc;index:idx_alert_cronjob_time,priority:3,sort:desc"`
-	ResolvedAt       *time.Time `gorm:"column:resolved_at;index:idx_alert_unresolved"`
+	ResolvedAt       *time.Time `gorm:"column:resolved_at;index:idx_alert_unresolved;index:idx_alert_resolve,priority:4"`
 	// Context fields for failure alerts
 	ExitCode     int32  `gorm:"column:exit_code"`
 	Reason       string `gorm:"column:reason;size:255"`

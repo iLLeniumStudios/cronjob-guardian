@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -39,8 +38,21 @@ type GormStore struct {
 	dialect string
 }
 
+// ConnectionPoolConfig holds connection pool settings
+type ConnectionPoolConfig struct {
+	MaxIdleConns    int
+	MaxOpenConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+}
+
 // NewGormStore creates a new GORM-based store
 func NewGormStore(dialect string, dsn string) (*GormStore, error) {
+	return NewGormStoreWithPool(dialect, dsn, ConnectionPoolConfig{})
+}
+
+// NewGormStoreWithPool creates a new GORM-based store with connection pool settings
+func NewGormStoreWithPool(dialect string, dsn string, pool ConnectionPoolConfig) (*GormStore, error) {
 	var dialector gorm.Dialector
 	switch dialect {
 	case "sqlite":
@@ -58,6 +70,27 @@ func NewGormStore(dialect string, dsn string) (*GormStore, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Configure connection pool for non-SQLite databases
+	if dialect != "sqlite" && (pool.MaxIdleConns > 0 || pool.MaxOpenConns > 0 || pool.ConnMaxLifetime > 0 || pool.ConnMaxIdleTime > 0) {
+		sqlDB, err := db.DB()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get sql.DB for pool config: %w", err)
+		}
+
+		if pool.MaxIdleConns > 0 {
+			sqlDB.SetMaxIdleConns(pool.MaxIdleConns)
+		}
+		if pool.MaxOpenConns > 0 {
+			sqlDB.SetMaxOpenConns(pool.MaxOpenConns)
+		}
+		if pool.ConnMaxLifetime > 0 {
+			sqlDB.SetConnMaxLifetime(pool.ConnMaxLifetime)
+		}
+		if pool.ConnMaxIdleTime > 0 {
+			sqlDB.SetConnMaxIdleTime(pool.ConnMaxIdleTime)
+		}
 	}
 
 	return &GormStore{db: db, dialect: dialect}, nil
@@ -457,34 +490,46 @@ func (s *GormStore) ResolveAlert(ctx context.Context, alertType, cronJobNs, cron
 		Update("resolved_at", &now).Error
 }
 
-// GetChannelAlertStats returns alert statistics for all channels
+// GetChannelAlertStats returns alert statistics for all channels.
+// Uses batched queries to limit memory usage when processing large datasets.
 func (s *GormStore) GetChannelAlertStats(ctx context.Context) (map[string]ChannelAlertStats, error) {
-	// Fetch all alerts with channels and process in Go
-	// (channels_notified is comma-separated, which requires app-level processing)
-	var rows []string
-
-	err := s.db.WithContext(ctx).Model(&AlertHistory{}).
-		Select("channels_notified").
-		Where("channels_notified IS NOT NULL AND channels_notified != ''").
-		Pluck("channels_notified", &rows).Error
-	if err != nil {
-		return nil, fmt.Errorf("query alert_history: %w", err)
-	}
-
+	// Use batched processing to avoid loading all rows into memory at once.
+	// The channels_notified field is comma-separated, requiring app-level processing.
+	const batchSize = 1000
 	stats := make(map[string]ChannelAlertStats)
+	var offset int
 
-	for _, row := range rows {
-		channels := strings.Split(row, ",")
-		for _, ch := range channels {
-			ch = strings.TrimSpace(ch)
-			if ch == "" {
-				continue
-			}
-			st := stats[ch]
-			st.ChannelName = ch
-			st.AlertsSentTotal++
-			stats[ch] = st
+	for {
+		var rows []string
+		err := s.db.WithContext(ctx).Model(&AlertHistory{}).
+			Select("channels_notified").
+			Where("channels_notified IS NOT NULL AND channels_notified != ''").
+			Order("id"). // Consistent ordering for pagination
+			Offset(offset).Limit(batchSize).
+			Pluck("channels_notified", &rows).Error
+		if err != nil {
+			return nil, fmt.Errorf("query alert_history batch at offset %d: %w", offset, err)
 		}
+
+		if len(rows) == 0 {
+			break
+		}
+
+		for _, row := range rows {
+			channels := strings.Split(row, ",")
+			for _, ch := range channels {
+				ch = strings.TrimSpace(ch)
+				if ch == "" {
+					continue
+				}
+				st := stats[ch]
+				st.ChannelName = ch
+				st.AlertsSentTotal++
+				stats[ch] = st
+			}
+		}
+
+		offset += batchSize
 	}
 
 	return stats, nil
@@ -537,12 +582,14 @@ func (s *GormStore) GetAllChannelStats(ctx context.Context) (map[string]*Channel
 	return result, nil
 }
 
-// percentile calculates the p-th percentile from sorted data
-func percentile(data []float64, p int) float64 {
-	if len(data) == 0 {
+// percentile calculates the p-th percentile from pre-sorted data.
+// IMPORTANT: The input data must already be sorted in ascending order.
+// The database query should use ORDER BY to ensure this.
+func percentile(sortedData []float64, p int) float64 {
+	if len(sortedData) == 0 {
 		return 0
 	}
-	sort.Float64s(data)
-	idx := int(float64(len(data)-1) * float64(p) / 100)
-	return data[idx]
+	// Data is already sorted by database ORDER BY clause - no sort needed
+	idx := int(float64(len(sortedData)-1) * float64(p) / 100)
+	return sortedData[idx]
 }
