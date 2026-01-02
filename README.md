@@ -506,30 +506,6 @@ config:
     type: sqlite
 ```
 
-### Project Structure
-
-```
-├── api/v1alpha1/          # CRD type definitions
-├── cmd/                   # Main entrypoint
-├── config/                # Kubernetes manifests (CRDs, RBAC, etc.)
-├── deploy/helm/           # Helm chart
-├── docs/                  # Documentation
-│   └── api.md            # REST API reference
-├── examples/              # Example configurations
-│   ├── alertchannels/    # AlertChannel examples
-│   ├── monitors/         # CronJobMonitor examples
-│   └── cronjobs/         # CronJob examples
-├── internal/
-│   ├── controller/       # Kubernetes reconcilers
-│   ├── alerting/         # Alert dispatcher and channels
-│   ├── analyzer/         # SLA calculation
-│   ├── scheduler/        # Background tasks
-│   ├── store/            # Database abstraction (GORM)
-│   ├── api/              # REST API server
-│   └── config/           # Configuration handling
-└── ui/                   # React dashboard
-```
-
 ## Uninstalling
 
 ### Helm
