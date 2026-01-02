@@ -9,6 +9,8 @@
 A Kubernetes operator for monitoring CronJobs with SLA tracking, intelligent alerting, and a built-in dashboard.
 
 ![CronJob Guardian Dashboard](docs/images/dashboard.png)
+![CronJob Guardian SLA Compliance](docs/images/sla.png)
+![CronJob Guardian CronJob Details](docs/images/cronjob.png)
 
 ## Why CronJob Guardian?
 
