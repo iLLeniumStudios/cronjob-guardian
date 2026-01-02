@@ -174,7 +174,7 @@ export function DurationChart({ executions, defaultDays = 14 }: DurationChartPro
                 height={30}
                 iconType="line"
                 iconSize={10}
-                wrapperStyle={{ fontSize: "12px" }}
+                wrapperStyle={{ fontSize: "12px", color: "hsl(var(--foreground))" }}
               />
               {regressionInfo && (
                 <ReferenceLine

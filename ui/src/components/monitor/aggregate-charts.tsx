@@ -221,6 +221,7 @@ export function AggregateCharts({ monitor }: AggregateChartsProps) {
                     height={36}
                     iconType="circle"
                     iconSize={10}
+                    wrapperStyle={{ color: "hsl(var(--foreground))" }}
                     formatter={(value) => <span className="text-sm">{value}</span>}
                   />
                 </PieChart>
