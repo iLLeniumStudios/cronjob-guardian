@@ -1317,12 +1317,12 @@ func TestDispatcher_Dispatch_ConcurrentSameKey(t *testing.T) {
 	// Launch multiple goroutines dispatching the same alert key
 	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
-		go func(idx int) {
+		go func() {
 			defer wg.Done()
 			alert := testAlert("default", "test-cron", "JobFailed", "critical")
 			// Dispatch same key - should be deduplicated
 			_ = d.Dispatch(ctx, alert, cfg)
-		}(i)
+		}()
 	}
 
 	wg.Wait()

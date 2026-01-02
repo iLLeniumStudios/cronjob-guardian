@@ -1,12 +1,14 @@
 # CronJob Guardian
 
 [![GitHub Release](https://img.shields.io/github/v/release/iLLeniumStudios/cronjob-guardian?logo=github&sort=semver)](https://github.com/iLLeniumStudios/cronjob-guardian/releases/latest)
-[![CI](https://github.com/iLLeniumStudios/cronjob-guardian/actions/workflows/ci.yaml/badge.svg)](https://github.com/iLLeniumStudios/cronjob-guardian/actions/workflows/ci.yaml)
+[![CI](https://img.shields.io/github/actions/workflow/status/iLLeniumStudios/cronjob-guardian/ci.yaml?logo=githubactions&logoColor=white&label=CI)](https://github.com/iLLeniumStudios/cronjob-guardian/actions/workflows/ci.yaml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/iLLeniumStudios/cronjob-guardian?logo=go)](https://go.dev/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/iLLeniumStudios/cronjob-guardian)](https://goreportcard.com/report/github.com/iLLeniumStudios/cronjob-guardian)
 [![License](https://img.shields.io/github/license/iLLeniumStudios/cronjob-guardian)](https://github.com/iLLeniumStudios/cronjob-guardian/blob/main/LICENSE)
 
 A Kubernetes operator for monitoring CronJobs with SLA tracking, intelligent alerting, and a built-in dashboard.
+
+![CronJob Guardian Dashboard](docs/images/dashboard.png)
 
 ## Why CronJob Guardian?
 
@@ -39,7 +41,7 @@ CronJob Guardian watches your CronJobs and alerts you when something goes wrong:
 │   │   │  Controllers   │   │   Schedulers   │   │    Alerting    │           │   │
 │   │   │                │   │                │   │   Dispatcher   │───────────────────┐
 │   │   │  • Monitor     │   │  • Dead-man    │   │                │           │   │   │
-│   │   │  • Job         │◀──│  • SLA recalc  │──▶│  • Dedup       │           │   │   │
+│   │   │  • Job         │◀─│  • SLA recalc  │─▶│  • Dedup       │           │   │   │
 │   │   │  • Channel     │   │  • Prune       │   │  • Rate limit  │           │   │   │
 │   │   └───────┬────────┘   └────────────────┘   └────────────────┘           │   │   │
 │   │           │                                                              │   │   │
@@ -65,9 +67,9 @@ CronJob Guardian watches your CronJobs and alerts you when something goes wrong:
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                              External Services                                  │
 │                                                                                 │
-│   ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐    │
-│   │   Slack   │  │ PagerDuty │  │  Webhook  │  │   Email   │  │Prometheus │    │
-│   └───────────┘  └───────────┘  └───────────┘  └───────────┘  └───────────┘    │
+│   ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐     │
+│   │   Slack   │  │ PagerDuty │  │  Webhook  │  │   Email   │  │Prometheus │     │
+│   └───────────┘  └───────────┘  └───────────┘  └───────────┘  └───────────┘     │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -94,6 +96,9 @@ CronJob Guardian watches your CronJobs and alerts you when something goes wrong:
 - **Rich Context**: Alerts include pod logs, Kubernetes events, and suggested fixes
 - **Deduplication**: Configurable suppression windows and alert delays for flaky jobs
 - **Severity Routing**: Route critical and warning alerts to different channels
+
+<!-- TODO: Add Slack alert example screenshot -->
+<!-- ![Slack Alert Example](docs/images/slack-alert.png) -->
 
 ### Operations
 
@@ -296,6 +301,18 @@ Example monitors for common scenarios:
 ## Web Dashboard
 
 CronJob Guardian includes a feature-rich web UI that serves both an interactive dashboard and REST API on port 8080.
+
+<!-- TODO: Add dashboard screenshots -->
+<!--
+<p align="center">
+  <img src="docs/images/dashboard-overview.png" alt="Dashboard Overview" width="800">
+</p>
+
+<p align="center">
+  <img src="docs/images/cronjob-detail.png" alt="CronJob Detail View" width="400">
+  <img src="docs/images/sla-dashboard.png" alt="SLA Dashboard" width="400">
+</p>
+-->
 
 ### Dashboard Pages
 

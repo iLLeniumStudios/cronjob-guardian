@@ -54,7 +54,7 @@ func TestSendWithRetry_SuccessOnFirstAttempt(t *testing.T) {
 
 	resp, err := SendWithRetry(context.Background(), req, config)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&requestCount), "should only make one request on success")
@@ -83,7 +83,7 @@ func TestSendWithRetry_RetriesOn5xx(t *testing.T) {
 
 	resp, err := SendWithRetry(context.Background(), req, config)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, int32(3), atomic.LoadInt32(&requestCount), "should retry until success")
@@ -108,7 +108,7 @@ func TestSendWithRetry_DoesNotRetryOn4xx(t *testing.T) {
 
 	resp, err := SendWithRetry(context.Background(), req, config)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&requestCount), "should not retry 4xx errors")
@@ -195,7 +195,7 @@ func TestSendWithRetry_PreservesRequestBody(t *testing.T) {
 
 	resp, err := SendWithRetry(context.Background(), req, config)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Len(t, receivedBodies, 3)
 	for i, body := range receivedBodies {
@@ -226,7 +226,7 @@ func TestSendWithRetry_ExponentialBackoff(t *testing.T) {
 
 	resp, err := SendWithRetry(context.Background(), req, config)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Len(t, requestTimes, 4)
 
@@ -269,7 +269,7 @@ func TestSendWithRetry_BackoffCappedAtMax(t *testing.T) {
 
 	resp, err := SendWithRetry(context.Background(), req, config)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Len(t, requestTimes, 5)
 
@@ -301,7 +301,7 @@ func TestSendWithRetry_NilBody(t *testing.T) {
 
 	resp, err := SendWithRetry(context.Background(), req, config)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&requestCount))

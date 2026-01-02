@@ -98,7 +98,7 @@ func SendWithRetry(ctx context.Context, req *http.Request, config RetryConfig) (
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", err)
 		}
-		req.Body.Close()
+		_ = req.Body.Close()
 	}
 
 	var lastErr error
@@ -138,7 +138,7 @@ func SendWithRetry(ctx context.Context, req *http.Request, config RetryConfig) (
 
 		// Server error (5xx) - retry
 		lastErr = fmt.Errorf("server returned status %d", resp.StatusCode)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	return nil, fmt.Errorf("after %d retries: %w", config.MaxRetries, lastErr)
