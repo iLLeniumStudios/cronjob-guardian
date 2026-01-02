@@ -79,6 +79,17 @@ CronJob Guardian watches your CronJobs and alerts you when something goes wrong:
 4. Background schedulers check for missed schedules, SLA breaches, and duration regressions
 5. When issues are detected, alerts are dispatched with context (logs, events, suggested fixes)
 
+## Screenshots
+
+#### Main Dashboard
+![CronJob Guardian Dashboard](docs/images/dashboard.png)
+
+#### SLA Compliance View
+![CronJob Guardian SLA Compliance](docs/images/sla.png)
+
+#### CronJob Details View
+![CronJob Guardian CronJob Details](docs/images/cronjob.png)
+
 ## Features
 
 ### Monitoring
@@ -299,15 +310,6 @@ Example monitors for common scenarios:
 ## Web Dashboard
 
 CronJob Guardian includes a feature-rich web UI that serves both an interactive dashboard and REST API on port 8080.
-
-#### Main Dashboard
-![CronJob Guardian Dashboard](docs/images/dashboard.png)
-
-#### SLA Compliance View
-![CronJob Guardian SLA Compliance](docs/images/sla.png)
-
-#### CronJob Details View
-![CronJob Guardian CronJob Details](docs/images/cronjob.png)
 
 ### Dashboard Pages
 
