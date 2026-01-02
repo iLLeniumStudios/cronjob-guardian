@@ -101,10 +101,6 @@ func (d *dispatcher) Dispatch(ctx context.Context, alert Alert, alertCfg *v1alph
 			"key", alert.Key,
 			"remainingGracePeriod", remaining,
 		)
-		d.alertMu.Lock()
-		d.sentAlerts[alert.Key] = time.Now()
-		d.activeAlerts[alert.Key] = alert
-		d.alertMu.Unlock()
 		return nil
 	}
 
@@ -140,6 +136,21 @@ func (d *dispatcher) dispatchImmediate(ctx context.Context, alert Alert, alertCf
 		)
 		return nil
 	}
+
+	// Atomic suppression check + mark as sent to prevent TOCTOU race.
+	// We mark as sent BEFORE actually sending to prevent duplicate dispatches
+	// when concurrent goroutines try to send the same alert.
+	d.alertMu.Lock()
+	if suppressed, reason := d.isSuppressedLocked(alert, alertCfg); suppressed {
+		d.alertMu.Unlock()
+		logger.V(1).Info("alert suppressed", "key", alert.Key, "reason", reason)
+		return nil
+	}
+	// Mark as sent immediately (before releasing lock) to prevent duplicates
+	d.sentAlerts[alert.Key] = time.Now()
+	d.activeAlerts[alert.Key] = alert
+	d.alertCount24h++
+	d.alertMu.Unlock()
 
 	channelInfo := make([]string, 0, len(targetChannels))
 	for _, ch := range targetChannels {
@@ -203,12 +214,6 @@ func (d *dispatcher) dispatchImmediate(ctx context.Context, alert Alert, alertCf
 		}
 	}
 
-	d.alertMu.Lock()
-	d.sentAlerts[alert.Key] = time.Now()
-	d.activeAlerts[alert.Key] = alert
-	d.alertCount24h++
-	d.alertMu.Unlock()
-
 	if d.store != nil && len(channelNames) > 0 {
 		alertHistory := store.AlertHistory{
 			Type:             alert.Type,
@@ -270,11 +275,18 @@ func (d *dispatcher) SendToChannel(ctx context.Context, channelName string, aler
 	return ch.Send(ctx, alert)
 }
 
-// IsSuppressed checks if an alert should be suppressed
+// IsSuppressed checks if an alert should be suppressed.
+// Note: This method is for external callers. Internal dispatch uses isSuppressedLocked
+// with atomic check+mark to prevent TOCTOU race conditions.
 func (d *dispatcher) IsSuppressed(alert Alert, alertCfg *v1alpha1.AlertingConfig) (bool, string) {
 	d.alertMu.RLock()
 	defer d.alertMu.RUnlock()
+	return d.isSuppressedLocked(alert, alertCfg)
+}
 
+// isSuppressedLocked checks if an alert should be suppressed.
+// Caller MUST hold alertMu (read or write lock).
+func (d *dispatcher) isSuppressedLocked(alert Alert, alertCfg *v1alpha1.AlertingConfig) (bool, string) {
 	if lastSent, ok := d.sentAlerts[alert.Key]; ok {
 		suppressDuration := 1 * time.Hour
 		if alertCfg.SuppressDuplicatesFor != nil {
@@ -430,7 +442,7 @@ func (d *dispatcher) CancelPendingAlert(alertKey string) bool {
 	defer d.pendingMu.Unlock()
 
 	if pending, ok := d.pendingAlerts[alertKey]; ok {
-		close(pending.Cancel)
+		pending.Close()
 		delete(d.pendingAlerts, alertKey)
 		return true
 	}
@@ -448,7 +460,7 @@ func (d *dispatcher) CancelPendingAlertsForCronJob(namespace, name string) int {
 
 	for key, pending := range d.pendingAlerts {
 		if strings.HasPrefix(key, prefix) {
-			close(pending.Cancel)
+			pending.Close()
 			delete(d.pendingAlerts, key)
 			cancelled++
 		}
@@ -679,6 +691,12 @@ func (d *dispatcher) GetChannelStats(channelName string) *ChannelStats {
 			ConsecutiveFailures: stats.ConsecutiveFailures,
 		}
 	}
+	return nil
+}
+
+// Stop gracefully shuts down the dispatcher by signaling the cleanup goroutine to exit.
+func (d *dispatcher) Stop() error {
+	close(d.cleanupDone)
 	return nil
 }
 

@@ -759,12 +759,13 @@ func TestStartupGrace_SuppressesDuringPeriod(t *testing.T) {
 	err := d.Dispatch(ctx, alert, cfg)
 	require.NoError(t, err)
 
+	// Alert should not be sent during grace period
 	assert.Len(t, ch.GetSentAlerts(), 0)
 
 	d.alertMu.RLock()
 	_, exists := d.sentAlerts[alert.Key]
 	d.alertMu.RUnlock()
-	assert.True(t, exists)
+	assert.False(t, exists)
 }
 
 func TestStartupGrace_AllowsAfterPeriod(t *testing.T) {

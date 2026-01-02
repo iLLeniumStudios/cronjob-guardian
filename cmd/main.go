@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"embed"
 	"fmt"
@@ -305,6 +306,12 @@ func main() {
 	alertDispatcher := alerting.NewDispatcher(mgr.GetClient(), dataStore, cfg.Scheduler.StartupGracePeriod)
 	setupLog.Info("initialized alert dispatcher", "startupGracePeriod", cfg.Scheduler.StartupGracePeriod)
 
+	// Register shutdown hook for alert dispatcher cleanup
+	if err := mgr.Add(&dispatcherShutdown{dispatcher: alertDispatcher}); err != nil {
+		setupLog.Error(err, "unable to add alert dispatcher shutdown hook")
+		os.Exit(1)
+	}
+
 	if err := (&controller.CronJobMonitorReconciler{
 		Client:          mgr.GetClient(),
 		Log:             ctrl.Log.WithName("controllers").WithName("CronJobMonitor"),
@@ -434,4 +441,15 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// dispatcherShutdown implements manager.Runnable to gracefully shutdown the alert dispatcher.
+type dispatcherShutdown struct {
+	dispatcher alerting.Dispatcher
+}
+
+// Start blocks until context is cancelled, then stops the dispatcher.
+func (d *dispatcherShutdown) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return d.dispatcher.Stop()
 }

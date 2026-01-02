@@ -520,6 +520,11 @@ func (m *MockDispatcher) GetChannelStats(name string) *alerting.ChannelStats {
 	return m.ChannelStats[name]
 }
 
+// Stop implements alerting.Dispatcher
+func (m *MockDispatcher) Stop() error {
+	return nil
+}
+
 // Lock acquires the mutex for external synchronization in tests
 func (m *MockDispatcher) Lock() {
 	m.mu.Lock()

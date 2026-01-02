@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
@@ -96,12 +97,24 @@ type Dispatcher interface {
 
 	// GetChannelStats returns statistics for a specific channel
 	GetChannelStats(channelName string) *ChannelStats
+
+	// Stop gracefully shuts down the dispatcher, stopping background goroutines
+	Stop() error
 }
 
 // PendingAlert represents an alert that is delayed before sending
 type PendingAlert struct {
-	Alert    Alert
-	AlertCfg *v1alpha1.AlertingConfig
-	SendAt   time.Time
-	Cancel   chan struct{}
+	Alert      Alert
+	AlertCfg   *v1alpha1.AlertingConfig
+	SendAt     time.Time
+	Cancel     chan struct{}
+	cancelOnce sync.Once // Ensures Cancel channel is closed exactly once
+}
+
+// Close safely closes the Cancel channel, ensuring it's only closed once
+// to prevent panic from double-close.
+func (p *PendingAlert) Close() {
+	p.cancelOnce.Do(func() {
+		close(p.Cancel)
+	})
 }
