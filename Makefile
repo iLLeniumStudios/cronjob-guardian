@@ -335,6 +335,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 SWAG ?= $(LOCALBIN)/swag
 HELM_TOOL ?= $(LOCALBIN)/helm-tool
+CRD_REF_DOCS ?= $(LOCALBIN)/crd-ref-docs
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.6.0
@@ -346,6 +347,7 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.7.2
 SWAG_VERSION ?= v1.16.6
+CRD_REF_DOCS_VERSION ?= v0.2.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -384,6 +386,11 @@ $(SWAG): $(LOCALBIN)
 helm-tool: $(HELM_TOOL) ## Download helm-tool locally if necessary.
 $(HELM_TOOL): $(LOCALBIN)
 	$(call go-install-tool,$(HELM_TOOL),github.com/cert-manager/helm-tool,$(HELM_TOOL_VERSION))
+
+.PHONY: crd-ref-docs
+crd-ref-docs: $(CRD_REF_DOCS) ## Download crd-ref-docs locally if necessary.
+$(CRD_REF_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
@@ -473,3 +480,36 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+##@ Documentation
+
+.PHONY: docs-install
+docs-install: ## Install documentation dependencies
+	cd docs && npm install
+
+.PHONY: docs-build
+docs-build: docs-install ## Build the documentation site
+	cd docs && npm run build
+
+.PHONY: docs-serve
+docs-serve: docs-install ## Start documentation dev server
+	cd docs && npm run start
+
+.PHONY: docs-clean
+docs-clean: ## Clean documentation build artifacts
+	rm -rf docs/build docs/node_modules docs/.docusaurus
+
+.PHONY: docs-crds
+docs-crds: crd-ref-docs ## Generate CRD reference documentation
+	$(CRD_REF_DOCS) --source-path=./api/v1alpha1 --config=./docs/crd-ref-docs.yaml --renderer=markdown --output-path=./docs/docs/reference/crds/api-reference.md
+	@echo '---' > ./docs/docs/reference/crds/api-reference.md.tmp
+	@echo 'sidebar_position: 1' >> ./docs/docs/reference/crds/api-reference.md.tmp
+	@echo 'title: CRD API Reference' >> ./docs/docs/reference/crds/api-reference.md.tmp
+	@echo 'description: Auto-generated API reference for CronJob Guardian CRDs' >> ./docs/docs/reference/crds/api-reference.md.tmp
+	@echo '---' >> ./docs/docs/reference/crds/api-reference.md.tmp
+	@echo '' >> ./docs/docs/reference/crds/api-reference.md.tmp
+	@cat ./docs/docs/reference/crds/api-reference.md >> ./docs/docs/reference/crds/api-reference.md.tmp
+	@mv ./docs/docs/reference/crds/api-reference.md.tmp ./docs/docs/reference/crds/api-reference.md
+
+.PHONY: docs-generate
+docs-generate: docs-crds ## Generate all documentation (CRDs, etc.)

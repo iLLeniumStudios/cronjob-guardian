@@ -1,0 +1,41 @@
+/**
+ * CronJob Guardian - Custom Theme
+ * Teal/Green color scheme for DevOps/infrastructure feel
+ */
+
+:root {
+  /* Teal primary colors */
+  --ifm-color-primary: #0d9488;
+  --ifm-color-primary-dark: #0b8378;
+  --ifm-color-primary-darker: #0a7c71;
+  --ifm-color-primary-darkest: #08665d;
+  --ifm-color-primary-light: #0fa698;
+  --ifm-color-primary-lighter: #10ad9f;
+  --ifm-color-primary-lightest: #14c4b3;
+
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] {
+  /* Lighter teal for dark mode */
+  --ifm-color-primary: #2dd4bf;
+  --ifm-color-primary-dark: #1fc9b3;
+  --ifm-color-primary-darker: #1dbfaa;
+  --ifm-color-primary-darkest: #189d8c;
+  --ifm-color-primary-light: #4ddbc9;
+  --ifm-color-primary-lighter: #57ded0;
+  --ifm-color-primary-lightest: #7de6dc;
+
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+/* Hero uses primary color for background */
+.hero--primary {
+  --ifm-hero-background-color: var(--ifm-color-primary-darkest);
+  --ifm-hero-text-color: #fff;
+}
+
+[data-theme="dark"] .hero--primary {
+  --ifm-hero-background-color: var(--ifm-color-primary-darkest);
+}
