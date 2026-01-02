@@ -88,7 +88,7 @@ CronJob Guardian watches your CronJobs and alerts you when something goes wrong:
 ![CronJob Guardian SLA Compliance](docs/images/sla.png)
 
 #### CronJob Details View
-![CronJob Guardian CronJob Details](docs/images/cronjob.png)
+![CronJob Guardian CronJob Details](docs/images/cronjob2.png)
 
 ## Features
 
