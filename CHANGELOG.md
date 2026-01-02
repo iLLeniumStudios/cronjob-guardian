@@ -2,7 +2,12 @@
 
 All notable changes to CronJob Guardian will be documented in this file.
 
-## [Unreleased]
+## [0.1.1] - 2026-01-02
+
+### Bug Fixes
+
+- Changelog generation to handle chart versions separately by @TheiLLeniumStudios
+- **ui:** Add consistent foreground color to chart icon wrapper styles by @TheiLLeniumStudios
 
 ### Documentation
 
