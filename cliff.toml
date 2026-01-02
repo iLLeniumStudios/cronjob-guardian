@@ -33,10 +33,15 @@ trim = true
 conventional_commits = true
 filter_unconventional = true
 split_commits = false
+# Only consider v* tags, ignore chart-v* tags
+tag_pattern = "^v[0-9]"
+skip_tags = "chart-.*"
 commit_preprocessors = [
     { pattern = '\(#([0-9]+)\)', replace = "([#${1}](https://github.com/iLLeniumStudios/cronjob-guardian/issues/${1}))" },
 ]
 commit_parsers = [
+    # Skip chart-related commits in main changelog
+    { message = "^chart:", skip = true },
     { message = "^feat", group = "Features" },
     { message = "^fix", group = "Bug Fixes" },
     { message = "^doc", group = "Documentation" },

@@ -45,6 +45,16 @@ jobs:
         run: |
           helm push cronjob-guardian-${{ steps.version.outputs.VERSION }}.tgz oci://ghcr.io/${{ env.OWNER_LC }}/charts
 
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: changelog
+        with:
+          config: cliff-chart.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: CHANGELOG_RELEASE.md
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -63,5 +73,38 @@ jobs:
             ```bash
             helm upgrade cronjob-guardian oci://ghcr.io/${{ env.OWNER_LC }}/charts/cronjob-guardian --version ${{ steps.version.outputs.VERSION }}
             ```
+
+            ### Changes
+
+            ${{ steps.changelog.outputs.content }}
           files: |
             cronjob-guardian-${{ steps.version.outputs.VERSION }}.tgz
+
+  update-chart-changelog:
+    name: Update Chart CHANGELOG.md
+    needs: release-chart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Generate chart changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff-chart.toml
+          args: --output deploy/helm/cronjob-guardian/CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit and push changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/helm/cronjob-guardian/CHANGELOG.md
+          git diff --staged --quiet || git commit -m "docs(chart): update CHANGELOG.md for ${GITHUB_REF#refs/tags/}"
+          git push origin main
