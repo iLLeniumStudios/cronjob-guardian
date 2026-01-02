@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -21,6 +20,7 @@ import { RelativeTime } from "@/components/relative-time";
 import { AggregateCharts } from "@/components/monitor/aggregate-charts";
 import { DataTable, type ColumnDef } from "@/components/data-table";
 import { getMonitor, type MonitorDetail } from "@/lib/api";
+import { useDetailFetch } from "@/hooks/use-detail-fetch";
 
 // Extract the CronJob type from MonitorDetail
 type MonitorCronJob = MonitorDetail["status"]["cronJobs"][number];
@@ -34,52 +34,19 @@ const statusOrder: Record<string, number> = {
 export function MonitorDetailClient() {
   const router = useRouter();
 
-  // Parse namespace/name from URL path client-side
-  const [namespace, setNamespace] = useState("");
-  const [name, setName] = useState("");
-
-  useEffect(() => {
-    // Parse URL: /monitors/namespace/name
-    const path = window.location.pathname;
-    const parts = path.split("/").filter(Boolean);
-    if (parts.length >= 3 && parts[0] === "monitors") {
-      setNamespace(parts[1]);
-      setName(parts[2]);
-    }
-  }, []);
-
-  const [monitor, setMonitor] = useState<MonitorDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const fetchData = useCallback(
-    async (showRefreshing = false) => {
-      if (!namespace || !name) {
-        setIsLoading(false);
-        return;
-      }
-      if (showRefreshing) setIsRefreshing(true);
-      try {
-        const data = await getMonitor(namespace, name);
-        setMonitor(data);
-      } catch (error) {
-        console.error("Failed to fetch monitor data:", error);
-        toast.error("Failed to load monitor data");
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [namespace, name]
-  );
-
-  useEffect(() => {
-    if (namespace && name) {
-      fetchData();
-      const interval = setInterval(() => fetchData(), 5000);
-      return () => clearInterval(interval);
-    }
-  }, [fetchData, namespace, name]);
+  // Use the detail fetch hook to parse URL and fetch data
+  const {
+    namespace,
+    name,
+    data: monitor,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useDetailFetch<MonitorDetail>({
+    pathPrefix: "monitors",
+    fetchFn: getMonitor,
+    onError: () => toast.error("Failed to load monitor data"),
+  });
 
   // If no URL params, return null (list view will be shown instead)
   if (!namespace || !name) {
@@ -134,7 +101,7 @@ export function MonitorDetailClient() {
     <div className="flex h-full flex-col">
       <Header
         title={monitor.metadata.name}
-        onRefresh={() => fetchData(true)}
+        onRefresh={refetch}
         isRefreshing={isRefreshing}
       />
 

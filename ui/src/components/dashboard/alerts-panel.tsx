@@ -8,8 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RelativeTime } from "@/components/relative-time";
 import { EmptyState } from "@/components/empty-state";
 import type { AlertsResponse, Alert } from "@/lib/api";
-import { cn } from "@/lib/utils";
-import { SEVERITY_STYLES, SEVERITY_ORDER, type Severity } from "@/lib/constants";
+import { cn, sortAlerts } from "@/lib/utils";
+import { SEVERITY_STYLES, type Severity } from "@/lib/constants";
 
 interface AlertsPanelProps {
   alerts: AlertsResponse | null;
@@ -43,21 +43,7 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
     return acc;
   }, new Map<string, Alert>());
 
-  const sortedAlerts = [...(uniqueAlerts?.values() ?? [])].sort((a, b) => {
-    const aSeverity = (a.severity || "info") as Severity;
-    const bSeverity = (b.severity || "info") as Severity;
-    // Primary sort: severity (critical first)
-    const severityDiff = SEVERITY_ORDER[aSeverity] - SEVERITY_ORDER[bSeverity];
-    if (severityDiff !== 0) return severityDiff;
-    // Secondary sort: namespace
-    const namespaceDiff = a.cronjob.namespace.localeCompare(b.cronjob.namespace);
-    if (namespaceDiff !== 0) return namespaceDiff;
-    // Tertiary sort: name
-    const nameDiff = a.cronjob.name.localeCompare(b.cronjob.name);
-    if (nameDiff !== 0) return nameDiff;
-    // Quaternary sort: alert type (for stability)
-    return (a.type || "").localeCompare(b.type || "");
-  });
+  const sortedAlerts = sortAlerts([...(uniqueAlerts?.values() ?? [])]);
 
   return (
     <Card className="h-full">

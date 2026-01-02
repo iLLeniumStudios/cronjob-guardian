@@ -30,10 +30,10 @@ import (
 
 // compiledPattern holds a pattern with pre-compiled regex
 type compiledPattern struct {
-	Original  v1alpha1.SuggestedFixPattern
-	ReasonRe  *regexp.Regexp
-	LogRe     *regexp.Regexp
-	EventRe   *regexp.Regexp
+	Original v1alpha1.SuggestedFixPattern
+	ReasonRe *regexp.Regexp
+	LogRe    *regexp.Regexp
+	EventRe  *regexp.Regexp
 }
 
 // SuggestedFixEngine matches failure context against patterns to suggest fixes

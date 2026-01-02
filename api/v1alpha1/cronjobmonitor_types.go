@@ -51,8 +51,8 @@ type CronJobMonitorSpec struct {
 	DataRetention *DataRetentionConfig `json:"dataRetention,omitempty"`
 }
 
-// CronJobSelector specifies which CronJobs to monitor
-// +kubebuilder:validation:XValidation:rule="size(self.matchLabels) > 0 || size(self.matchExpressions) > 0 || size(self.matchNames) > 0 || size(self.namespaces) > 0 || has(self.namespaceSelector) || self.allNamespaces == true",message="at least one selector field must be specified"
+// CronJobSelector specifies which CronJobs to monitor.
+// An empty selector matches all CronJobs in the monitor's namespace.
 type CronJobSelector struct {
 	// MatchLabels selects CronJobs by labels
 	// +optional

@@ -1,8 +1,39 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { SEVERITY_ORDER, type Severity } from "@/lib/constants"
+import type { Alert } from "@/lib/api"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+/**
+ * Sorts alerts by severity (critical first), then namespace, name, and type.
+ * Creates a new sorted array without modifying the input.
+ *
+ * @example
+ * const sorted = sortAlerts(alerts);
+ */
+export function sortAlerts(alerts: Alert[]): Alert[] {
+  return [...alerts].sort((a, b) => {
+    const aSeverity = (a.severity || "info") as Severity
+    const bSeverity = (b.severity || "info") as Severity
+
+    // Primary sort: severity (critical first)
+    const severityDiff = SEVERITY_ORDER[aSeverity] - SEVERITY_ORDER[bSeverity]
+    if (severityDiff !== 0) return severityDiff
+
+    // Secondary sort: namespace
+    const namespaceDiff = a.cronjob.namespace.localeCompare(b.cronjob.namespace)
+    if (namespaceDiff !== 0) return namespaceDiff
+
+    // Tertiary sort: name
+    const nameDiff = a.cronjob.name.localeCompare(b.cronjob.name)
+    if (nameDiff !== 0) return nameDiff
+
+    // Quaternary sort: alert type (for stability)
+    return (a.type || "").localeCompare(b.type || "")
+  })
 }
 
 /**

@@ -214,12 +214,12 @@ func (s *SLARecalcScheduler) recalculate(ctx context.Context) {
 				}
 
 				alert := alerting.Alert{
-					Key:       fmt.Sprintf("%s/%s/DurationRegression", cjStatus.Namespace, cjStatus.Name),
-					Type:      "DurationRegression",
-					Severity:  getSeverity(regressionSeverity, "warning"),
-					Title:     fmt.Sprintf("Duration regression: %s/%s", cjStatus.Namespace, cjStatus.Name),
-					Message:   regResult.Message,
-					CronJob:   cronJobNN,
+					Key:      fmt.Sprintf("%s/%s/DurationRegression", cjStatus.Namespace, cjStatus.Name),
+					Type:     "DurationRegression",
+					Severity: getSeverity(regressionSeverity, "warning"),
+					Title:    fmt.Sprintf("Duration regression: %s/%s", cjStatus.Namespace, cjStatus.Name),
+					Message:  regResult.Message,
+					CronJob:  cronJobNN,
 					MonitorRef: types.NamespacedName{
 						Namespace: monitor.Namespace,
 						Name:      monitor.Name,

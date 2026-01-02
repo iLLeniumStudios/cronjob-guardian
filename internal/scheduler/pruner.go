@@ -30,7 +30,7 @@ import (
 type HistoryPruner struct {
 	store            store.Store
 	retentionDays    int
-	logRetentionDays int             // 0 means same as retentionDays
+	logRetentionDays int // 0 means same as retentionDays
 	interval         time.Duration
 	elected          <-chan struct{} // leader election signal (nil = no leader election)
 	stopCh           chan struct{}

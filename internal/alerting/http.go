@@ -17,6 +17,10 @@ limitations under the License.
 package alerting
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -58,4 +62,84 @@ var AlertHTTPClient = &http.Client{
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 10 * time.Second,
 	},
+}
+
+// Default retry configuration
+const (
+	DefaultMaxRetries     = 3
+	DefaultInitialBackoff = 1 * time.Second
+	DefaultMaxBackoff     = 30 * time.Second
+)
+
+// RetryConfig configures retry behavior for HTTP requests
+type RetryConfig struct {
+	MaxRetries     int
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
+}
+
+// DefaultRetryConfig returns the default retry configuration
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxRetries:     DefaultMaxRetries,
+		InitialBackoff: DefaultInitialBackoff,
+		MaxBackoff:     DefaultMaxBackoff,
+	}
+}
+
+// SendWithRetry executes an HTTP request with exponential backoff retry.
+// It retries on network errors and 5xx status codes.
+// The request body is read and buffered to allow retries.
+func SendWithRetry(ctx context.Context, req *http.Request, config RetryConfig) (*http.Response, error) {
+	var body []byte
+	if req.Body != nil {
+		var err error
+		body, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read request body: %w", err)
+		}
+		req.Body.Close()
+	}
+
+	var lastErr error
+	backoff := config.InitialBackoff
+
+	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
+		if attempt > 0 {
+			// Wait before retry with exponential backoff
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+
+			// Double the backoff for next attempt, capped at max
+			backoff *= 2
+			if backoff > config.MaxBackoff {
+				backoff = config.MaxBackoff
+			}
+		}
+
+		// Reset the body for this attempt
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
+
+		resp, err := AlertHTTPClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+
+		// Success or client error (4xx) - don't retry
+		if resp.StatusCode < 500 {
+			return resp, nil
+		}
+
+		// Server error (5xx) - retry
+		lastErr = fmt.Errorf("server returned status %d", resp.StatusCode)
+		resp.Body.Close()
+	}
+
+	return nil, fmt.Errorf("after %d retries: %w", config.MaxRetries, lastErr)
 }

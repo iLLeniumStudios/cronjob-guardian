@@ -38,8 +38,8 @@ type DeadManScheduler struct {
 	analyzer         analyzer.SLAAnalyzer
 	dispatcher       alerting.Dispatcher
 	interval         time.Duration
-	startupDelay     time.Duration       // delay before first check to let controllers reconcile
-	elected          <-chan struct{}     // leader election signal (nil = no leader election)
+	startupDelay     time.Duration   // delay before first check to let controllers reconcile
+	elected          <-chan struct{} // leader election signal (nil = no leader election)
 	stopCh           chan struct{}
 	running          bool
 	mu               sync.Mutex

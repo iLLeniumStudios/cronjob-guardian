@@ -451,11 +451,6 @@ spec:
                       type: string
                     type: array
                 type: object
-                x-kubernetes-validations:
-                - message: at least one selector field must be specified
-                  rule: size(self.matchLabels) > 0 || size(self.matchExpressions)
-                    > 0 || size(self.matchNames) > 0 || size(self.namespaces) > 0
-                    || has(self.namespaceSelector) || self.allNamespaces == true
               sla:
                 description: SLA configures SLA tracking and alerting
                 properties:
