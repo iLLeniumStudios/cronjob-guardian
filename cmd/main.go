@@ -278,9 +278,19 @@ func main() {
 	slaAnalyzer := analyzer.NewSLAAnalyzer(dataStore)
 	setupLog.Info("initialized SLA analyzer")
 
+	// Get leader election channel if leader election is enabled.
+	// Schedulers will wait on this channel before starting their work loops
+	// to ensure only the leader performs scheduled tasks.
+	var elected <-chan struct{}
+	if cfg.LeaderElection.Enabled {
+		elected = mgr.Elected()
+		setupLog.Info("leader election enabled, schedulers will wait for leadership")
+	}
+
 	// Initialize and add history pruner to manager
 	historyPruner := scheduler.NewHistoryPruner(dataStore, cfg.HistoryRetention.DefaultDays)
 	historyPruner.SetInterval(cfg.Scheduler.PruneInterval)
+	historyPruner.SetElected(elected)
 	if cfg.Storage.LogRetentionDays > 0 {
 		historyPruner.SetLogRetentionDays(cfg.Storage.LogRetentionDays)
 	}
@@ -352,6 +362,7 @@ func main() {
 	deadManScheduler := scheduler.NewDeadManScheduler(mgr.GetClient(), slaAnalyzer, alertDispatcher)
 	deadManScheduler.SetStartupDelay(cfg.Scheduler.StartupGracePeriod)
 	deadManScheduler.SetInterval(cfg.Scheduler.DeadManSwitchInterval)
+	deadManScheduler.SetElected(elected)
 	if err := mgr.Add(deadManScheduler); err != nil {
 		setupLog.Error(err, "unable to add dead-man scheduler")
 		os.Exit(1)
@@ -364,6 +375,7 @@ func main() {
 
 	// Create and register SLARecalcScheduler for periodic SLA recalculation
 	slaRecalcScheduler := scheduler.NewSLARecalcScheduler(mgr.GetClient(), dataStore, slaAnalyzer, alertDispatcher)
+	slaRecalcScheduler.SetElected(elected)
 	if err := mgr.Add(slaRecalcScheduler); err != nil {
 		setupLog.Error(err, "unable to add SLA recalc scheduler")
 		os.Exit(1)

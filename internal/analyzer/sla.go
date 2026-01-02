@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/robfig/cron/v3"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -30,8 +31,22 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/internal/store"
 )
 
-// scheduleCache caches parsed cron schedules to avoid repeated parsing
-var scheduleCache sync.Map // map[string]cron.Schedule
+// scheduleCache caches parsed cron schedules to avoid repeated parsing.
+// Uses bounded LRU cache to prevent unbounded memory growth.
+var (
+	scheduleCache     *lru.Cache[string, cron.Schedule]
+	scheduleCacheOnce sync.Once
+)
+
+// getScheduleCache returns the schedule cache, initializing it on first use.
+func getScheduleCache() *lru.Cache[string, cron.Schedule] {
+	scheduleCacheOnce.Do(func() {
+		// Max 1000 unique schedules cached - LRU eviction handles bounds
+		cache, _ := lru.New[string, cron.Schedule](1000)
+		scheduleCache = cache
+	})
+	return scheduleCache
+}
 
 // SLAAnalyzer analyzes CronJob SLA compliance
 type SLAAnalyzer interface {
@@ -294,10 +309,11 @@ func (a *analyzer) CheckDurationRegression(ctx context.Context, cronJob types.Na
 }
 
 // parseScheduleInterval parses a cron schedule and returns the expected interval.
-// Uses a cache to avoid repeated parsing of the same schedule string.
+// Uses a bounded LRU cache to avoid repeated parsing of the same schedule string.
 func parseScheduleInterval(schedule string) (time.Duration, error) {
-	if cached, ok := scheduleCache.Load(schedule); ok {
-		sched := cached.(cron.Schedule)
+	cache := getScheduleCache()
+
+	if sched, ok := cache.Get(schedule); ok {
 		now := time.Now()
 		next := sched.Next(now)
 		nextNext := sched.Next(next)
@@ -310,7 +326,7 @@ func parseScheduleInterval(schedule string) (time.Duration, error) {
 		return 0, err
 	}
 
-	scheduleCache.Store(schedule, sched)
+	cache.Add(schedule, sched) // LRU eviction handles bounds
 
 	now := time.Now()
 	next := sched.Next(now)

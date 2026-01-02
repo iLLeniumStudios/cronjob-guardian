@@ -30,8 +30,9 @@ import (
 type HistoryPruner struct {
 	store            store.Store
 	retentionDays    int
-	logRetentionDays int // 0 means same as retentionDays
+	logRetentionDays int             // 0 means same as retentionDays
 	interval         time.Duration
+	elected          <-chan struct{} // leader election signal (nil = no leader election)
 	stopCh           chan struct{}
 	running          bool
 	mu               sync.Mutex
@@ -64,9 +65,24 @@ func (p *HistoryPruner) Start(ctx context.Context) error {
 		return nil
 	}
 	p.running = true
+	elected := p.elected
 	p.mu.Unlock()
 
 	logger := log.FromContext(ctx)
+
+	// Wait for leader election if configured
+	if elected != nil {
+		logger.Info("waiting for leader election before starting history pruner")
+		select {
+		case <-elected:
+			logger.Info("leader election won, starting history pruner")
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-p.stopCh:
+			return nil
+		}
+	}
+
 	logger.Info("starting history pruner", "retentionDays", p.retentionDays, "interval", p.interval)
 
 	// Run immediately on start
@@ -109,6 +125,13 @@ func (p *HistoryPruner) SetInterval(d time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.interval = d
+}
+
+// SetElected sets the leader election channel (must be called before Start)
+func (p *HistoryPruner) SetElected(elected <-chan struct{}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.elected = elected
 }
 
 func (p *HistoryPruner) prune(ctx context.Context) {

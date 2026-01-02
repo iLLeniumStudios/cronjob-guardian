@@ -19,7 +19,6 @@ package analyzer
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -781,8 +780,12 @@ func TestDeadManSwitch_CronParsing_Complex(t *testing.T) {
 }
 
 func TestDeadManSwitch_CachesSchedule(t *testing.T) {
-	// Clear cache
-	scheduleCache = *new(sync.Map)
+	// Use a unique schedule string for this test to avoid conflicts with other tests
+	testSchedule := "0 */6 * * *"
+
+	// Clear the test schedule from cache if present
+	cache := getScheduleCache()
+	cache.Remove(testSchedule)
 
 	ms := &mockStore{
 		LastExecution: &store.Execution{
@@ -798,7 +801,7 @@ func TestDeadManSwitch_CachesSchedule(t *testing.T) {
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: batchv1.CronJobSpec{
-			Schedule: "0 */6 * * *", // Every 6 hours
+			Schedule: testSchedule, // Every 6 hours
 		},
 	}
 
@@ -816,7 +819,7 @@ func TestDeadManSwitch_CachesSchedule(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify cache has the schedule
-	_, cached := scheduleCache.Load("0 */6 * * *")
+	_, cached := cache.Get(testSchedule)
 	assert.True(t, cached, "Schedule should be cached after first parse")
 
 	// Second call should use cache

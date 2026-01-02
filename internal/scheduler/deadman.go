@@ -38,7 +38,8 @@ type DeadManScheduler struct {
 	analyzer         analyzer.SLAAnalyzer
 	dispatcher       alerting.Dispatcher
 	interval         time.Duration
-	startupDelay     time.Duration // delay before first check to let controllers reconcile
+	startupDelay     time.Duration       // delay before first check to let controllers reconcile
+	elected          <-chan struct{}     // leader election signal (nil = no leader election)
 	stopCh           chan struct{}
 	running          bool
 	mu               sync.Mutex
@@ -67,9 +68,24 @@ func (s *DeadManScheduler) Start(ctx context.Context) error {
 		return nil
 	}
 	s.running = true
+	elected := s.elected
 	s.mu.Unlock()
 
 	logger := log.FromContext(ctx)
+
+	// Wait for leader election if configured
+	if elected != nil {
+		logger.Info("waiting for leader election before starting dead-man scheduler")
+		select {
+		case <-elected:
+			logger.Info("leader election won, starting dead-man scheduler")
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.stopCh:
+			return nil
+		}
+	}
+
 	logger.Info("starting dead-man's switch scheduler", "interval", s.interval, "startupDelay", s.startupDelay)
 
 	// Wait for startup delay to let controllers reconcile CRD statuses
@@ -123,6 +139,13 @@ func (s *DeadManScheduler) SetStartupDelay(d time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.startupDelay = d
+}
+
+// SetElected sets the leader election channel (must be called before Start)
+func (s *DeadManScheduler) SetElected(elected <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.elected = elected
 }
 
 func (s *DeadManScheduler) check(ctx context.Context) {

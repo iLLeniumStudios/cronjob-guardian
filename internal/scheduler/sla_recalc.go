@@ -39,6 +39,7 @@ type SLARecalcScheduler struct {
 	analyzer   analyzer.SLAAnalyzer
 	dispatcher alerting.Dispatcher
 	interval   time.Duration
+	elected    <-chan struct{} // leader election signal (nil = no leader election)
 	stopCh     chan struct{}
 	running    bool
 	mu         sync.Mutex
@@ -64,9 +65,24 @@ func (s *SLARecalcScheduler) Start(ctx context.Context) error {
 		return nil
 	}
 	s.running = true
+	elected := s.elected
 	s.mu.Unlock()
 
 	logger := log.FromContext(ctx)
+
+	// Wait for leader election if configured
+	if elected != nil {
+		logger.Info("waiting for leader election before starting SLA recalc scheduler")
+		select {
+		case <-elected:
+			logger.Info("leader election won, starting SLA recalc scheduler")
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.stopCh:
+			return nil
+		}
+	}
+
 	logger.Info("starting SLA recalculation scheduler", "interval", s.interval)
 
 	ticker := time.NewTicker(s.interval)
@@ -99,6 +115,13 @@ func (s *SLARecalcScheduler) SetInterval(d time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.interval = d
+}
+
+// SetElected sets the leader election channel (must be called before Start)
+func (s *SLARecalcScheduler) SetElected(elected <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.elected = elected
 }
 
 func (s *SLARecalcScheduler) recalculate(ctx context.Context) {
