@@ -8,10 +8,6 @@
 
 A Kubernetes operator for monitoring CronJobs with SLA tracking, intelligent alerting, and a built-in dashboard.
 
-![CronJob Guardian Dashboard](docs/images/dashboard.png)
-![CronJob Guardian SLA Compliance](docs/images/sla.png)
-![CronJob Guardian CronJob Details](docs/images/cronjob.png)
-
 ## Why CronJob Guardian?
 
 CronJobs power critical operations—backups, ETL pipelines, reports, cache warming—but Kubernetes provides no built-in monitoring for them. When jobs fail silently or stop running, you only find out when it's too late.
@@ -304,17 +300,14 @@ Example monitors for common scenarios:
 
 CronJob Guardian includes a feature-rich web UI that serves both an interactive dashboard and REST API on port 8080.
 
-<!-- TODO: Add dashboard screenshots -->
-<!--
-<p align="center">
-  <img src="docs/images/dashboard-overview.png" alt="Dashboard Overview" width="800">
-</p>
+#### Main Dashboard
+![CronJob Guardian Dashboard](docs/images/dashboard.png)
 
-<p align="center">
-  <img src="docs/images/cronjob-detail.png" alt="CronJob Detail View" width="400">
-  <img src="docs/images/sla-dashboard.png" alt="SLA Dashboard" width="400">
-</p>
--->
+#### SLA Compliance View
+![CronJob Guardian SLA Compliance](docs/images/sla.png)
+
+#### CronJob Details View
+![CronJob Guardian CronJob Details](docs/images/cronjob.png)
 
 ### Dashboard Pages
 
