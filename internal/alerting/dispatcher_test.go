@@ -1207,3 +1207,372 @@ func TestDispatcher_DoesNotStoreOnAllFailures(t *testing.T) {
 
 	assert.Len(t, mockStore.alerts, 0)
 }
+
+// ==================== PendingAlert.Close() Tests ====================
+
+func TestPendingAlert_Close_MultipleCalls(t *testing.T) {
+	// Test that calling Close() multiple times does not panic
+	pending := &PendingAlert{
+		Cancel: make(chan struct{}),
+	}
+
+	// First close should work
+	assert.NotPanics(
+		t, func() {
+			pending.Close()
+		}, "first Close() should not panic",
+	)
+
+	// Second close should not panic (protected by sync.Once)
+	assert.NotPanics(
+		t, func() {
+			pending.Close()
+		}, "second Close() should not panic",
+	)
+
+	// Third close should also not panic
+	assert.NotPanics(
+		t, func() {
+			pending.Close()
+		}, "third Close() should not panic",
+	)
+
+	// Verify the channel is actually closed
+	select {
+	case <-pending.Cancel:
+		// Channel is closed, this is expected
+	default:
+		t.Fatal("channel should be closed after Close()")
+	}
+}
+
+func TestPendingAlert_Close_ConcurrentCalls(t *testing.T) {
+	// Test that concurrent Close() calls are safe
+	for i := 0; i < 100; i++ {
+		pending := &PendingAlert{
+			Cancel: make(chan struct{}),
+		}
+
+		var wg sync.WaitGroup
+		// Launch 10 goroutines to close concurrently
+		for j := 0; j < 10; j++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				assert.NotPanics(
+					t, func() {
+						pending.Close()
+					},
+				)
+			}()
+		}
+		wg.Wait()
+	}
+}
+
+// ==================== Dispatcher Stop Tests ====================
+
+func TestDispatcher_Stop(t *testing.T) {
+	mockStore := newMockStore()
+	d := testDispatcher(mockStore)
+
+	// Verify stop doesn't panic and returns no error
+	err := d.Stop()
+	assert.NoError(t, err)
+
+	// Verify cleanupDone channel is closed
+	select {
+	case <-d.cleanupDone:
+		// Channel closed, as expected
+	default:
+		t.Fatal("cleanupDone channel should be closed after Stop()")
+	}
+}
+
+func TestDispatcher_Stop_MultipleCalls(t *testing.T) {
+	mockStore := newMockStore()
+	d := testDispatcher(mockStore)
+
+	// First stop should work
+	err := d.Stop()
+	assert.NoError(t, err)
+}
+
+// ==================== Concurrent Dispatch Race Tests ====================
+// These tests are designed to be run with -race flag to detect race conditions
+
+func TestDispatcher_Dispatch_ConcurrentSameKey(t *testing.T) {
+	mockStore := newMockStore()
+	d := testDispatcher(mockStore)
+
+	ch := newMockChannel("slack-main", "slack")
+	d.channels["slack-main"] = ch
+
+	ctx := context.Background()
+	cfg := testAlertingConfig("slack-main")
+
+	var wg sync.WaitGroup
+	const goroutines = 20
+
+	// Launch multiple goroutines dispatching the same alert key
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			alert := testAlert("default", "test-cron", "JobFailed", "critical")
+			// Dispatch same key - should be deduplicated
+			_ = d.Dispatch(ctx, alert, cfg)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Only one alert should be sent (due to deduplication)
+	sentAlerts := ch.GetSentAlerts()
+	assert.Equal(t, 1, len(sentAlerts), "only one alert should be sent due to deduplication")
+}
+
+func TestDispatcher_Dispatch_ConcurrentDifferentKeys(t *testing.T) {
+	mockStore := newMockStore()
+	d := testDispatcher(mockStore)
+
+	ch := newMockChannel("slack-main", "slack")
+	d.channels["slack-main"] = ch
+
+	ctx := context.Background()
+	cfg := testAlertingConfig("slack-main")
+
+	var wg sync.WaitGroup
+	const goroutines = 50
+
+	// Launch multiple goroutines dispatching different alert keys
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			alert := testAlert("default", fmt.Sprintf("cron-%d", idx), "JobFailed", "critical")
+			err := d.Dispatch(ctx, alert, cfg)
+			// All should succeed (no rate limiting in test setup)
+			assert.NoError(t, err)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// All alerts should be sent (different keys)
+	sentAlerts := ch.GetSentAlerts()
+	assert.Equal(t, goroutines, len(sentAlerts), "all alerts with different keys should be sent")
+}
+
+func TestDispatcher_ConcurrentClearAndDispatch(t *testing.T) {
+	mockStore := newMockStore()
+	d := testDispatcher(mockStore)
+
+	ch := newMockChannel("slack-main", "slack")
+	d.channels["slack-main"] = ch
+
+	ctx := context.Background()
+	cfg := testAlertingConfig("slack-main")
+
+	var wg sync.WaitGroup
+
+	// Goroutines dispatching alerts
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				alert := testAlert("default", fmt.Sprintf("cron-%d", idx), "JobFailed", "critical")
+				_ = d.Dispatch(ctx, alert, cfg)
+			}
+		}(i)
+	}
+
+	// Goroutines clearing alerts
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				key := fmt.Sprintf("default/cron-%d/JobFailed", idx)
+				_ = d.ClearAlert(ctx, key)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	// No panic = success for race detection
+}
+
+func TestDispatcher_ConcurrentChannelOperations(t *testing.T) {
+	mockStore := newMockStore()
+	d := testDispatcher(mockStore)
+
+	ctx := context.Background()
+	cfg := testAlertingConfig("dynamic-channel")
+
+	var wg sync.WaitGroup
+
+	// Goroutines registering/removing channels
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ch := newMockChannel(fmt.Sprintf("channel-%d", idx), "slack")
+			d.channelMu.Lock()
+			d.channels[ch.Name()] = ch
+			d.channelMu.Unlock()
+
+			// Dispatch using the channel
+			alert := testAlert("default", "test-cron", "JobFailed", "critical")
+			cfg := testAlertingConfig(ch.Name())
+			_ = d.Dispatch(ctx, alert, cfg)
+
+			// Remove channel
+			d.RemoveChannel(ch.Name())
+		}(i)
+	}
+
+	// Goroutines sending to potentially non-existent channels
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			alert := testAlert("default", "test-cron", "JobFailed", "critical")
+			_ = d.Dispatch(ctx, alert, cfg)
+		}()
+	}
+
+	wg.Wait()
+	// No panic = success for race detection
+}
+
+func TestDispatcher_ConcurrentPendingAlertOperations(t *testing.T) {
+	mockStore := newMockStore()
+	d := testDispatcher(mockStore)
+
+	ch := newMockChannel("slack-main", "slack")
+	d.channels["slack-main"] = ch
+
+	ctx := context.Background()
+	cfg := testAlertingConfig("slack-main")
+	cfg.AlertDelay = &metav1.Duration{Duration: 200 * time.Millisecond}
+
+	var wg sync.WaitGroup
+
+	// Goroutines queueing delayed alerts
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			alert := testAlert("default", fmt.Sprintf("cron-%d", idx), "JobFailed", "critical")
+			_ = d.Dispatch(ctx, alert, cfg)
+		}(i)
+	}
+
+	// Small delay to let some alerts queue
+	time.Sleep(50 * time.Millisecond)
+
+	// Goroutines cancelling pending alerts
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			key := fmt.Sprintf("default/cron-%d/JobFailed", idx)
+			d.CancelPendingAlert(key)
+		}(i)
+	}
+
+	// Goroutines cancelling by cronjob
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			d.CancelPendingAlertsForCronJob("default", fmt.Sprintf("cron-%d", idx))
+		}(i)
+	}
+
+	wg.Wait()
+	// No panic = success for race detection
+}
+
+func TestDispatcher_ConcurrentStatsAccess(t *testing.T) {
+	mockStore := newMockStore()
+	d := testDispatcher(mockStore)
+
+	ch := newMockChannel("slack-main", "slack")
+	d.channels["slack-main"] = ch
+
+	ctx := context.Background()
+	cfg := testAlertingConfig("slack-main")
+
+	var wg sync.WaitGroup
+
+	// Goroutines dispatching alerts (which updates stats)
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			alert := testAlert("default", fmt.Sprintf("cron-%d", idx), "JobFailed", "critical")
+			_ = d.Dispatch(ctx, alert, cfg)
+		}(i)
+	}
+
+	// Goroutines reading stats
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				_ = d.GetChannelStats("slack-main")
+				_ = d.GetAlertCount24h()
+			}
+		}()
+	}
+
+	wg.Wait()
+	// No panic = success for race detection
+}
+
+func TestDispatcher_ConcurrentIsSuppressed(t *testing.T) {
+	d := testDispatcher(nil)
+
+	cfg := testAlertingConfig("slack-main")
+
+	var wg sync.WaitGroup
+
+	// Seed with some sent alerts
+	for i := 0; i < 10; i++ {
+		alert := testAlert("default", fmt.Sprintf("cron-%d", i), "JobFailed", "critical")
+		d.alertMu.Lock()
+		d.sentAlerts[alert.Key] = time.Now()
+		d.activeAlerts[alert.Key] = alert
+		d.alertMu.Unlock()
+	}
+
+	// Goroutines checking suppression
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			alert := testAlert("default", fmt.Sprintf("cron-%d", idx%15), "JobFailed", "critical")
+			_, _ = d.IsSuppressed(alert, cfg)
+		}(i)
+	}
+
+	// Goroutines modifying sentAlerts concurrently
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			alert := testAlert("default", fmt.Sprintf("new-cron-%d", idx), "JobFailed", "critical")
+			d.alertMu.Lock()
+			d.sentAlerts[alert.Key] = time.Now()
+			d.activeAlerts[alert.Key] = alert
+			d.alertMu.Unlock()
+		}(i)
+	}
+
+	wg.Wait()
+	// No panic = success for race detection
+}

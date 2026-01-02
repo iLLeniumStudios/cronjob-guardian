@@ -867,3 +867,298 @@ func TestInMaintenanceWindow(t *testing.T) {
 		assert.False(t, result)
 	})
 }
+
+// ============================================================================
+// Leader Election Tests
+// ============================================================================
+
+func TestDeadManScheduler_WaitsForElection(t *testing.T) {
+	// Create test data so scheduler has something to check
+	cronJob := newTestSchedulerCronJob("test-cron", "default", false)
+	monitor := newTestMonitorWithDeadMan("test-monitor", "default", "test-cron")
+
+	fakeClient := newTestSchedulerClient(cronJob, monitor)
+	mockAnalyzer := &testutil.MockAnalyzer{}
+	mockDispatcher := testutil.NewMockDispatcher()
+
+	scheduler := NewDeadManScheduler(fakeClient, mockAnalyzer, mockDispatcher)
+	scheduler.SetInterval(10 * time.Millisecond)
+
+	// Create elected channel that we control
+	elected := make(chan struct{})
+	scheduler.SetElected(elected)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	startedWorking := make(chan struct{}, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		// Signal when Start actually begins working (after election)
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					if mockAnalyzer.CheckDeadManSwitchCalled > 0 {
+						select {
+						case startedWorking <- struct{}{}:
+						default:
+						}
+						return
+					}
+					time.Sleep(5 * time.Millisecond)
+				}
+			}
+		}()
+		errCh <- scheduler.Start(ctx)
+	}()
+
+	// Wait a bit - scheduler should NOT be checking yet
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 0, mockAnalyzer.CheckDeadManSwitchCalled, "should not check before election")
+
+	// Now close elected channel to simulate winning election
+	close(elected)
+
+	// Wait for scheduler to start working
+	select {
+	case <-startedWorking:
+		// Good, scheduler started after election
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("scheduler did not start working after election")
+	}
+
+	scheduler.Stop()
+	<-errCh
+}
+
+func TestDeadManScheduler_NoElection_StartsImmediately(t *testing.T) {
+	cronJob := newTestSchedulerCronJob("test-cron", "default", false)
+	monitor := newTestMonitorWithDeadMan("test-monitor", "default", "test-cron")
+
+	fakeClient := newTestSchedulerClient(cronJob, monitor)
+	mockAnalyzer := &testutil.MockAnalyzer{}
+	mockDispatcher := testutil.NewMockDispatcher()
+
+	scheduler := NewDeadManScheduler(fakeClient, mockAnalyzer, mockDispatcher)
+	scheduler.SetInterval(10 * time.Millisecond)
+	// Don't set elected - should start immediately
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = scheduler.Start(ctx)
+	}()
+
+	// Should start working immediately
+	time.Sleep(50 * time.Millisecond)
+	assert.Greater(t, mockAnalyzer.CheckDeadManSwitchCalled, 0, "should check without waiting for election")
+
+	scheduler.Stop()
+}
+
+func TestDeadManScheduler_ContextCancelledDuringElection(t *testing.T) {
+	fakeClient := newTestSchedulerClient()
+	mockAnalyzer := &testutil.MockAnalyzer{}
+	mockDispatcher := testutil.NewMockDispatcher()
+
+	scheduler := NewDeadManScheduler(fakeClient, mockAnalyzer, mockDispatcher)
+	scheduler.SetInterval(10 * time.Millisecond)
+
+	// Create elected channel that never closes
+	elected := make(chan struct{})
+	scheduler.SetElected(elected)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- scheduler.Start(ctx)
+	}()
+
+	// Wait a bit then cancel context
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+
+	// Should return with context error
+	select {
+	case err := <-errCh:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("scheduler did not stop after context cancellation")
+	}
+
+	// Should not have done any work
+	assert.Equal(t, 0, mockAnalyzer.CheckDeadManSwitchCalled)
+}
+
+func TestSLARecalcScheduler_WaitsForElection(t *testing.T) {
+	fakeClient := newTestSchedulerClient()
+	mockStore := &testutil.MockStore{}
+	mockAnalyzer := &testutil.MockAnalyzer{}
+	mockDispatcher := testutil.NewMockDispatcher()
+
+	scheduler := NewSLARecalcScheduler(fakeClient, mockStore, mockAnalyzer, mockDispatcher)
+	scheduler.SetInterval(10 * time.Millisecond)
+
+	// Create elected channel that we control
+	elected := make(chan struct{})
+	scheduler.SetElected(elected)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- scheduler.Start(ctx)
+	}()
+
+	// Wait a bit - scheduler should NOT be checking yet
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 0, mockAnalyzer.CheckSLACalled, "should not check before election")
+
+	// Now close elected channel to simulate winning election
+	close(elected)
+
+	// Wait for scheduler to start working
+	time.Sleep(50 * time.Millisecond)
+	// SLA scheduler might not have monitors to check, but it should have progressed past election
+
+	scheduler.Stop()
+	<-errCh
+}
+
+func TestSLARecalcScheduler_NoElection_StartsImmediately(t *testing.T) {
+	cronJob := newTestSchedulerCronJob("test-cron", "default", false)
+	monitor := newTestMonitorWithSLA("test-monitor", "default", "test-cron")
+
+	fakeClient := newTestSchedulerClient(cronJob, monitor)
+	mockStore := &testutil.MockStore{}
+	mockAnalyzer := &testutil.MockAnalyzer{}
+	mockDispatcher := testutil.NewMockDispatcher()
+
+	scheduler := NewSLARecalcScheduler(fakeClient, mockStore, mockAnalyzer, mockDispatcher)
+	scheduler.SetInterval(10 * time.Millisecond)
+	// Don't set elected - should start immediately
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = scheduler.Start(ctx)
+	}()
+
+	// Should start working immediately
+	time.Sleep(50 * time.Millisecond)
+	assert.GreaterOrEqual(t, mockAnalyzer.CheckSLACalled, 1, "should check without waiting for election")
+
+	scheduler.Stop()
+}
+
+func TestHistoryPruner_WaitsForElection(t *testing.T) {
+	mockStore := &testutil.MockStore{PrunedCount: 5}
+
+	pruner := NewHistoryPruner(mockStore, 7)
+	pruner.SetInterval(10 * time.Millisecond)
+
+	// Create elected channel that we control
+	elected := make(chan struct{})
+	pruner.SetElected(elected)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- pruner.Start(ctx)
+	}()
+
+	// Wait a bit - pruner should NOT be pruning yet
+	time.Sleep(50 * time.Millisecond)
+
+	mockStore.Lock()
+	pruneCalled := mockStore.PruneCalled
+	mockStore.Unlock()
+
+	assert.Equal(t, 0, pruneCalled, "should not prune before election")
+
+	// Now close elected channel to simulate winning election
+	close(elected)
+
+	// Wait for pruner to start working
+	time.Sleep(50 * time.Millisecond)
+
+	mockStore.Lock()
+	pruneCalledAfter := mockStore.PruneCalled
+	mockStore.Unlock()
+
+	assert.Greater(t, pruneCalledAfter, 0, "should prune after election")
+
+	pruner.Stop()
+	<-errCh
+}
+
+func TestHistoryPruner_NoElection_StartsImmediately(t *testing.T) {
+	mockStore := &testutil.MockStore{PrunedCount: 5}
+
+	pruner := NewHistoryPruner(mockStore, 7)
+	pruner.SetInterval(10 * time.Millisecond)
+	// Don't set elected - should start immediately
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = pruner.Start(ctx)
+	}()
+
+	// Should start working immediately
+	time.Sleep(50 * time.Millisecond)
+
+	mockStore.Lock()
+	pruneCalled := mockStore.PruneCalled
+	mockStore.Unlock()
+
+	assert.Greater(t, pruneCalled, 0, "should prune without waiting for election")
+
+	pruner.Stop()
+}
+
+func TestHistoryPruner_ContextCancelledDuringElection(t *testing.T) {
+	mockStore := &testutil.MockStore{PrunedCount: 5}
+
+	pruner := NewHistoryPruner(mockStore, 7)
+	pruner.SetInterval(10 * time.Millisecond)
+
+	// Create elected channel that never closes
+	elected := make(chan struct{})
+	pruner.SetElected(elected)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- pruner.Start(ctx)
+	}()
+
+	// Wait a bit then cancel context
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+
+	// Should return with context error
+	select {
+	case err := <-errCh:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("pruner did not stop after context cancellation")
+	}
+
+	// Should not have done any work
+	mockStore.Lock()
+	pruneCalled := mockStore.PruneCalled
+	mockStore.Unlock()
+	assert.Equal(t, 0, pruneCalled)
+}

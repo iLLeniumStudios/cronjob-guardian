@@ -332,8 +332,18 @@ func main() {
 	}
 
 	// Create alert dispatcher and wire up the store
-	alertDispatcher := alerting.NewDispatcher(mgr.GetClient(), dataStore, cfg.Scheduler.StartupGracePeriod)
-	setupLog.Info("initialized alert dispatcher", "startupGracePeriod", cfg.Scheduler.StartupGracePeriod)
+	dispatcherCfg := alerting.DispatcherConfig{
+		StartupGracePeriod:           cfg.Scheduler.StartupGracePeriod,
+		MaxAlertsPerMinute:           cfg.RateLimits.MaxAlertsPerMinute,
+		BurstLimit:                   cfg.RateLimits.BurstLimit,
+		DefaultSuppressDuplicatesFor: cfg.RateLimits.DefaultSuppressDuplicatesFor,
+	}
+	alertDispatcher := alerting.NewDispatcher(mgr.GetClient(), dataStore, dispatcherCfg)
+	setupLog.Info("initialized alert dispatcher",
+		"startupGracePeriod", cfg.Scheduler.StartupGracePeriod,
+		"maxAlertsPerMinute", cfg.RateLimits.MaxAlertsPerMinute,
+		"burstLimit", cfg.RateLimits.BurstLimit,
+	)
 
 	// Register shutdown hook for alert dispatcher cleanup
 	if err := mgr.Add(&dispatcherShutdown{dispatcher: alertDispatcher}); err != nil {

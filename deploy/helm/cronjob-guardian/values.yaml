@@ -127,6 +127,10 @@ config:
   rateLimits:
     # Maximum alerts per minute across all channels
     maxAlertsPerMinute: 50
+    # Maximum burst of alerts allowed (default: 10)
+    burstLimit: 10
+    # Default duration to suppress duplicate alerts (default: 1h)
+    defaultSuppressDuplicatesFor: 1h
 
   # +docs:section=Storage
   # Configuration for the storage backend. Supports SQLite (default), PostgreSQL, and MySQL.
@@ -155,6 +159,16 @@ config:
       existingSecretKey: password
       # PostgreSQL SSL mode
       sslMode: require
+      # Connection pool settings
+      pool:
+        # Maximum number of idle connections
+        maxIdleConns: 10
+        # Maximum number of open connections
+        maxOpenConns: 100
+        # Maximum connection lifetime
+        connMaxLifetime: 1h
+        # Maximum idle time for connections
+        connMaxIdleTime: 10m
 
     mysql:
       # MySQL host
@@ -171,6 +185,16 @@ config:
       existingSecret: ""
       # Key in existing secret containing password
       existingSecretKey: password
+      # Connection pool settings
+      pool:
+        # Maximum number of idle connections
+        maxIdleConns: 10
+        # Maximum number of open connections
+        maxOpenConns: 100
+        # Maximum connection lifetime
+        connMaxLifetime: 1h
+        # Maximum idle time for connections
+        connMaxIdleTime: 10m
 
     # Enable storing job logs in database
     logStorageEnabled: false

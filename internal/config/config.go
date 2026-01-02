@@ -185,8 +185,15 @@ type HistoryRetentionConfig struct {
 
 // RateLimitsConfig configures global rate limits
 type RateLimitsConfig struct {
-	// MaxAlertsPerMinute across all channels
+	// MaxAlertsPerMinute across all channels (default: 50)
 	MaxAlertsPerMinute int `mapstructure:"max-alerts-per-minute" json:"maxAlertsPerMinute"`
+
+	// BurstLimit is the maximum burst of alerts allowed (default: 10)
+	BurstLimit int `mapstructure:"burst-limit" json:"burstLimit"`
+
+	// DefaultSuppressDuplicatesFor is the default duration to suppress duplicate alerts
+	// Can be overridden per-monitor in AlertingConfig (default: 1h)
+	DefaultSuppressDuplicatesFor time.Duration `mapstructure:"default-suppress-duplicates-for" json:"defaultSuppressDuplicatesFor"`
 }
 
 // UIConfig configures the web UI and REST API server
@@ -296,7 +303,9 @@ func DefaultConfig() *Config {
 			MaxDays:     90,
 		},
 		RateLimits: RateLimitsConfig{
-			MaxAlertsPerMinute: 50,
+			MaxAlertsPerMinute:           50,
+			BurstLimit:                   10,
+			DefaultSuppressDuplicatesFor: 1 * time.Hour,
 		},
 		UI: UIConfig{
 			Enabled: true,
@@ -370,6 +379,8 @@ func BindFlags(flags *pflag.FlagSet) {
 
 	// Rate limits
 	flags.Int("rate-limits.max-alerts-per-minute", 50, "Maximum alerts per minute across all channels")
+	flags.Int("rate-limits.burst-limit", 10, "Maximum burst of alerts allowed")
+	flags.Duration("rate-limits.default-suppress-duplicates-for", 1*time.Hour, "Default duration to suppress duplicate alerts")
 
 	// UI server (serves both web UI and REST API)
 	flags.Bool("ui.enabled", true, "Enable the UI server (serves both web UI and REST API)")
@@ -429,6 +440,8 @@ func Load(flags *pflag.FlagSet) (*Config, error) {
 	v.SetDefault("history-retention.default-days", defaults.HistoryRetention.DefaultDays)
 	v.SetDefault("history-retention.max-days", defaults.HistoryRetention.MaxDays)
 	v.SetDefault("rate-limits.max-alerts-per-minute", defaults.RateLimits.MaxAlertsPerMinute)
+	v.SetDefault("rate-limits.burst-limit", defaults.RateLimits.BurstLimit)
+	v.SetDefault("rate-limits.default-suppress-duplicates-for", defaults.RateLimits.DefaultSuppressDuplicatesFor)
 	v.SetDefault("ui.enabled", defaults.UI.Enabled)
 	v.SetDefault("ui.port", defaults.UI.Port)
 	v.SetDefault("metrics.bind-address", defaults.Metrics.BindAddress)

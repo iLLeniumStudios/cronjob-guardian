@@ -33,6 +33,13 @@ data:
         password: {{ .Values.config.storage.postgres.password | quote }}
         {{- end }}
         ssl-mode: {{ .Values.config.storage.postgres.sslMode | quote }}
+        {{- with .Values.config.storage.postgres.pool }}
+        pool:
+          max-idle-conns: {{ .maxIdleConns | default 10 }}
+          max-open-conns: {{ .maxOpenConns | default 100 }}
+          conn-max-lifetime: {{ .connMaxLifetime | default "1h" }}
+          conn-max-idle-time: {{ .connMaxIdleTime | default "10m" }}
+        {{- end }}
       {{- end }}
       {{- if eq .Values.config.storage.type "mysql" }}
       mysql:
@@ -44,6 +51,13 @@ data:
         # Password loaded from environment variable
         {{- else }}
         password: {{ .Values.config.storage.mysql.password | quote }}
+        {{- end }}
+        {{- with .Values.config.storage.mysql.pool }}
+        pool:
+          max-idle-conns: {{ .maxIdleConns | default 10 }}
+          max-open-conns: {{ .maxOpenConns | default 100 }}
+          conn-max-lifetime: {{ .connMaxLifetime | default "1h" }}
+          conn-max-idle-time: {{ .connMaxIdleTime | default "10m" }}
         {{- end }}
       {{- end }}
       log-storage-enabled: {{ .Values.config.storage.logStorageEnabled }}
@@ -57,6 +71,8 @@ data:
 
     rate-limits:
       max-alerts-per-minute: {{ .Values.config.rateLimits.maxAlertsPerMinute }}
+      burst-limit: {{ .Values.config.rateLimits.burstLimit | default 10 }}
+      default-suppress-duplicates-for: {{ .Values.config.rateLimits.defaultSuppressDuplicatesFor | default "1h" }}
 
     ui:
       enabled: {{ .Values.ui.enabled }}

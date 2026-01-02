@@ -876,6 +876,40 @@ Maximum alerts per minute across all channels
 
 </td>
 </tr>
+<tr>
+
+<td>config.rateLimits.burstLimit</td>
+<td>
+
+Maximum burst of alerts allowed (default: 10)
+
+</td>
+<td>number</td>
+<td>
+
+```yaml
+10
+```
+
+</td>
+</tr>
+<tr>
+
+<td>config.rateLimits.defaultSuppressDuplicatesFor</td>
+<td>
+
+Default duration to suppress duplicate alerts (default: 1h)
+
+</td>
+<td>string</td>
+<td>
+
+```yaml
+1h
+```
+
+</td>
+</tr>
 </table>
 
 ### Storage
@@ -1062,6 +1096,74 @@ require
 </tr>
 <tr>
 
+<td>config.storage.postgres.pool.maxIdleConns</td>
+<td>
+
+Maximum number of idle connections
+
+</td>
+<td>number</td>
+<td>
+
+```yaml
+10
+```
+
+</td>
+</tr>
+<tr>
+
+<td>config.storage.postgres.pool.maxOpenConns</td>
+<td>
+
+Maximum number of open connections
+
+</td>
+<td>number</td>
+<td>
+
+```yaml
+100
+```
+
+</td>
+</tr>
+<tr>
+
+<td>config.storage.postgres.pool.connMaxLifetime</td>
+<td>
+
+Maximum connection lifetime
+
+</td>
+<td>string</td>
+<td>
+
+```yaml
+1h
+```
+
+</td>
+</tr>
+<tr>
+
+<td>config.storage.postgres.pool.connMaxIdleTime</td>
+<td>
+
+Maximum idle time for connections
+
+</td>
+<td>string</td>
+<td>
+
+```yaml
+10m
+```
+
+</td>
+</tr>
+<tr>
+
 <td>config.storage.mysql.host</td>
 <td>
 
@@ -1175,6 +1277,74 @@ Key in existing secret containing password
 
 ```yaml
 password
+```
+
+</td>
+</tr>
+<tr>
+
+<td>config.storage.mysql.pool.maxIdleConns</td>
+<td>
+
+Maximum number of idle connections
+
+</td>
+<td>number</td>
+<td>
+
+```yaml
+10
+```
+
+</td>
+</tr>
+<tr>
+
+<td>config.storage.mysql.pool.maxOpenConns</td>
+<td>
+
+Maximum number of open connections
+
+</td>
+<td>number</td>
+<td>
+
+```yaml
+100
+```
+
+</td>
+</tr>
+<tr>
+
+<td>config.storage.mysql.pool.connMaxLifetime</td>
+<td>
+
+Maximum connection lifetime
+
+</td>
+<td>string</td>
+<td>
+
+```yaml
+1h
+```
+
+</td>
+</tr>
+<tr>
+
+<td>config.storage.mysql.pool.connMaxIdleTime</td>
+<td>
+
+Maximum idle time for connections
+
+</td>
+<td>string</td>
+<td>
+
+```yaml
+10m
 ```
 
 </td>

@@ -36,38 +36,62 @@ import (
 )
 
 type dispatcher struct {
-	channels           map[string]Channel       // name -> channel
-	channelStats       map[string]*ChannelStats // name -> stats
-	sentAlerts         map[string]time.Time     // alertKey -> lastSent
-	activeAlerts       map[string]Alert         // alertKey -> alert
-	pendingAlerts      map[string]*PendingAlert // alertKey -> pending alert (delayed)
-	globalLimiter      *rate.Limiter
-	channelMu          sync.RWMutex
-	alertMu            sync.RWMutex
-	statsMu            sync.RWMutex
-	pendingMu          sync.RWMutex
-	alertCount24h      int32
-	client             client.Client
-	store              store.Store   // Store for persisting alerts
-	cleanupDone        chan struct{} // Signal channel for cleanup goroutine shutdown
-	startupGracePeriod time.Duration // Grace period after startup to suppress alerts
-	readyAt            time.Time     // Time when dispatcher becomes ready (after grace period)
+	channels                     map[string]Channel       // name -> channel
+	channelStats                 map[string]*ChannelStats // name -> stats
+	sentAlerts                   map[string]time.Time     // alertKey -> lastSent
+	activeAlerts                 map[string]Alert         // alertKey -> alert
+	pendingAlerts                map[string]*PendingAlert // alertKey -> pending alert (delayed)
+	globalLimiter                *rate.Limiter
+	channelMu                    sync.RWMutex
+	alertMu                      sync.RWMutex
+	statsMu                      sync.RWMutex
+	pendingMu                    sync.RWMutex
+	alertCount24h                int32
+	client                       client.Client
+	store                        store.Store   // Store for persisting alerts
+	cleanupDone                  chan struct{} // Signal channel for cleanup goroutine shutdown
+	startupGracePeriod           time.Duration // Grace period after startup to suppress alerts
+	readyAt                      time.Time     // Time when dispatcher becomes ready (after grace period)
+	defaultSuppressDuplicatesFor time.Duration // Default duration to suppress duplicate alerts
+}
+
+// DispatcherConfig holds configuration for the dispatcher
+type DispatcherConfig struct {
+	// StartupGracePeriod is the grace period after startup to suppress alerts
+	StartupGracePeriod time.Duration
+	// MaxAlertsPerMinute is the global rate limit for alerts
+	MaxAlertsPerMinute int
+	// BurstLimit is the maximum burst of alerts allowed
+	BurstLimit int
+	// DefaultSuppressDuplicatesFor is the default duration to suppress duplicate alerts
+	DefaultSuppressDuplicatesFor time.Duration
 }
 
 // NewDispatcher creates a new alert dispatcher
-func NewDispatcher(c client.Client, s store.Store, gracePeriod time.Duration) Dispatcher {
+func NewDispatcher(c client.Client, s store.Store, cfg DispatcherConfig) Dispatcher {
+	// Calculate rate limit: alerts per second
+	ratePerSecond := float64(cfg.MaxAlertsPerMinute) / 60.0
+	if ratePerSecond <= 0 {
+		ratePerSecond = 50.0 / 60.0 // Default: 50 per minute
+	}
+	burstLimit := cfg.BurstLimit
+	if burstLimit <= 0 {
+		burstLimit = 10 // Default burst
+	}
+
 	d := &dispatcher{
-		channels:           make(map[string]Channel),
-		channelStats:       make(map[string]*ChannelStats),
-		sentAlerts:         make(map[string]time.Time),
-		activeAlerts:       make(map[string]Alert),
-		pendingAlerts:      make(map[string]*PendingAlert),
-		globalLimiter:      rate.NewLimiter(rate.Limit(50.0/60.0), 10), // 50/min, burst 10
-		client:             c,
-		cleanupDone:        make(chan struct{}),
-		startupGracePeriod: gracePeriod,
-		readyAt:            time.Now().Add(gracePeriod),
-		store:              s,
+		channels:                     make(map[string]Channel),
+		channelStats:                 make(map[string]*ChannelStats),
+		sentAlerts:                   make(map[string]time.Time),
+		activeAlerts:                 make(map[string]Alert),
+		pendingAlerts:                make(map[string]*PendingAlert),
+		globalLimiter:                rate.NewLimiter(rate.Limit(ratePerSecond), burstLimit),
+		client:                       c,
+		cleanupDone:                  make(chan struct{}),
+		startupGracePeriod:           cfg.StartupGracePeriod,
+		readyAt:                      time.Now().Add(cfg.StartupGracePeriod),
+		store:                        s,
+		defaultSuppressDuplicatesFor: cfg.DefaultSuppressDuplicatesFor,
 	}
 	d.startCleanup()
 	d.loadChannelStats()

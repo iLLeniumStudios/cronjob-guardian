@@ -154,11 +154,27 @@
     "helm-values.config.rateLimits": {
       "type": "object",
       "properties": {
+        "burstLimit": {
+          "$ref": "#/$defs/helm-values.config.rateLimits.burstLimit"
+        },
+        "defaultSuppressDuplicatesFor": {
+          "$ref": "#/$defs/helm-values.config.rateLimits.defaultSuppressDuplicatesFor"
+        },
         "maxAlertsPerMinute": {
           "$ref": "#/$defs/helm-values.config.rateLimits.maxAlertsPerMinute"
         }
       },
       "additionalProperties": false
+    },
+    "helm-values.config.rateLimits.burstLimit": {
+      "description": "Maximum burst of alerts allowed (default: 10)",
+      "type": "number",
+      "default": 10
+    },
+    "helm-values.config.rateLimits.defaultSuppressDuplicatesFor": {
+      "description": "Default duration to suppress duplicate alerts (default: 1h)",
+      "type": "string",
+      "default": "1h"
     },
     "helm-values.config.rateLimits.maxAlertsPerMinute": {
       "description": "Maximum alerts per minute across all channels",
@@ -271,6 +287,9 @@
         "password": {
           "$ref": "#/$defs/helm-values.config.storage.mysql.password"
         },
+        "pool": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.pool"
+        },
         "port": {
           "$ref": "#/$defs/helm-values.config.storage.mysql.port"
         },
@@ -305,6 +324,44 @@
       "type": "string",
       "default": ""
     },
+    "helm-values.config.storage.mysql.pool": {
+      "type": "object",
+      "properties": {
+        "connMaxIdleTime": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.pool.connMaxIdleTime"
+        },
+        "connMaxLifetime": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.pool.connMaxLifetime"
+        },
+        "maxIdleConns": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.pool.maxIdleConns"
+        },
+        "maxOpenConns": {
+          "$ref": "#/$defs/helm-values.config.storage.mysql.pool.maxOpenConns"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.storage.mysql.pool.connMaxIdleTime": {
+      "description": "Maximum idle time for connections",
+      "type": "string",
+      "default": "10m"
+    },
+    "helm-values.config.storage.mysql.pool.connMaxLifetime": {
+      "description": "Maximum connection lifetime",
+      "type": "string",
+      "default": "1h"
+    },
+    "helm-values.config.storage.mysql.pool.maxIdleConns": {
+      "description": "Maximum number of idle connections",
+      "type": "number",
+      "default": 10
+    },
+    "helm-values.config.storage.mysql.pool.maxOpenConns": {
+      "description": "Maximum number of open connections",
+      "type": "number",
+      "default": 100
+    },
     "helm-values.config.storage.mysql.port": {
       "description": "MySQL port",
       "type": "number",
@@ -332,6 +389,9 @@
         },
         "password": {
           "$ref": "#/$defs/helm-values.config.storage.postgres.password"
+        },
+        "pool": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.pool"
         },
         "port": {
           "$ref": "#/$defs/helm-values.config.storage.postgres.port"
@@ -369,6 +429,44 @@
       "description": "PostgreSQL password (ignored if existingSecret is set)",
       "type": "string",
       "default": ""
+    },
+    "helm-values.config.storage.postgres.pool": {
+      "type": "object",
+      "properties": {
+        "connMaxIdleTime": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.pool.connMaxIdleTime"
+        },
+        "connMaxLifetime": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.pool.connMaxLifetime"
+        },
+        "maxIdleConns": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.pool.maxIdleConns"
+        },
+        "maxOpenConns": {
+          "$ref": "#/$defs/helm-values.config.storage.postgres.pool.maxOpenConns"
+        }
+      },
+      "additionalProperties": false
+    },
+    "helm-values.config.storage.postgres.pool.connMaxIdleTime": {
+      "description": "Maximum idle time for connections",
+      "type": "string",
+      "default": "10m"
+    },
+    "helm-values.config.storage.postgres.pool.connMaxLifetime": {
+      "description": "Maximum connection lifetime",
+      "type": "string",
+      "default": "1h"
+    },
+    "helm-values.config.storage.postgres.pool.maxIdleConns": {
+      "description": "Maximum number of idle connections",
+      "type": "number",
+      "default": 10
+    },
+    "helm-values.config.storage.postgres.pool.maxOpenConns": {
+      "description": "Maximum number of open connections",
+      "type": "number",
+      "default": 100
     },
     "helm-values.config.storage.postgres.port": {
       "description": "PostgreSQL port",
