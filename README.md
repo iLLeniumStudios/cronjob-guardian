@@ -1,7 +1,7 @@
 # CronJob Guardian
 
 [![GitHub Release](https://img.shields.io/github/v/release/iLLeniumStudios/cronjob-guardian?logo=github&sort=semver)](https://github.com/iLLeniumStudios/cronjob-guardian/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/iLLeniumStudios/cronjob-guardian/ci.yaml?logo=githubactions&logoColor=white&label=CI)](https://github.com/iLLeniumStudios/cronjob-guardian/actions/workflows/ci.yaml)
+[![CI](https://img.shields.io/github/actions/workflow/status/iLLeniumStudios/cronjob-guardian/ci.yml?logo=githubactions&logoColor=white&label=CI)](https://github.com/iLLeniumStudios/cronjob-guardian/actions/workflows/ci.yaml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/iLLeniumStudios/cronjob-guardian?logo=go)](https://go.dev/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/iLLeniumStudios/cronjob-guardian)](https://goreportcard.com/report/github.com/iLLeniumStudios/cronjob-guardian)
 [![License](https://img.shields.io/github/license/iLLeniumStudios/cronjob-guardian)](https://github.com/iLLeniumStudios/cronjob-guardian/blob/main/LICENSE)
