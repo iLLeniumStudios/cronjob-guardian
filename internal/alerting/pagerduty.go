@@ -111,7 +111,10 @@ func (p *pagerDutyChannel) Send(ctx context.Context, alert Alert) error {
 		},
 	}
 
-	jsonPayload, _ := json.Marshal(payload)
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal PagerDuty payload: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST", pagerDutyEventsURL, bytes.NewReader(jsonPayload))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)

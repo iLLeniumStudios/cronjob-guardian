@@ -131,10 +131,12 @@ type NamespacedSecretRef struct {
 // RateLimitConfig configures rate limiting
 type RateLimitConfig struct {
 	// MaxAlertsPerHour limits alerts per hour (default: 100)
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxAlertsPerHour *int32 `json:"maxAlertsPerHour,omitempty"`
 
 	// BurstLimit limits alerts per minute (default: 10)
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	BurstLimit *int32 `json:"burstLimit,omitempty"`
 }

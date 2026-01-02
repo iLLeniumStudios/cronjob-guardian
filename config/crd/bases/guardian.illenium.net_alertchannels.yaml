@@ -121,11 +121,13 @@ spec:
                   burstLimit:
                     description: 'BurstLimit limits alerts per minute (default: 10)'
                     format: int32
+                    minimum: 1
                     type: integer
                   maxAlertsPerHour:
                     description: 'MaxAlertsPerHour limits alerts per hour (default:
                       100)'
                     format: int32
+                    minimum: 1
                     type: integer
                 type: object
               slack:

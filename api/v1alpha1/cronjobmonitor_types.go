@@ -107,6 +107,7 @@ type AutoScheduleConfig struct {
 	Buffer *metav1.Duration `json:"buffer,omitempty"`
 
 	// MissedScheduleThreshold alerts after this many missed schedules (default: 1)
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MissedScheduleThreshold *int32 `json:"missedScheduleThreshold,omitempty"`
 }
@@ -118,10 +119,13 @@ type SLAConfig struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// MinSuccessRate is minimum acceptable success rate percentage (default: 95)
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
 	// +optional
 	MinSuccessRate *float64 `json:"minSuccessRate,omitempty"`
 
 	// WindowDays is the rolling window for success rate calculation (default: 7)
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	WindowDays *int32 `json:"windowDays,omitempty"`
 
@@ -130,10 +134,13 @@ type SLAConfig struct {
 	MaxDuration *metav1.Duration `json:"maxDuration,omitempty"`
 
 	// DurationRegressionThreshold alerts if P95 increases by this percentage (default: 50)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1000
 	// +optional
 	DurationRegressionThreshold *int32 `json:"durationRegressionThreshold,omitempty"`
 
 	// DurationBaselineWindowDays for baseline calculation (default: 14)
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	DurationBaselineWindowDays *int32 `json:"durationBaselineWindowDays,omitempty"`
 }
@@ -221,6 +228,8 @@ type AlertContext struct {
 	Logs *bool `json:"logs,omitempty"`
 
 	// LogLines is number of log lines to include (default: 50)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10000
 	// +optional
 	LogLines *int32 `json:"logLines,omitempty"`
 
@@ -320,6 +329,7 @@ type ExitCodeRange struct {
 type DataRetentionConfig struct {
 	// RetentionDays overrides global retention for this monitor's execution history
 	// If not set, uses global history-retention.default-days setting
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	RetentionDays *int32 `json:"retentionDays,omitempty"`
 
@@ -330,6 +340,7 @@ type DataRetentionConfig struct {
 
 	// PurgeAfterDays specifies how long to wait before purging data
 	// Only used when onCronJobDeletion is "purge-after-days"
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	PurgeAfterDays *int32 `json:"purgeAfterDays,omitempty"`
 
@@ -346,11 +357,13 @@ type DataRetentionConfig struct {
 
 	// LogRetentionDays specifies how long to keep stored logs
 	// If not set, uses the same value as retentionDays
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	LogRetentionDays *int32 `json:"logRetentionDays,omitempty"`
 
 	// MaxLogSizeKB is the maximum log size to store per execution in KB
 	// If not set, uses global --storage.max-log-size-kb setting
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxLogSizeKB *int32 `json:"maxLogSizeKB,omitempty"`
 

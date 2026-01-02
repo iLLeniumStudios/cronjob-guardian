@@ -110,6 +110,8 @@ spec:
                         description: 'LogLines is number of log lines to include (default:
                           50)'
                         format: int32
+                        maximum: 10000
+                        minimum: 1
                         type: integer
                       logs:
                         description: 'Logs includes pod logs (default: true)'
@@ -231,12 +233,14 @@ spec:
                       LogRetentionDays specifies how long to keep stored logs
                       If not set, uses the same value as retentionDays
                     format: int32
+                    minimum: 1
                     type: integer
                   maxLogSizeKB:
                     description: |-
                       MaxLogSizeKB is the maximum log size to store per execution in KB
                       If not set, uses global --storage.max-log-size-kb setting
                     format: int32
+                    minimum: 1
                     type: integer
                   onCronJobDeletion:
                     description: OnCronJobDeletion defines behavior when a monitored
@@ -259,12 +263,14 @@ spec:
                       PurgeAfterDays specifies how long to wait before purging data
                       Only used when onCronJobDeletion is "purge-after-days"
                     format: int32
+                    minimum: 0
                     type: integer
                   retentionDays:
                     description: |-
                       RetentionDays overrides global retention for this monitor's execution history
                       If not set, uses global history-retention.default-days setting
                     format: int32
+                    minimum: 1
                     type: integer
                   storeEvents:
                     description: |-
@@ -295,6 +301,7 @@ spec:
                         description: 'MissedScheduleThreshold alerts after this many
                           missed schedules (default: 1)'
                         format: int32
+                        minimum: 1
                         type: integer
                     required:
                     - enabled
@@ -448,11 +455,14 @@ spec:
                     description: 'DurationBaselineWindowDays for baseline calculation
                       (default: 14)'
                     format: int32
+                    minimum: 1
                     type: integer
                   durationRegressionThreshold:
                     description: 'DurationRegressionThreshold alerts if P95 increases
                       by this percentage (default: 50)'
                     format: int32
+                    maximum: 1000
+                    minimum: 1
                     type: integer
                   enabled:
                     description: 'Enabled turns on SLA tracking (default: true)'
@@ -463,11 +473,14 @@ spec:
                   minSuccessRate:
                     description: 'MinSuccessRate is minimum acceptable success rate
                       percentage (default: 95)'
+                    maximum: 100
+                    minimum: 0
                     type: number
                   windowDays:
                     description: 'WindowDays is the rolling window for success rate
                       calculation (default: 7)'
                     format: int32
+                    minimum: 1
                     type: integer
                 type: object
               suspendedHandling:

@@ -178,6 +178,10 @@ func (s *SLARecalcScheduler) recalculate(ctx context.Context) {
 						Title:    fmt.Sprintf("SLA breach: %s/%s", cjStatus.Namespace, cjStatus.Name),
 						Message:  v.Message,
 						CronJob:  cronJobNN,
+						MonitorRef: types.NamespacedName{
+							Namespace: monitor.Namespace,
+							Name:      monitor.Name,
+						},
 						Context: alerting.AlertContext{
 							SuccessRate: metrics.SuccessRate,
 						},
@@ -216,6 +220,10 @@ func (s *SLARecalcScheduler) recalculate(ctx context.Context) {
 					Title:     fmt.Sprintf("Duration regression: %s/%s", cjStatus.Namespace, cjStatus.Name),
 					Message:   regResult.Message,
 					CronJob:   cronJobNN,
+					MonitorRef: types.NamespacedName{
+						Namespace: monitor.Namespace,
+						Name:      monitor.Name,
+					},
 					Timestamp: time.Now(),
 				}
 
