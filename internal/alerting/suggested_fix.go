@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"text/template"
 
 	"k8s.io/utils/ptr"
@@ -27,9 +28,19 @@ import (
 	"github.com/iLLeniumStudios/cronjob-guardian/api/v1alpha1"
 )
 
+// compiledPattern holds a pattern with pre-compiled regex
+type compiledPattern struct {
+	Original  v1alpha1.SuggestedFixPattern
+	ReasonRe  *regexp.Regexp
+	LogRe     *regexp.Regexp
+	EventRe   *regexp.Regexp
+}
+
 // SuggestedFixEngine matches failure context against patterns to suggest fixes
 type SuggestedFixEngine struct {
-	builtinPatterns []v1alpha1.SuggestedFixPattern
+	builtinPatterns  []v1alpha1.SuggestedFixPattern
+	compiledBuiltins []compiledPattern
+	compileOnce      sync.Once
 }
 
 // MatchContext contains the data to match against patterns
@@ -50,6 +61,40 @@ func NewSuggestedFixEngine() *SuggestedFixEngine {
 	}
 }
 
+// compilePatterns pre-compiles regex patterns for efficiency
+func compilePatterns(patterns []v1alpha1.SuggestedFixPattern) []compiledPattern {
+	result := make([]compiledPattern, 0, len(patterns))
+	for _, p := range patterns {
+		compiled := compiledPattern{Original: p}
+
+		if p.Match.ReasonPattern != "" {
+			if re, err := regexp.Compile(p.Match.ReasonPattern); err == nil {
+				compiled.ReasonRe = re
+			}
+		}
+		if p.Match.LogPattern != "" {
+			if re, err := regexp.Compile(p.Match.LogPattern); err == nil {
+				compiled.LogRe = re
+			}
+		}
+		if p.Match.EventPattern != "" {
+			if re, err := regexp.Compile(p.Match.EventPattern); err == nil {
+				compiled.EventRe = re
+			}
+		}
+		result = append(result, compiled)
+	}
+	return result
+}
+
+// getCompiledBuiltins returns pre-compiled builtin patterns (lazy initialization)
+func (e *SuggestedFixEngine) getCompiledBuiltins() []compiledPattern {
+	e.compileOnce.Do(func() {
+		e.compiledBuiltins = compilePatterns(e.builtinPatterns)
+	})
+	return e.compiledBuiltins
+}
+
 // GetBestSuggestion returns the highest priority matching suggestion
 func (e *SuggestedFixEngine) GetBestSuggestion(ctx MatchContext, customPatterns []v1alpha1.SuggestedFixPattern) string {
 	patterns := e.mergePatterns(customPatterns)
@@ -57,18 +102,18 @@ func (e *SuggestedFixEngine) GetBestSuggestion(ctx MatchContext, customPatterns 
 	sort.Slice(patterns, func(i, j int) bool {
 		pi := int32(0)
 		pj := int32(0)
-		if patterns[i].Priority != nil {
-			pi = *patterns[i].Priority
+		if patterns[i].Original.Priority != nil {
+			pi = *patterns[i].Original.Priority
 		}
-		if patterns[j].Priority != nil {
-			pj = *patterns[j].Priority
+		if patterns[j].Original.Priority != nil {
+			pj = *patterns[j].Original.Priority
 		}
 		return pi > pj
 	})
 
 	for _, pattern := range patterns {
-		if e.matches(ctx, pattern.Match) {
-			return e.renderSuggestion(pattern.Suggestion, ctx)
+		if e.matchesCompiled(ctx, pattern) {
+			return e.renderSuggestion(pattern.Original.Suggestion, ctx)
 		}
 	}
 
@@ -76,17 +121,21 @@ func (e *SuggestedFixEngine) GetBestSuggestion(ctx MatchContext, customPatterns 
 }
 
 // mergePatterns merges custom patterns with builtins, custom overrides by name
-func (e *SuggestedFixEngine) mergePatterns(custom []v1alpha1.SuggestedFixPattern) []v1alpha1.SuggestedFixPattern {
-	result := make([]v1alpha1.SuggestedFixPattern, 0, len(e.builtinPatterns)+len(custom))
+// Returns compiled patterns for efficient matching
+func (e *SuggestedFixEngine) mergePatterns(custom []v1alpha1.SuggestedFixPattern) []compiledPattern {
+	builtins := e.getCompiledBuiltins()
+	customCompiled := compilePatterns(custom)
+
+	result := make([]compiledPattern, 0, len(builtins)+len(customCompiled))
 
 	customNames := make(map[string]bool)
-	for _, p := range custom {
+	for _, p := range customCompiled {
 		result = append(result, p)
-		customNames[p.Name] = true
+		customNames[p.Original.Name] = true
 	}
 
-	for _, p := range e.builtinPatterns {
-		if !customNames[p.Name] {
+	for _, p := range builtins {
+		if !customNames[p.Original.Name] {
 			result = append(result, p)
 		}
 	}
@@ -94,8 +143,9 @@ func (e *SuggestedFixEngine) mergePatterns(custom []v1alpha1.SuggestedFixPattern
 	return result
 }
 
-// matches checks if context matches the pattern
-func (e *SuggestedFixEngine) matches(ctx MatchContext, match v1alpha1.PatternMatch) bool {
+// matchesCompiled checks if context matches the compiled pattern (uses pre-compiled regex)
+func (e *SuggestedFixEngine) matchesCompiled(ctx MatchContext, cp compiledPattern) bool {
+	match := cp.Original.Match
 	matched := false
 
 	if match.ExitCode != nil {
@@ -122,32 +172,32 @@ func (e *SuggestedFixEngine) matches(ctx MatchContext, match v1alpha1.PatternMat
 		}
 	}
 
+	// Use pre-compiled regex for ReasonPattern
 	if match.ReasonPattern != "" {
-		re, err := regexp.Compile(match.ReasonPattern)
-		if err == nil && re.MatchString(ctx.Reason) {
+		if cp.ReasonRe != nil && cp.ReasonRe.MatchString(ctx.Reason) {
 			matched = true
 		} else {
 			return false
 		}
 	}
 
+	// Use pre-compiled regex for LogPattern
 	if match.LogPattern != "" {
-		re, err := regexp.Compile(match.LogPattern)
-		if err == nil && re.MatchString(ctx.Logs) {
+		if cp.LogRe != nil && cp.LogRe.MatchString(ctx.Logs) {
 			matched = true
 		} else {
 			return false
 		}
 	}
 
+	// Use pre-compiled regex for EventPattern
 	if match.EventPattern != "" {
-		re, err := regexp.Compile(match.EventPattern)
-		if err != nil {
+		if cp.EventRe == nil {
 			return false
 		}
 		eventMatched := false
 		for _, evt := range ctx.Events {
-			if re.MatchString(evt) {
+			if cp.EventRe.MatchString(evt) {
 				eventMatched = true
 				break
 			}

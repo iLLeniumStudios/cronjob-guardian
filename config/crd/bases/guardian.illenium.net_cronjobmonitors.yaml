@@ -283,6 +283,9 @@ spec:
                       If nil, uses global --storage.log-storage-enabled setting
                     type: boolean
                 type: object
+                x-kubernetes-validations:
+                - message: purgeAfterDays is required when onCronJobDeletion is 'purge-after-days'
+                  rule: self.onCronJobDeletion != 'purge-after-days' || has(self.purgeAfterDays)
               deadManSwitch:
                 description: DeadManSwitch configures dead-man's switch alerting
                 properties:
@@ -448,6 +451,11 @@ spec:
                       type: string
                     type: array
                 type: object
+                x-kubernetes-validations:
+                - message: at least one selector field must be specified
+                  rule: size(self.matchLabels) > 0 || size(self.matchExpressions)
+                    > 0 || size(self.matchNames) > 0 || size(self.namespaces) > 0
+                    || has(self.namespaceSelector) || self.allNamespaces == true
               sla:
                 description: SLA configures SLA tracking and alerting
                 properties:

@@ -52,6 +52,7 @@ type CronJobMonitorSpec struct {
 }
 
 // CronJobSelector specifies which CronJobs to monitor
+// +kubebuilder:validation:XValidation:rule="size(self.matchLabels) > 0 || size(self.matchExpressions) > 0 || size(self.matchNames) > 0 || size(self.namespaces) > 0 || has(self.namespaceSelector) || self.allNamespaces == true",message="at least one selector field must be specified"
 type CronJobSelector struct {
 	// MatchLabels selects CronJobs by labels
 	// +optional
@@ -326,6 +327,7 @@ type ExitCodeRange struct {
 }
 
 // DataRetentionConfig configures data lifecycle management for this monitor
+// +kubebuilder:validation:XValidation:rule="self.onCronJobDeletion != 'purge-after-days' || has(self.purgeAfterDays)",message="purgeAfterDays is required when onCronJobDeletion is 'purge-after-days'"
 type DataRetentionConfig struct {
 	// RetentionDays overrides global retention for this monitor's execution history
 	// If not set, uses global history-retention.default-days setting
