@@ -311,6 +311,79 @@ func TestDeadManScheduler_DispatchesAlerts(t *testing.T) {
 	assert.Contains(t, alerts[0].Title, "test-cron")
 }
 
+// The CronJobMonitor controller writes DeadManTriggered into status on its own cycle,
+// often before the scheduler runs. The scheduler must still dispatch in that case.
+func TestDeadManScheduler_DispatchesWhenStatusAlreadyHasAlert(t *testing.T) {
+	cronJob := newTestSchedulerCronJob("test-cron", "default", false)
+	monitor := newTestMonitorWithDeadMan("test-monitor", "default", "test-cron")
+	monitor.Status.CronJobs[0].ActiveAlerts = []guardianv1alpha1.ActiveAlert{
+		{Type: "DeadManTriggered", Severity: "critical"},
+	}
+
+	fakeClient := newTestSchedulerClient(cronJob, monitor)
+	mockAnalyzer := &testutil.MockAnalyzer{
+		DeadManResult: &analyzer.DeadManResult{
+			Triggered: true,
+			Message:   "CronJob has not run in expected window",
+		},
+	}
+	mockDispatcher := testutil.NewMockDispatcher()
+
+	scheduler := NewDeadManScheduler(fakeClient, mockAnalyzer, mockDispatcher)
+	scheduler.SetInterval(10 * time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = scheduler.Start(ctx)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	scheduler.Stop()
+
+	mockDispatcher.Lock()
+	alerts := mockDispatcher.DispatchedAlerts
+	mockDispatcher.Unlock()
+
+	require.GreaterOrEqual(t, len(alerts), 1)
+	assert.Equal(t, "DeadManTriggered", alerts[0].Type)
+}
+
+// When a CronJob is no longer overdue, the scheduler clears the dispatcher's
+// duplicate hold so the next missed run alerts straight away.
+func TestDeadManScheduler_ClearsAlertWhenNotTriggered(t *testing.T) {
+	cronJob := newTestSchedulerCronJob("test-cron", "default", false)
+	monitor := newTestMonitorWithDeadMan("test-monitor", "default", "test-cron")
+
+	fakeClient := newTestSchedulerClient(cronJob, monitor)
+	mockAnalyzer := &testutil.MockAnalyzer{
+		DeadManResult: &analyzer.DeadManResult{Triggered: false},
+	}
+	mockDispatcher := testutil.NewMockDispatcher()
+
+	scheduler := NewDeadManScheduler(fakeClient, mockAnalyzer, mockDispatcher)
+	scheduler.SetInterval(10 * time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = scheduler.Start(ctx)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	scheduler.Stop()
+
+	mockDispatcher.Lock()
+	dispatched := mockDispatcher.DispatchedAlerts
+	cleared := mockDispatcher.ClearedAlerts
+	mockDispatcher.Unlock()
+
+	assert.Empty(t, dispatched)
+	assert.Contains(t, cleared, "default/test-cron/DeadManTriggered")
+}
+
 func TestDeadManScheduler_TracksSuspended(t *testing.T) {
 	suspended := true
 	cronJob := newTestSchedulerCronJob("suspended-cron", "default", suspended)
