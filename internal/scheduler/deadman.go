@@ -177,10 +177,11 @@ func (s *DeadManScheduler) check(ctx context.Context) {
 			}
 
 			if result.Triggered {
-				// Check if we already have an active alert for this
-				if hasActiveAlert(cjStatus.ActiveAlerts, "DeadManTriggered") {
-					continue
-				}
+				// Don't skip when cjStatus.ActiveAlerts already lists DeadManTriggered.
+				// The CronJobMonitor controller writes it there on its own 30s cycle,
+				// usually before this check runs, so skipping on it drops the alert
+				// before it is ever sent. Repeats are held back by the dispatcher's
+				// suppressDuplicatesFor window instead.
 
 				// Safely get severity override
 				var deadManSeverity string
@@ -208,6 +209,14 @@ func (s *DeadManScheduler) check(ctx context.Context) {
 				if err := s.dispatcher.Dispatch(ctx, alert, monitor.Spec.Alerting); err != nil {
 					logger.Error(err, "failed to dispatch dead-man's switch alert")
 				}
+			} else {
+				// No longer overdue: release the duplicate hold so the next missed run
+				// alerts straight away. A successful Job already clears it in the job
+				// controller, but a run that finishes and fails also ends the overdue
+				// period, and nothing else clears it then. The key matches the one the
+				// dispatcher builds for this alert.
+				alertKey := fmt.Sprintf("%s/%s/DeadManTriggered", cjStatus.Namespace, cjStatus.Name)
+				_ = s.dispatcher.ClearAlert(ctx, alertKey)
 			}
 
 			// Check suspended duration
